@@ -1,0 +1,189 @@
+package org.koitharu.kotatsu.sync.ui
+
+import android.app.PendingIntent
+import android.content.Intent
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.koitharu.kotatsu.R
+import org.koitharu.kotatsu.core.ui.BaseViewModel
+import org.koitharu.kotatsu.core.util.ext.MutableEventFlow
+import org.koitharu.kotatsu.core.util.ext.call
+import org.koitharu.kotatsu.parsers.util.runCatchingCancellable
+import org.koitharu.kotatsu.sync.data.SyncSettings
+import org.koitharu.kotatsu.sync.data.model.SyncContent
+import org.koitharu.kotatsu.sync.domain.GoogleDriveSyncRepository
+import org.koitharu.kotatsu.sync.domain.SyncResult
+import org.koitharu.kotatsu.sync.work.SyncWorker
+import javax.inject.Inject
+
+data class SyncUiState(
+	val isSignedIn: Boolean = false,
+	val accountEmail: String? = null,
+	val accountName: String? = null,
+	val accountPhotoUrl: String? = null,
+	val isEmailHidden: Boolean = false,
+	val intervalMinutes: Int = 0,
+	val isWifiOnly: Boolean = false,
+	val enabledContent: Set<String> = SyncContent.DEFAULT,
+	val lastSyncTimestamp: Long = 0L,
+	val lastError: String? = null,
+	val isLegacyDeviceActive: Boolean = false,
+)
+
+sealed interface SyncEvent {
+	data class LaunchSignIn(val consent: PendingIntent) : SyncEvent
+	data class Message(val resId: Int) : SyncEvent
+	data class Error(val message: String?) : SyncEvent
+}
+
+@HiltViewModel
+class SyncSettingsViewModel @Inject constructor(
+	private val syncSettings: SyncSettings,
+	private val repository: GoogleDriveSyncRepository,
+	private val scheduler: SyncWorker.Scheduler,
+) : BaseViewModel() {
+
+	val uiState = MutableStateFlow(readState())
+
+	val isSyncing = repository.isSyncing
+	val events = MutableEventFlow<SyncEvent>()
+
+	init {
+		// Refresh the displayed "last synced" / error info whenever a background sync finishes.
+		viewModelScope.launch {
+			isSyncing.drop(1).collect { running ->
+				if (!running) refresh()
+			}
+		}
+	}
+
+	fun signIn() {
+		launchLoadingJob(Dispatchers.Default) {
+			val consent = runCatchingCancellable { repository.beginSignIn() }.getOrElse { e ->
+				events.call(SyncEvent.Error(e.message ?: e.javaClass.simpleName))
+				return@launchLoadingJob
+			}
+			if (consent != null) events.call(SyncEvent.LaunchSignIn(consent)) else onSignedIn()
+		}
+	}
+
+	fun onSignInResult(data: Intent?) {
+		launchLoadingJob(Dispatchers.Default) {
+			runCatchingCancellable { repository.finishSignIn(data) }.onFailure { e ->
+				events.call(SyncEvent.Error(e.message ?: e.javaClass.simpleName))
+				return@launchLoadingJob
+			}
+			onSignedIn()
+		}
+	}
+
+	private suspend fun onSignedIn() {
+		refresh()
+		scheduler.schedule()
+		launchJob(Dispatchers.Default) { runSync() } // pull existing data right away, surfacing any error
+	}
+
+	/** Runs a sync in the foreground and reports the outcome to the user. */
+	private suspend fun runSync() {
+		when (val result = repository.sync(force = true)) {
+			is SyncResult.Success -> events.call(SyncEvent.Message(R.string.sync_completed))
+			is SyncResult.SignInRequired -> if (syncSettings.isSignedIn) reauthorize()
+			is SyncResult.Error -> events.call(SyncEvent.Error(result.message))
+		}
+		refresh()
+	}
+
+	private suspend fun reauthorize() {
+		val consent = runCatchingCancellable { repository.beginSignIn() }.getOrElse { e ->
+			events.call(SyncEvent.Error(e.message ?: e.javaClass.simpleName))
+			return
+		}
+		if (consent != null) {
+			events.call(SyncEvent.LaunchSignIn(consent))
+			return
+		}
+		refresh()
+		when (val retry = repository.sync(force = true)) {
+			is SyncResult.Success -> events.call(SyncEvent.Message(R.string.sync_completed))
+			is SyncResult.SignInRequired -> events.call(SyncEvent.Error(syncSettings.lastSyncError))
+			is SyncResult.Error -> events.call(SyncEvent.Error(retry.message))
+		}
+	}
+
+	fun signOut() {
+		launchLoadingJob(Dispatchers.Default) {
+			withContext(NonCancellable) {
+				repository.signOut()
+				scheduler.unschedule()
+			}
+			refresh()
+		}
+	}
+
+	fun syncNow() {
+		if (!syncSettings.isSignedIn) return
+		launchJob(Dispatchers.Default) { runSync() }
+	}
+
+	fun setInterval(minutes: Int) {
+		syncSettings.intervalMinutes = minutes
+		launchJob(Dispatchers.Default) { scheduler.schedule() }
+		refresh()
+	}
+
+	fun setWifiOnly(value: Boolean) {
+		syncSettings.isWifiOnly = value
+		launchJob(Dispatchers.Default) { scheduler.schedule() }
+		refresh()
+	}
+
+	fun setEmailHidden(value: Boolean) {
+		syncSettings.isEmailHidden = value
+		refresh()
+	}
+
+	fun setEnabledContent(content: Set<String>) {
+		syncSettings.enabledContent = content
+		refresh()
+	}
+
+	fun deleteAllData() {
+		launchLoadingJob(Dispatchers.Default) {
+			when (val result = repository.deleteRemoteData()) {
+				is SyncResult.Success -> events.call(SyncEvent.Message(R.string.sync_data_deleted))
+				is SyncResult.SignInRequired -> if (syncSettings.isSignedIn) reauthorize()
+				is SyncResult.Error -> events.call(SyncEvent.Error(result.message))
+			}
+			refresh()
+		}
+	}
+
+	private fun refresh() {
+		uiState.value = readState()
+	}
+
+	private fun readState() = SyncUiState(
+		isSignedIn = syncSettings.isSignedIn,
+		accountEmail = syncSettings.accountEmail,
+		accountName = syncSettings.accountName,
+		accountPhotoUrl = syncSettings.accountPhotoUrl,
+		isEmailHidden = syncSettings.isEmailHidden,
+		intervalMinutes = syncSettings.intervalMinutes,
+		isWifiOnly = syncSettings.isWifiOnly,
+		enabledContent = syncSettings.enabledContent,
+		lastSyncTimestamp = syncSettings.lastSyncTimestamp,
+		lastError = syncSettings.lastSyncError,
+		isLegacyDeviceActive = System.currentTimeMillis() - syncSettings.legacyWriterSeenAt < LEGACY_NOTICE_MS,
+	)
+
+	private companion object {
+
+		const val LEGACY_NOTICE_MS = 14L * 24 * 60 * 60 * 1000
+	}
+}

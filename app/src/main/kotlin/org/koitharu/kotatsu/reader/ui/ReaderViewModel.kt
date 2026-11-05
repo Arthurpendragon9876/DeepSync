@@ -1,0 +1,925 @@
+package org.koitharu.kotatsu.reader.ui
+
+import android.net.Uri
+import androidx.annotation.AnyThread
+import androidx.annotation.MainThread
+import androidx.annotation.WorkerThread
+import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.plus
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import org.koitharu.kotatsu.R
+import org.koitharu.kotatsu.bookmarks.domain.Bookmark
+import org.koitharu.kotatsu.bookmarks.domain.BookmarksRepository
+import org.koitharu.kotatsu.core.exceptions.EmptyMangaException
+import org.koitharu.kotatsu.core.model.getPreferredBranch
+import org.koitharu.kotatsu.core.logs.breadcrumb
+import org.koitharu.kotatsu.core.nav.MangaIntent
+import org.koitharu.kotatsu.core.nav.ReaderIntent
+import org.koitharu.kotatsu.core.os.AppShortcutManager
+import org.koitharu.kotatsu.core.parser.MangaDataRepository
+import org.koitharu.kotatsu.core.parser.MangaRepository
+import org.koitharu.kotatsu.core.prefs.AppSettings
+import org.koitharu.kotatsu.core.prefs.ReaderMode
+import org.koitharu.kotatsu.core.prefs.TriStateOption
+import org.koitharu.kotatsu.core.prefs.observeAsFlow
+import org.koitharu.kotatsu.core.prefs.observeAsStateFlow
+import org.koitharu.kotatsu.core.util.ext.MutableEventFlow
+import org.koitharu.kotatsu.core.util.ext.call
+import org.koitharu.kotatsu.core.util.ext.firstNotNull
+import org.koitharu.kotatsu.core.util.ext.isHttpUrl
+import org.koitharu.kotatsu.core.util.ext.printStackTraceDebug
+import org.koitharu.kotatsu.core.util.ext.processLifecycleScope
+import org.koitharu.kotatsu.core.util.ext.requireValue
+import org.koitharu.kotatsu.details.data.MangaDetails
+import org.koitharu.kotatsu.details.domain.DetailsInteractor
+import org.koitharu.kotatsu.details.domain.DetailsLoadUseCase
+import org.koitharu.kotatsu.details.ui.pager.ChaptersPagesViewModel
+import org.koitharu.kotatsu.details.ui.pager.EmptyMangaReason
+import org.koitharu.kotatsu.download.ui.worker.DownloadWorker
+import org.koitharu.kotatsu.history.data.HistoryRepository
+import org.koitharu.kotatsu.history.domain.HistoryUpdateUseCase
+import org.koitharu.kotatsu.list.domain.ReadingProgress
+import org.koitharu.kotatsu.list.domain.ReadingProgress.Companion.PROGRESS_NONE
+import org.koitharu.kotatsu.local.data.LocalStorageChanges
+import org.koitharu.kotatsu.local.data.isEpub
+import org.koitharu.kotatsu.local.domain.DeleteLocalMangaUseCase
+import org.koitharu.kotatsu.local.domain.DeleteReadChaptersUseCase
+import org.koitharu.kotatsu.local.domain.model.LocalManga
+import org.koitharu.kotatsu.parsers.model.ContentRating
+import org.koitharu.kotatsu.parsers.model.Manga
+import org.koitharu.kotatsu.parsers.model.MangaPage
+import org.koitharu.kotatsu.parsers.util.ifNullOrEmpty
+import org.koitharu.kotatsu.parsers.util.mapToSet
+import org.koitharu.kotatsu.parsers.util.runCatchingCancellable
+import org.koitharu.kotatsu.parsers.util.sizeOrZero
+import org.koitharu.kotatsu.reader.domain.ChaptersLoader
+import org.koitharu.kotatsu.reader.domain.DetectReaderModeUseCase
+import org.koitharu.kotatsu.reader.domain.PageLoader
+import org.koitharu.kotatsu.reader.ui.config.ReaderSettings
+import org.koitharu.kotatsu.reader.ui.pager.ReaderPage
+import org.koitharu.kotatsu.reader.ui.pager.ReaderUiState
+import org.koitharu.kotatsu.scrobbling.discord.ui.DiscordRpc
+import org.koitharu.kotatsu.stats.domain.StatsCollector
+import java.io.File
+import java.time.Instant
+import javax.inject.Inject
+
+private const val BOUNDS_PAGE_OFFSET = 2
+private const val EPUB_SLIDER_MAX = 1000
+private const val AUTOSAVE_INTERVAL_MS = 5000L
+
+@HiltViewModel
+class ReaderViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
+    private val dataRepository: MangaDataRepository,
+    private val historyRepository: HistoryRepository,
+    private val bookmarksRepository: BookmarksRepository,
+    settings: AppSettings,
+    private val pageLoader: PageLoader,
+    private val chaptersLoader: ChaptersLoader,
+    private val appShortcutManager: AppShortcutManager,
+    private val detailsLoadUseCase: DetailsLoadUseCase,
+    private val historyUpdateUseCase: HistoryUpdateUseCase,
+    private val detectReaderModeUseCase: DetectReaderModeUseCase,
+    private val statsCollector: StatsCollector,
+    private val discordRpc: DiscordRpc,
+    private val deleteReadChaptersUseCase: DeleteReadChaptersUseCase,
+    @LocalStorageChanges localStorageChanges: SharedFlow<LocalManga?>,
+    interactor: DetailsInteractor,
+    deleteLocalMangaUseCase: DeleteLocalMangaUseCase,
+    downloadScheduler: DownloadWorker.Scheduler,
+    readerSettingsProducerFactory: ReaderSettings.Producer.Factory,
+    mangaRepositoryFactory: MangaRepository.Factory,
+) : ChaptersPagesViewModel(
+    settings = settings,
+    interactor = interactor,
+    bookmarksRepository = bookmarksRepository,
+    historyRepository = historyRepository,
+    downloadScheduler = downloadScheduler,
+    deleteLocalMangaUseCase = deleteLocalMangaUseCase,
+    localStorageChanges = localStorageChanges,
+    mangaDataRepository = dataRepository,
+    mangaRepositoryFactory = mangaRepositoryFactory,
+) {
+    private val intent = MangaIntent(savedStateHandle)
+
+    private var loadingJob: Job? = null
+    private var pageSaveJob: Job? = null
+    private var bookmarkJob: Job? = null
+    private var stateChangeJob: Job? = null
+    private var autoSaveJob: Job? = null
+
+    // Chapter of the last history write, so an autosave knows whether trackers must hear about it
+    @Volatile
+    private var savedChapterId = 0L
+
+    // Runs the read-chapters cleanup one pass at a time and remembers what it deleted, since the
+    // reader's copy of the download only catches up once the deletion has been announced
+    private val readChaptersCleanupLock = Mutex()
+    private val deletedChapterIds = HashSet<Long>()
+
+    init {
+        mangaDetails.value = intent.manga?.let { MangaDetails(it) }
+    }
+
+    val readerMode = MutableStateFlow<ReaderMode?>(null)
+    val onPageSaved = MutableEventFlow<Collection<Uri>>()
+
+    /** Temp file of the current page, ready to be handed to a share intent. */
+    val onPageReadyToShare = MutableEventFlow<File>()
+    val onLoadingError = MutableEventFlow<Throwable>()
+    val onShowToast = MutableEventFlow<Int>()
+    val onAskNsfwIncognito = MutableEventFlow<Unit>()
+    val uiState = MutableStateFlow<ReaderUiState?>(null)
+
+    val isIncognitoMode = MutableStateFlow(savedStateHandle.get<Boolean>(ReaderIntent.EXTRA_INCOGNITO))
+
+    // Peek mode: the reader works as usual but never writes reading progress (history) —
+    // used when the user just looks into a chapter away from their current position.
+    /** Novels: the dock's highlight button armed - the next tapped sentence becomes a highlight. */
+    val isHighlightPicking = MutableStateFlow(false)
+
+    /** The current page's split: null when it isn't a split wide page, true while it's shown whole. */
+    val pageSpread = MutableStateFlow<Boolean?>(null)
+
+    val isPeekMode = MutableStateFlow(savedStateHandle.get<Boolean>(ReaderIntent.EXTRA_PEEK) == true)
+
+    val content = MutableStateFlow(ReaderContent(emptyList(), null))
+
+    // Eye health reminder notice; kept here so it survives a rotation.
+    val isEyeReminderVisible = MutableStateFlow(false)
+
+    val pageAnimation = settings.observeAsStateFlow(
+        scope = viewModelScope + Dispatchers.Default,
+        key = AppSettings.KEY_READER_ANIMATION,
+        valueProducer = { readerAnimation },
+    )
+
+    val isInfoBarEnabled = settings.observeAsStateFlow(
+        scope = viewModelScope + Dispatchers.Default,
+        key = AppSettings.KEY_READER_BAR,
+        valueProducer = { isReaderBarEnabled },
+    )
+
+    val isKeepScreenOnEnabled = settings.observeAsStateFlow(
+        scope = viewModelScope + Dispatchers.Default,
+        key = AppSettings.KEY_READER_SCREEN_ON,
+        valueProducer = { isReaderKeepScreenOn },
+    )
+
+    val isWebtoonGapsEnabled = settings.observeAsStateFlow(
+        scope = viewModelScope + Dispatchers.Default,
+        key = AppSettings.KEY_WEBTOON_GAPS,
+        valueProducer = { isWebtoonGapsEnabled },
+    )
+
+    val isWebtoonPullGestureEnabled = settings.observeAsStateFlow(
+        scope = viewModelScope + Dispatchers.Default,
+        key = AppSettings.KEY_WEBTOON_PULL_GESTURE,
+        valueProducer = { isWebtoonPullGestureEnabled },
+    )
+
+    val isWebtoonZoomEnabled = observeIsWebtoonZoomEnabled()
+        .stateIn(viewModelScope + Dispatchers.Default, SharingStarted.Lazily, false)
+
+    val defaultWebtoonZoomOut = observeIsWebtoonZoomEnabled().flatMapLatest {
+        if (it) {
+            observeWebtoonZoomOut()
+        } else {
+            flowOf(0f)
+        }
+    }.flowOn(Dispatchers.Default)
+
+    val isZoomControlsEnabled = getObserveIsZoomControlEnabled().flatMapLatest { zoom ->
+        if (zoom) {
+            combine(readerMode, isWebtoonZoomEnabled) { mode, ze -> ze || mode != ReaderMode.WEBTOON }
+        } else {
+            flowOf(false)
+        }
+    }.stateIn(viewModelScope + Dispatchers.Default, SharingStarted.Lazily, false)
+
+    val readerSettingsProducer = readerSettingsProducerFactory.create(
+        manga.mapNotNull { it?.id },
+    )
+
+    val isMangaNsfw = manga.map { it?.contentRating == ContentRating.ADULT }
+
+    val isBookmarkAdded = readingState.flatMapLatest { state ->
+        val manga = mangaDetails.value?.toManga()
+        if (state == null || manga == null) {
+            flowOf(false)
+        } else {
+            bookmarksRepository.observeBookmark(manga, state.chapterId, state.page)
+                .map {
+                    it != null && it.chapterId == state.chapterId && it.page == state.page
+                }
+        }
+    }.stateIn(viewModelScope + Dispatchers.Default, SharingStarted.Eagerly, false)
+
+    init {
+        initIncognitoMode()
+        loadImpl()
+        launchJob(Dispatchers.Default) {
+            val mangaId = manga.filterNotNull().first().id
+            if (!isIncognitoMode.firstNotNull()) {
+                appShortcutManager.notifyMangaOpened(mangaId)
+            }
+        }
+        launchJob(Dispatchers.Default) {
+            combine(
+                readingState.mapNotNull { it?.chapterId }.distinctUntilChanged(),
+                mangaDetails.map { it?.local }.distinctUntilChanged(),
+                isIncognitoMode,
+            ) { _, _, _ -> }.collect {
+                deleteReadChapters(isClosing = false)
+            }
+        }
+    }
+
+    override fun onCleared() {
+        deleteReadChapters(isClosing = true)
+        super.onCleared()
+    }
+
+    override fun reload() {
+        loadingJob?.cancel()
+        loadImpl()
+    }
+
+    fun onPause() {
+        getMangaOrNull()?.let {
+            statsCollector.onPause(it.id)
+        }
+    }
+
+    fun onStop() {
+        discordRpc.clearRpc()
+    }
+
+    fun onIdle() {
+        discordRpc.setIdle()
+    }
+
+    fun switchMode(newMode: ReaderMode) {
+        readerMode.value = newMode
+        // No content re-emit with getCurrentState() here: the new reader restores from readingState
+        // on its own, and a late re-emit could catch the half-initialised reader's transient page.
+        launchJob {
+            val manga = checkNotNull(getMangaOrNull())
+            dataRepository.saveReaderMode(
+                manga = manga,
+                mode = newMode,
+            )
+        }
+    }
+
+    fun saveCurrentState(state: ReaderState? = null) {
+        autoSaveJob?.cancel() // this save is the newer, exact one
+        if (state != null) {
+            readingState.value = state
+            savedStateHandle[ReaderIntent.EXTRA_STATE] = state
+        }
+        if (isIncognitoMode.value != false || isPeekMode.value) {
+            return
+        }
+        val readerState = state ?: readingState.value ?: return
+        savedChapterId = readerState.chapterId
+        historyUpdateUseCase.invokeAsync(
+            manga = getMangaOrNull() ?: return,
+            readerState = readerState,
+            percent = computePercent(readerState),
+        )
+    }
+
+    fun getCurrentState() = readingState.value
+
+    fun getCurrentChapterPages(): List<MangaPage>? {
+        val chapterId = readingState.value?.chapterId ?: return null
+        return chaptersLoader.getPages(chapterId)
+    }
+
+    fun saveCurrentPage(
+        pageSaveHelper: PageSaveHelper
+    ) {
+        val prevJob = pageSaveJob
+        pageSaveJob = launchLoadingJob(Dispatchers.Default) {
+            prevJob?.cancelAndJoin()
+            val dest = pageSaveHelper.save(setOf(currentPageSaveTask()))
+            onPageSaved.call(dest)
+        }
+    }
+
+    fun shareCurrentPage(
+        pageSaveHelper: PageSaveHelper
+    ) {
+        val prevJob = pageSaveJob
+        pageSaveJob = launchLoadingJob(Dispatchers.Default) {
+            prevJob?.cancelAndJoin()
+            onPageReadyToShare.call(pageSaveHelper.saveToTempFile(currentPageSaveTask()))
+        }
+    }
+
+    private fun currentPageSaveTask() = PageSaveHelper.Task(
+        manga = manga.requireValue(),
+        chapterId = checkNotNull(getCurrentState()).chapterId,
+        pageNumber = checkNotNull(getCurrentState()).page + 1,
+        page = checkNotNull(getCurrentPage()) { "Cannot find current page" },
+    )
+
+    fun getCurrentPage(): MangaPage? {
+        val state = readingState.value ?: return null
+        return content.value.pages.find {
+            it.chapterId == state.chapterId && it.index == state.page
+        }?.toMangaPage()
+    }
+
+    fun switchChapter(id: Long, page: Int, scroll: Int = 0) {
+        val prevJob = loadingJob
+        loadingJob = launchLoadingJob(Dispatchers.Default) {
+            prevJob?.cancelAndJoin()
+            content.value = ReaderContent(emptyList(), null)
+            if (!chaptersLoader.loadSingleChapter(id)) {
+                return@launchLoadingJob
+            }
+            val newState = ReaderState(id, page, scroll)
+            val pages = chaptersLoader.snapshot()
+            preloadState(pages, newState)
+            content.value = ReaderContent(pages, newState)
+            saveCurrentState(newState)
+        }
+    }
+
+    fun switchChapterBy(delta: Int) {
+        val prevJob = loadingJob
+        loadingJob = launchLoadingJob(Dispatchers.Default) {
+            prevJob?.cancelAndJoin()
+            val prevState = readingState.requireValue()
+            val newChapterId = if (delta != 0) {
+                val allChapters = mangaDetails.requireValue().allChapters
+                var index = allChapters.indexOfFirst { x -> x.id == prevState.chapterId }
+                if (index < 0) {
+                    return@launchLoadingJob
+                }
+                index += delta
+                (allChapters.getOrNull(index) ?: return@launchLoadingJob).id
+            } else {
+                prevState.chapterId
+            }
+            content.value = ReaderContent(emptyList(), null)
+            if (!chaptersLoader.loadSingleChapter(newChapterId)) {
+                return@launchLoadingJob
+            }
+            val newState = ReaderState(
+                chapterId = newChapterId,
+                page = if (delta == 0) prevState.page else 0,
+                scroll = if (delta == 0) prevState.scroll else 0,
+            )
+            val pages = chaptersLoader.snapshot()
+            preloadState(pages, newState)
+            content.value = ReaderContent(pages, newState)
+            saveCurrentState(newState)
+        }
+    }
+
+    @MainThread
+    fun onCurrentPageChanged(lowerPos: Int, upperPos: Int) {
+        val prevJob = stateChangeJob
+        val pages = content.value.pages // capture immediately
+        stateChangeJob = launchJob(Dispatchers.Default) {
+            prevJob?.cancelAndJoin()
+            val centerPos = (lowerPos + upperPos) / 2
+            // Before the loadingJob wait, so preloading never waits for a chapter list refresh
+            pages.getOrNull(centerPos)?.let { page ->
+                preloadPage(pages, page)
+            }
+            loadingJob?.join()
+            if (pages.size != content.value.pages.size) {
+                return@launchJob // TODO
+            }
+            val prevState = readingState.value
+            pages.getOrNull(centerPos)?.let { page ->
+                readingState.update { cs ->
+                    if (cs == null || cs.chapterId == page.chapterId && cs.page == page.index) {
+                        cs
+                    } else {
+                        // the scroll offset belonged to the previous page
+                        cs.copy(chapterId = page.chapterId, page = page.index, scroll = 0)
+                    }
+                }
+            }
+            if (readingState.value != prevState) {
+                scheduleAutoSave()
+            }
+            notifyStateChanged()
+            if (pages.isEmpty() || loadingJob?.isActive == true) {
+                return@launchJob
+            }
+            ensureActive()
+            val autoLoadAllowed = readerMode.value != ReaderMode.WEBTOON || !isWebtoonPullGestureEnabled.value
+            if (autoLoadAllowed) {
+                if (upperPos >= pages.lastIndex - BOUNDS_PAGE_OFFSET) {
+                    loadPrevNextChapter(pages.last().chapterId, isNext = true)
+                }
+                if (lowerPos <= BOUNDS_PAGE_OFFSET) {
+                    loadPrevNextChapter(pages.first().chapterId, isNext = false)
+                }
+            }
+        }
+    }
+
+    fun toggleBookmark() {
+        if (bookmarkJob?.isActive == true) {
+            return
+        }
+        bookmarkJob = launchJob(Dispatchers.Default) {
+            loadingJob?.join()
+            val state = checkNotNull(getCurrentState())
+            if (isBookmarkAdded.value) {
+                val manga = requireManga()
+                bookmarksRepository.removeBookmark(manga.id, state.chapterId, state.page)
+                onShowToast.call(R.string.bookmark_removed)
+            } else {
+                val page = checkNotNull(getCurrentPage()) { "Page not found" }
+                val bookmark = Bookmark(
+                    manga = requireManga(),
+                    pageId = page.id,
+                    chapterId = state.chapterId,
+                    page = state.page,
+                    scroll = state.scroll,
+                    imageUrl = page.preview.ifNullOrEmpty { page.url },
+                    createdAt = Instant.now(),
+                    percent = computePercent(state),
+                )
+                bookmarksRepository.addBookmark(bookmark)
+                onShowToast.call(R.string.bookmark_added)
+            }
+        }
+    }
+
+    override suspend fun getChapterOpenMode(chapterId: Long): ChapterOpenMode {
+        return if (isIncognitoMode.value == true) {
+            ChapterOpenMode.NORMAL // nothing will be saved anyway
+        } else {
+            super.getChapterOpenMode(chapterId)
+        }
+    }
+
+    fun setPeekMode(value: Boolean) {
+        if (isPeekMode.value == value) {
+            return
+        }
+        isPeekMode.value = value
+        savedStateHandle[ReaderIntent.EXTRA_PEEK] = value
+        if (value) {
+            onShowToast.call(R.string.peek_mode_hint)
+        }
+    }
+
+    fun setIncognitoMode(value: Boolean, dontAskAgain: Boolean) {
+        isIncognitoMode.value = value
+        if (dontAskAgain) {
+            settings.incognitoModeForNsfw = if (value) TriStateOption.ENABLED else TriStateOption.DISABLED
+        }
+    }
+
+    private fun loadImpl() {
+        loadingJob = launchLoadingJob(Dispatchers.Default + EventExceptionHandler(onLoadingError)) {
+            var exception: Exception? = null
+            var loadedDetails: MangaDetails? = null
+            var isChapterEmpty = false
+            try {
+                detailsLoadUseCase(intent, force = false, canUseStored = ::isStoredCopyEnough)
+                    .collect { details ->
+                        loadedDetails = details
+                        if (mangaDetails.value == null) {
+                            mangaDetails.value = details
+                        }
+                        chaptersLoader.init(details)
+                        val manga = details.toManga()
+                        // obtain state
+                        if (readingState.value == null) {
+                            isChapterEmpty = false // only the latest attempt's outcome counts
+                            val newState = getStateFromIntent(manga, details.isLoaded)
+                            if (newState == null) {
+                                return@collect // manga not loaded yet if cannot get state
+                            }
+                            readingState.value = newState
+                            val mode = runCatchingCancellable {
+                                detectReaderModeUseCase(manga, newState)
+                            }.getOrDefault(settings.defaultReaderMode)
+                            val branch = chaptersLoader.peekChapter(newState.chapterId)?.branch
+                            selectedBranch.value = branch
+                            readerMode.value = mode
+                            try {
+                                if (!chaptersLoader.loadSingleChapter(newState.chapterId)) {
+                                    // The source answered without error but with zero pages
+                                    isChapterEmpty = true
+                                    readingState.value = null
+                                    return@collect
+                                }
+                            } catch (e: Exception) {
+                                readingState.value = null // try next time
+                                exception = e.mergeWith(exception)
+                                return@collect
+                            }
+                        }
+                        mangaDetails.value = details.filterChapters(selectedBranch.value)
+                        val pages = chaptersLoader.snapshot()
+                        // Before the history save, which can wait for the incognito question
+                        preloadState(pages, readingState.value)
+
+                        // save state
+                        if (!isIncognitoMode.firstNotNull() && !isPeekMode.value) {
+                            readingState.value?.let {
+                                val percent = computePercent(it)
+                                historyUpdateUseCase(manga, it, percent)
+                                savedChapterId = it.chapterId
+                            }
+                        }
+                        notifyStateChanged()
+                        content.value = ReaderContent(pages, readingState.value)
+                    }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                exception = e.mergeWith(exception)
+            }
+            if (readingState.value == null) {
+                val loadedManga = loadedDetails // for smart cast
+                if (loadedManga != null) {
+                    mangaDetails.value = loadedManga.filterChapters(selectedBranch.value)
+                }
+                // loadedManga is only null when the details flow emitted nothing, which it never does
+                // without throwing; the generic "An error occurred" covers that
+                val loadingError = exception ?: loadedManga?.let { details ->
+                    val reason = when {
+                        isChapterEmpty -> EmptyMangaReason.NO_PAGES
+                        !details.isLoaded -> EmptyMangaReason.LOADING_ERROR
+                        details.isRestricted -> EmptyMangaReason.RESTRICTED
+                        details.allChapters.isEmpty() -> EmptyMangaReason.NO_CHAPTERS
+                        else -> EmptyMangaReason.LOADING_ERROR
+                    }
+                    EmptyMangaException(reason, details.toManga(), null)
+                } ?: IllegalStateException()
+                onLoadingError.call(loadingError)
+            } else exception?.let { e ->
+                // manga has been loaded but error occurred
+                errorEvent.call(e)
+            }
+        }
+    }
+
+    /**
+     * Like Mihon's reader, read from the stored chapters instead of re-fetching the source on open:
+     * the refresh competed with the chapter's own requests and held prefetch back until it finished.
+     * Resuming the newest known chapter still refreshes, since that may reveal the next one.
+     */
+    private suspend fun isStoredCopyEnough(manga: Manga): Boolean {
+        val chapterId = savedStateHandle.get<ReaderState>(ReaderIntent.EXTRA_STATE)?.chapterId
+            ?: historyRepository.getOne(manga)?.chapterId
+            ?: return false
+        val chapter = manga.findChapterById(chapterId) ?: return false
+        return manga.getChapters(chapter.branch).lastOrNull()?.id != chapter.id
+    }
+
+    @AnyThread
+    private fun loadPrevNextChapter(currentId: Long, isNext: Boolean) {
+        val prevJob = loadingJob
+        loadingJob = launchLoadingJob(Dispatchers.Default) {
+            prevJob?.join()
+            chaptersLoader.loadPrevNextChapter(mangaDetails.requireValue(), currentId, isNext)
+            content.value = ReaderContent(chaptersLoader.snapshot(), null)
+        }
+    }
+
+    private fun preloadState(pages: List<ReaderPage>, state: ReaderState?) {
+        if (state == null || mangaDetails.value?.toManga()?.isEpub == true) return
+        val page = pages.find { it.chapterId == state.chapterId && it.index == state.page } ?: return
+        preloadPage(pages, page)
+    }
+
+    private fun preloadPage(pages: List<ReaderPage>, page: ReaderPage) {
+        pageLoader.preload(
+            pages = pages,
+            current = page,
+            nextChapter = { loadNextChapterPages(page.chapterId) },
+        )
+    }
+
+    private suspend fun loadNextChapterPages(chapterId: Long): List<ReaderPage>? {
+        val details = mangaDetails.value ?: return null
+        chaptersLoader.loadNextChapterPages(details, chapterId)?.let { return it }
+        if (!details.isLoaded) {
+            loadingJob?.join()
+            return mangaDetails.value?.let { chaptersLoader.loadNextChapterPages(it, chapterId) }
+        }
+        return null
+    }
+
+    fun onEpubProgressChanged(
+        chapterId: Long,
+        charOffset: Int,
+        chapterPm: Int,
+        page: Int = 0,
+        pageCount: Int = 0,
+    ) {
+        // Chapter buttons update readingState before the EPUB surface reports its position. The
+        // toolbar is UI state, so compare against that instead of the already-updated reader state.
+        val chapterChanged = uiState.value?.chapter?.id != chapterId
+        val prevState = readingState.value
+        readingState.update {
+            it?.copy(
+                chapterId = chapterId,
+                page = if (pageCount > 0) page.coerceIn(0, pageCount - 1) else 0,
+                scroll = ReaderState.encodeEpubOffset(charOffset),
+            )
+        }
+        if (readingState.value != prevState) {
+            scheduleAutoSave()
+        }
+        updateEpubProgressUi(chapterPm, page, pageCount)
+        if (chapterChanged) {
+            launchJob(Dispatchers.Default) {
+                notifyStateChanged()
+                updateEpubProgressUi(chapterPm, page, pageCount)
+            }
+        }
+    }
+
+    /**
+     * Writes the position while reading instead of only on pause or idle: scrolling keeps resetting
+     * the idle timer, and TTS or auto-scroll move on without any touch. A new chapter is written at
+     * once and reaches the trackers; within a chapter only the position on the history entry is
+     * updated (no manga/feed rewrite, so other screens don't reload), at most every
+     * [AUTOSAVE_INTERVAL_MS]. The pause and idle saves still write the exact view state.
+     */
+    @AnyThread
+    private fun scheduleAutoSave() {
+        val chapterId = readingState.value?.chapterId ?: return
+        val isNewChapter = chapterId != savedChapterId
+        if (isNewChapter) {
+            savedChapterId = chapterId // claimed now so the next progress reports don't repeat it
+            autoSaveJob?.cancel()
+        } else if (autoSaveJob?.isActive == true) {
+            return // the pending save picks up the latest position when it fires
+        }
+        autoSaveJob = launchJob(Dispatchers.Default) {
+            if (!isNewChapter) {
+                delay(AUTOSAVE_INTERVAL_MS)
+            }
+            if (isIncognitoMode.value != false || isPeekMode.value) {
+                return@launchJob
+            }
+            val manga = getMangaOrNull() ?: return@launchJob
+            val state = readingState.value ?: return@launchJob
+            runCatchingCancellable {
+                if (isNewChapter) {
+                    historyUpdateUseCase(manga, state, computePercent(state))
+                } else {
+                    historyRepository.updatePosition(manga, state.chapterId, state.page, state.scroll, computePercent(state))
+                }
+            }.onFailure {
+                it.printStackTraceDebug()
+            }
+        }
+    }
+
+    /**
+     * Automatic cleanup of read chapters, run as you move between chapters and once more when the
+     * reader closes. Chapters the reader still has loaded wait for that last pass, and so does a
+     * download kept as a single file: cleaning it rewrites the file the reader is reading from.
+     */
+    private fun deleteReadChapters(isClosing: Boolean) {
+        if (!settings.isAutoLocalChaptersCleanupEnabled || isIncognitoMode.value != false || isPeekMode.value) {
+            return
+        }
+        // Outlives the reader, so neither the last pass nor one cut short by closing it is lost
+        processLifecycleScope.launch(Dispatchers.Default) {
+            readChaptersCleanupLock.withLock {
+                val details = mangaDetails.value ?: return@withLock
+                val local = details.local?.takeIf { isClosing || it.file.isDirectory } ?: return@withLock
+                val chapterId = readingState.value?.chapterId ?: return@withLock
+                val inUse = if (isClosing) emptySet() else chaptersLoader.snapshot().mapToSet { it.chapterId }
+                runCatchingCancellable {
+                    deleteReadChaptersUseCase.deleteBehind(
+                        localManga = local,
+                        chapters = details.allChapters,
+                        currentChapterId = chapterId,
+                        exclude = inUse + deletedChapterIds,
+                    )
+                }.onSuccess { ids ->
+                    deletedChapterIds += ids
+                    chaptersLoader.onDownloadsDeleted(ids)
+                }.onFailure {
+                    it.printStackTraceDebug()
+                }
+            }
+        }
+    }
+
+    private fun updateEpubProgressUi(chapterPm: Int, page: Int, pageCount: Int) {
+        uiState.update {
+            it?.copy(
+                // The EPUB slider always represents the active chapter.
+                currentPage = if (pageCount > 0) page.coerceIn(0, pageCount - 1) else chapterPm.coerceIn(0, EPUB_SLIDER_MAX),
+                totalPages = if (pageCount > 0) pageCount else EPUB_SLIDER_MAX + 1,
+                isEpubPaged = pageCount > 0,
+            )
+        }
+    }
+
+    @WorkerThread
+    private fun notifyStateChanged() {
+        val state = getCurrentState() ?: return
+        val chapter = chaptersLoader.peekChapter(state.chapterId) ?: return
+        val m = mangaDetails.value ?: return
+        val chapterIndex = m.chapters[chapter.branch]?.indexOfFirst { it.id == chapter.id } ?: -1
+        val isEpub = m.toManga().isEpub
+        // in paged epub mode the slider is a page index driven by onEpubProgressChanged; a chapter
+        // change must not reset it to the smooth 0..1000 scrollbar (the imminent progress report
+        // refreshes the real page/count) - so carry the paged fields over instead of clobbering them
+        val prevUi = uiState.value
+        val isEpubPaged = isEpub && prevUi?.isEpubPaged == true
+        val totalPages = when {
+            !isEpub -> chaptersLoader.getPagesCount(chapter.id)
+            isEpubPaged -> prevUi.totalPages
+            else -> EPUB_SLIDER_MAX + 1
+        }
+        val newState = ReaderUiState(
+            mangaName = m.toManga().title,
+            chapter = chapter,
+            chapterIndex = chapterIndex,
+            chaptersTotal = m.chapters[chapter.branch].sizeOrZero(),
+            totalPages = totalPages,
+            currentPage = when {
+                !isEpub -> state.page
+                isEpubPaged -> prevUi.currentPage.coerceIn(0, (totalPages - 1).coerceAtLeast(0))
+                // exact-offset states (negative) carry no permille; keep the last slider value
+                // until the imminent progress report supplies the real one
+                ReaderState.decodeEpubOffset(state.scroll) != null ->
+                    (prevUi?.currentPage ?: 0).coerceIn(0, EPUB_SLIDER_MAX)
+                else -> state.scroll.coerceIn(0, EPUB_SLIDER_MAX)
+            },
+            percent = computePercent(state),
+            incognito = isIncognitoMode.value == true,
+            isPeek = isPeekMode.value,
+            isEpub = isEpub,
+            isEpubPaged = isEpubPaged,
+        )
+        uiState.value = newState
+        if (isIncognitoMode.value == false) {
+            statsCollector.onStateChanged(m.id, state, totalPages)
+            // Only http(s) covers work on Discord (URL override or source default); a local custom
+            // image can't be reached by Discord's servers, so fall back to the source cover.
+            val discordCover = m.toManga().coverUrl?.takeIf { it.isHttpUrl() } ?: m.sourceManga.coverUrl
+            discordRpc.updateRpc(m.toManga(), newState, discordCover)
+        }
+    }
+
+    private fun computePercent(state: ReaderState): Float {
+        val branch = chaptersLoader.peekChapter(state.chapterId)?.branch
+        val chapters = mangaDetails.value?.chapters?.get(branch) ?: return PROGRESS_NONE
+        val chaptersCount = chapters.size
+        val chapterIndex = chapters.indexOfFirst { x -> x.id == state.chapterId }
+        val (pageIndex, pagesCount) = if (chaptersCount == 1) {
+            getPageProgress(state)
+        } else {
+            0 to 0
+        }
+        return ReadingProgress.calculatePercent(
+            chapterIndex = chapterIndex,
+            chaptersCount = chaptersCount,
+            pageIndex = pageIndex,
+            pagesCount = pagesCount,
+        )
+    }
+
+    private fun getPageProgress(state: ReaderState): Pair<Int, Int> {
+        if (mangaDetails.value?.toManga()?.isEpub != true) {
+            return state.page to chaptersLoader.getPagesCount(state.chapterId)
+        }
+        val progress = uiState.value?.takeIf { it.chapter.id == state.chapterId }
+        if (progress != null) {
+            return progress.currentPage to progress.totalPages
+        }
+        return state.scroll.coerceIn(0, EPUB_SLIDER_MAX) to (EPUB_SLIDER_MAX + 1)
+    }
+
+    private fun observeIsWebtoonZoomEnabled() = settings.observeAsFlow(
+        key = AppSettings.KEY_WEBTOON_ZOOM,
+        valueProducer = { isWebtoonZoomEnabled },
+    )
+
+    private fun observeWebtoonZoomOut() = settings.observeAsFlow(
+        key = AppSettings.KEY_WEBTOON_ZOOM_OUT,
+        valueProducer = { defaultWebtoonZoomOut },
+    )
+
+    private fun getObserveIsZoomControlEnabled() = settings.observeAsFlow(
+        key = AppSettings.KEY_READER_ZOOM_BUTTONS,
+        valueProducer = { isReaderZoomButtonsEnabled },
+    )
+
+    private fun initIncognitoMode() {
+        if (isIncognitoMode.value != null) {
+            return
+        }
+        launchJob(Dispatchers.Default) {
+            interactor.observeIncognitoMode(manga)
+                .collect {
+                    when (it) {
+                        TriStateOption.ENABLED -> isIncognitoMode.value = true
+                        TriStateOption.ASK -> {
+                            onAskNsfwIncognito.call(Unit)
+                            return@collect
+                        }
+
+                        TriStateOption.DISABLED -> isIncognitoMode.value = false
+                    }
+                }
+        }
+    }
+
+    private suspend fun getStateFromIntent(manga: Manga, isLoaded: Boolean): ReaderState? {
+        // check if we have at least some chapters loaded
+        if (manga.chapters.isNullOrEmpty()) {
+            return null
+        }
+        // A referenced chapter can be missing from the pre-refresh database snapshot (isLoaded ==
+        // false) — return null and wait for the refreshed emission. Once the source list is loaded,
+        // a still-missing chapter means the source really dropped it (scanlator removed, url
+        // changed): fall through to the next strategy instead of failing the whole reader.
+
+        // specific state is requested
+        val requestedState: ReaderState? = savedStateHandle[ReaderIntent.EXTRA_STATE]
+        if (requestedState != null) {
+            when {
+                manga.findChapterById(requestedState.chapterId) != null ->
+                    return requestedState.logChosen(manga, isLoaded, "intent extra")
+                !isLoaded -> return null
+            }
+        }
+
+        val requestedBranch: String? = savedStateHandle[ReaderIntent.EXTRA_BRANCH]
+        // continue reading
+        val history = historyRepository.getOne(manga)
+        if (history != null) {
+            val chapter = manga.findChapterById(history.chapterId)
+            when {
+                chapter == null -> if (!isLoaded) return null
+                // specified branch is requested
+                ReaderIntent.EXTRA_BRANCH in savedStateHandle -> return if (chapter.branch == requestedBranch) {
+                    ReaderState(history).logChosen(manga, isLoaded, "history")
+                } else {
+                    ReaderState(manga, requestedBranch).logChosen(manga, isLoaded, "start of branch $requestedBranch")
+                }
+
+                else -> return ReaderState(history).logChosen(manga, isLoaded, "history")
+            }
+        }
+
+        // start from beginning
+        val preferredBranch = requestedBranch ?: manga.getPreferredBranch(null)
+        return ReaderState(manga, preferredBranch).logChosen(manga, isLoaded, "start of manga")
+    }
+
+    private fun ReaderState.logChosen(manga: Manga, isLoaded: Boolean, origin: String) = also {
+        breadcrumb("Reader") {
+            val chapter = manga.findChapterById(chapterId)
+            "open \"${manga.title}\" ${manga.source.name} id=${manga.id} url=${manga.url}: chapter id=$chapterId " +
+                "url=${chapter?.url} number=${chapter?.number} page=$page, from $origin " +
+                "(details: ${if (isLoaded) "loaded" else "stored snapshot"})"
+        }
+    }
+
+    private fun Exception.mergeWith(other: Exception?): Exception = if (other == null) {
+        this
+    } else {
+        other.addSuppressed(this)
+        other
+    }
+}

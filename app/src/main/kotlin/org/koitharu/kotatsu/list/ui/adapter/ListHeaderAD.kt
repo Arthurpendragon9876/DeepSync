@@ -1,0 +1,59 @@
+package org.koitharu.kotatsu.list.ui.adapter
+
+import android.content.res.ColorStateList
+import android.graphics.Color
+import androidx.core.view.isGone
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.badge.BadgeDrawable
+import com.hannesdorfmann.adapterdelegates4.dsl.adapterDelegateViewBinding
+import org.koitharu.kotatsu.databinding.ItemHeaderBinding
+import org.koitharu.kotatsu.list.ui.model.ListHeader
+import org.koitharu.kotatsu.list.ui.model.ListModel
+import androidx.appcompat.R as appcompatR
+
+fun listHeaderAD(
+	listener: ListHeaderClickListener?,
+) = adapterDelegateViewBinding<ListHeader, ListModel, ItemHeaderBinding>(
+	{ inflater, parent -> ItemHeaderBinding.inflate(inflater, parent, false) },
+) {
+	var badge: BadgeDrawable? = null
+
+	if (listener != null) {
+		binding.buttonMore.setOnClickListener {
+			listener.onListHeaderClick(item, it)
+		}
+	}
+
+	bind {
+		val currentItem = item
+		binding.textViewTitle.text = currentItem.getText(context)
+		if (currentItem.buttonTextRes == 0) {
+			binding.buttonMore.isGone = true
+			binding.buttonMore.text = null
+			binding.buttonMore.clearBadge(badge)
+		} else {
+			binding.buttonMore.icon = null
+			binding.buttonMore.setText(currentItem.buttonTextRes)
+			binding.buttonMore.contentDescription = context.getString(currentItem.buttonTextRes)
+			binding.buttonMore.isGone = false
+			val primaryColor = MaterialColors.getColor(binding.buttonMore, appcompatR.attr.colorPrimary)
+			when {
+				currentItem.buttonStyle == ListHeader.ButtonStyle.OUTLINED -> {
+					binding.buttonMore.backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+					binding.buttonMore.strokeWidth =
+						context.resources.displayMetrics.density.toInt().coerceAtLeast(1)
+					binding.buttonMore.strokeColor = ColorStateList.valueOf(primaryColor)
+					binding.buttonMore.setTextColor(primaryColor)
+				}
+
+				else -> {
+					binding.buttonMore.backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
+					binding.buttonMore.strokeWidth = 0
+					binding.buttonMore.strokeColor = null
+					binding.buttonMore.setTextColor(primaryColor)
+				}
+			}
+			badge = itemView.bindBadge(badge, currentItem.badge)
+		}
+	}
+}

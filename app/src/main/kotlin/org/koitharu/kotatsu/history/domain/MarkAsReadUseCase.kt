@@ -1,0 +1,53 @@
+package org.koitharu.kotatsu.history.domain
+
+import dagger.Reusable
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
+import org.koitharu.kotatsu.core.model.withMergedBranches
+import org.koitharu.kotatsu.core.parser.MangaDataRepository
+import org.koitharu.kotatsu.core.parser.MangaRepository
+import org.koitharu.kotatsu.history.data.HistoryRepository
+import org.koitharu.kotatsu.parsers.model.Manga
+import javax.inject.Inject
+
+@Reusable
+class MarkAsReadUseCase @Inject constructor(
+	private val historyRepository: HistoryRepository,
+	private val mangaRepositoryFactory: MangaRepository.Factory,
+	private val mangaDataRepository: MangaDataRepository,
+) {
+
+	suspend operator fun invoke(manga: Manga) {
+		val repo = mangaRepositoryFactory.create(manga.source)
+		val details = if (manga.chapters.isNullOrEmpty()) {
+			repo.getDetails(manga)
+		} else {
+			manga
+		}.withMergedBranches(mangaDataRepository.getScanlatorMerge(manga.id))
+		val lastChapter = details.chapters?.lastOrNull() ?: return
+		val pages = repo.getPages(details, lastChapter)
+		historyRepository.addOrUpdate(
+			manga = details,
+			chapterId = lastChapter.id,
+			page = maxOf(0, pages.lastIndex),
+			scroll = 0,
+			percent = 1f,
+			force = true,
+		)
+	}
+
+	suspend operator fun invoke(manga: Collection<Manga>) {
+		when (manga.size) {
+			0 -> Unit
+			1 -> invoke(manga.first())
+			else -> supervisorScope {
+				manga.map {
+					launch {
+						invoke(it)
+					}
+				}.joinAll()
+			}
+		}
+	}
+}

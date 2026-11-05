@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu
+	xmlns:android="http://schemas.android.com/apk/res/android">
+
+	<item
+		android:id="@+id/action_language_filter"
+		android:icon="@drawable/ic_language_filter"
+		android:title="@string/filter_by_language"
+		android:titleCondensed="@string/language" />
+
+	<item
+		android:id="@+id/action_extension_settings"
+		android:icon="@drawable/ic_extension_settings"
+		android:title="@string/extension_settings"
+		android:titleCondensed="@string/settings" />
+
+</menu>
