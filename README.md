@@ -34,19 +34,23 @@ DeepSync is a free, open-source custom fork expanding into an all-in-one comic, 
 ## Screenshots
 
 <p align="center">
-  <img src="assets/main_favorites-preview.webp" alt="DeepSync favorites screen" width="31%" />
-  <img src="assets/feed-preview.webp" alt="DeepSync feed screen" width="31%" />
-  <img src="assets/settings-preview.webp" alt="DeepSync settings screen" width="31%" />
-  <img src="assets/extension_page-preview.webp" alt="DeepSync source browsing screen" width="31%" />
-  <img src="assets/manga_details_page-preview.webp" alt="DeepSync details screen" width="31%" />
-  <img src="assets/chapters_list-preview.webp" alt="DeepSync chapter list" width="31%" />
-  <img src="assets/paged_reading_ui-preview.webp" alt="DeepSync manga reading screen" width="31%" />
-  <img src="assets/reading_ui-preview.webp" alt="DeepSync manhwa reading screen" width="31%" />
-  <img src="assets/novel_reading_ui-preview.webp" alt="DeepSync novel reading screen" width="31%" />
+  <img src="assets/anime_player.jpg" alt="DeepSync landscape anime video player" width="95%" />
+</p>
+<p align="center">
+  <sub>Landscape Anime Player</sub>
 </p>
 
 <p align="center">
-  <sub>Favorites | Feed | Settings | Source Browsing | Details | Chapters | Manga Reader | Webtoon Reader | Novel Reader</sub>
+  <img src="assets/manga_home.jpg" alt="DeepSync Manga tab home screen" width="31%" />
+  <img src="assets/novel_home.jpg" alt="DeepSync Novel tab home screen" width="31%" />
+  <img src="assets/anime_home.jpg" alt="DeepSync Anime tab home screen" width="31%" />
+  <img src="assets/novel_reader.jpg" alt="DeepSync Novel reading screen" width="31%" />
+  <img src="assets/webtoon_reader.jpg" alt="DeepSync Webtoon reading screen" width="31%" />
+  <img src="assets/home_banner_settings.jpg" alt="DeepSync Home banner customization menu" width="31%" />
+</p>
+
+<p align="center">
+  <sub>Manga Home | Novel Home | Anime Home | Novel Reader | Webtoon Reader | Home Banner Customization</sub>
 </p>
 
 ## Highlights
