@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Arthurpendragon9876/DeepSync/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Arthurpendragon9876/DeepSync?style=for-the-badge&logo=github&label=latest"></a>
+  <a href="https://github.com/Arthurpendragon9876/DeepSync/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/Arthurpendragon9876/DeepSync?include_prereleases&style=for-the-badge&logo=github&label=latest"></a>
   <a href="https://github.com/Arthurpendragon9876/DeepSync/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/Arthurpendragon9876/DeepSync/total?style=for-the-badge&logo=github&label=downloads"></a>
   <a href="LICENSE"><img alt="GPLv3 license" src="https://img.shields.io/github/license/Arthurpendragon9876/DeepSync?style=for-the-badge"></a>
 </p>
