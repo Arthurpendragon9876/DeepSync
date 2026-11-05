@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home section: tracker updates. Header row + a plain horizontal list of feed cards. -->
+<LinearLayout
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto"
+	android:id="@+id/section_root"
+	android:layout_width="match_parent"
+	android:layout_height="wrap_content"
+	android:orientation="vertical">
+
+	<LinearLayout
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:gravity="center_vertical"
+		android:orientation="horizontal"
+		android:paddingStart="@dimen/list_spacing_normal"
+		android:paddingEnd="4dp">
+
+		<TextView
+			android:id="@+id/textView_title"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:text="@string/feed"
+			android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+		<com.google.android.material.button.MaterialButton
+			android:id="@+id/button_more"
+			style="@style/Widget.Material3.Button.TextButton"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:text="@string/more" />
+
+	</LinearLayout>
+
+	<androidx.recyclerview.widget.RecyclerView
+		android:id="@+id/recyclerView"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:clipToPadding="false"
+		android:orientation="horizontal"
+		android:paddingHorizontal="@dimen/list_spacing_normal"
+		app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+
+	<com.google.android.material.progressindicator.LinearProgressIndicator
+		android:id="@+id/progress"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_marginHorizontal="@dimen/list_spacing_normal"
+		android:indeterminate="true"
+		android:visibility="gone" />
+
+	<TextView
+		android:id="@+id/textView_empty"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:paddingHorizontal="@dimen/list_spacing_normal"
+		android:paddingVertical="16dp"
+		android:textAppearance="?attr/textAppearanceBodyMedium"
+		android:textColor="?attr/colorOnSurfaceVariant"
+		android:visibility="gone" />
+
+</LinearLayout>

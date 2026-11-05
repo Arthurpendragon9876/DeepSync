@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home section: a titled Material 3 carousel of cover posters. Used for Suggestions and Trending.
+     The carousel (and its tile size / 244dp height) matches item_recommendation.xml so the two
+     look identical to the Explore suggestions block. -->
+<LinearLayout
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:tools="http://schemas.android.com/tools"
+	android:id="@+id/section_root"
+	android:layout_width="match_parent"
+	android:layout_height="wrap_content"
+	android:orientation="vertical">
+
+	<LinearLayout
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:gravity="center_vertical"
+		android:orientation="horizontal"
+		android:paddingStart="@dimen/list_spacing_normal"
+		android:paddingEnd="4dp">
+
+		<TextView
+			android:id="@+id/textView_title"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:textAppearance="?attr/textAppearanceTitleMedium"
+			tools:text="@string/suggestions" />
+
+		<com.google.android.material.button.MaterialButton
+			android:id="@+id/button_more"
+			style="@style/Widget.Material3.Button.TextButton"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:text="@string/more" />
+
+	</LinearLayout>
+
+	<FrameLayout
+		android:layout_width="match_parent"
+		android:layout_height="244dp"
+		android:layout_marginBottom="@dimen/margin_small">
+
+		<org.koitharu.kotatsu.core.ui.widgets.CarouselRecyclerView
+			android:id="@+id/recyclerView"
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:clipChildren="false"
+			android:clipToPadding="false"
+			android:nestedScrollingEnabled="false"
+			android:orientation="horizontal"
+			android:paddingHorizontal="14dp"
+			tools:listitem="@layout/item_manga_carousel" />
+
+		<com.google.android.material.progressindicator.CircularProgressIndicator
+			android:id="@+id/progress"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_gravity="center"
+			android:indeterminate="true"
+			android:visibility="gone" />
+
+		<TextView
+			android:id="@+id/textView_empty"
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:gravity="center"
+			android:paddingHorizontal="@dimen/list_spacing_normal"
+			android:textAppearance="?attr/textAppearanceBodyMedium"
+			android:textColor="?attr/colorOnSurfaceVariant"
+			android:visibility="gone" />
+
+	</FrameLayout>
+
+</LinearLayout>

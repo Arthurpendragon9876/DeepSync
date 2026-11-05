@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wide pill button with a dimmed cover behind its icon + label (the Zangetsu "Schedule & lists" pills). -->
+<com.google.android.material.card.MaterialCardView
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto"
+	xmlns:tools="http://schemas.android.com/tools"
+	android:id="@+id/quick_root"
+	android:layout_width="match_parent"
+	android:layout_height="64dp"
+	android:clickable="true"
+	android:focusable="true"
+	app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+	app:cardCornerRadius="22dp"
+	app:cardElevation="0dp"
+	app:strokeWidth="0dp">
+
+	<FrameLayout
+		android:layout_width="match_parent"
+		android:layout_height="match_parent">
+
+		<org.koitharu.kotatsu.image.ui.CoverImageView
+			android:id="@+id/quick_image"
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:alpha="0.55"
+			android:scaleType="centerCrop"
+			app:aspectRationHeight="0"
+			app:aspectRationWidth="0"
+			tools:ignore="ContentDescription" />
+
+		<View
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:background="#66000000" />
+
+		<LinearLayout
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:gravity="center"
+			android:orientation="horizontal"
+			android:paddingHorizontal="12dp">
+
+			<ImageView
+				android:id="@+id/quick_icon"
+				android:layout_width="20dp"
+				android:layout_height="20dp"
+				android:importantForAccessibility="no"
+				app:tint="#FFFFFFFF"
+				tools:src="@drawable/ic_feed" />
+
+			<TextView
+				android:id="@+id/quick_label"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:layout_marginStart="10dp"
+				android:ellipsize="end"
+				android:maxLines="1"
+				android:textColor="#FFFFFFFF"
+				android:textSize="15sp"
+				android:textStyle="bold"
+				tools:text="Updates &amp; feed" />
+
+		</LinearLayout>
+
+	</FrameLayout>
+
+</com.google.android.material.card.MaterialCardView>

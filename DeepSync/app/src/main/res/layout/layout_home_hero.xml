@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Home hero: one big panel for the featured title and two smaller ones beside it, tilted
+     a degree and a half off true with thin inked borders and narrow gutters (a manga spread).
+     The two small panels are the NEXT two titles, so tapping one promotes it to the big panel. -->
+<androidx.constraintlayout.widget.ConstraintLayout
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto"
+	xmlns:tools="http://schemas.android.com/tools"
+	android:id="@+id/hero_root"
+	android:layout_width="match_parent"
+	android:layout_height="wrap_content"
+	android:clipChildren="false"
+	android:clipToPadding="false"
+	android:paddingHorizontal="20dp"
+	android:paddingTop="16dp"
+	android:paddingBottom="16dp">
+
+	<androidx.constraintlayout.widget.ConstraintLayout
+		android:id="@+id/hero_spread"
+		android:layout_width="0dp"
+		android:layout_height="0dp"
+		android:clipChildren="false"
+		android:rotation="-1.4"
+		app:layout_constraintDimensionRatio="H,1:1.12"
+		app:layout_constraintEnd_toEndOf="parent"
+		app:layout_constraintStart_toStartOf="parent"
+		app:layout_constraintTop_toTopOf="parent">
+
+		<androidx.constraintlayout.widget.Guideline
+			android:id="@+id/guide_v"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:orientation="vertical"
+			app:layout_constraintGuide_percent="0.632" />
+
+		<androidx.constraintlayout.widget.Guideline
+			android:id="@+id/guide_h"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:orientation="horizontal"
+			app:layout_constraintGuide_percent="0.5" />
+
+		<!-- Featured panel -->
+		<com.google.android.material.card.MaterialCardView
+			android:id="@+id/panel_main"
+			android:layout_width="0dp"
+			android:layout_height="0dp"
+			android:layout_marginEnd="3dp"
+			android:clickable="true"
+			android:focusable="true"
+			app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+			app:cardCornerRadius="3dp"
+			app:cardElevation="0dp"
+			app:layout_constraintBottom_toBottomOf="parent"
+			app:layout_constraintEnd_toStartOf="@id/guide_v"
+			app:layout_constraintStart_toStartOf="parent"
+			app:layout_constraintTop_toTopOf="parent"
+			app:strokeColor="#EEFFFFFF"
+			app:strokeWidth="2dp">
+
+			<FrameLayout
+				android:layout_width="match_parent"
+				android:layout_height="match_parent">
+
+				<org.koitharu.kotatsu.image.ui.CoverImageView
+					android:id="@+id/image_main"
+					android:layout_width="match_parent"
+					android:layout_height="match_parent"
+					android:scaleType="centerCrop"
+					app:aspectRationHeight="0"
+					app:aspectRationWidth="0"
+					tools:ignore="ContentDescription"
+					tools:src="@tools:sample/backgrounds/scenic" />
+
+				<View
+					android:layout_width="match_parent"
+					android:layout_height="200dp"
+					android:layout_gravity="bottom"
+					android:background="@drawable/bg_home_hero_scrim" />
+
+				<TextView
+					android:id="@+id/text_badge"
+					android:layout_width="wrap_content"
+					android:layout_height="wrap_content"
+					android:layout_gravity="top|start"
+					android:background="@drawable/bg_home_hero_badge"
+					android:letterSpacing="0.08"
+					android:paddingHorizontal="10dp"
+					android:paddingVertical="5dp"
+					android:textColor="#000000"
+					android:textSize="11sp"
+					android:textStyle="bold"
+					tools:text="#1 TRENDING" />
+
+				<ImageButton
+					android:id="@+id/button_info"
+					android:layout_width="40dp"
+					android:layout_height="40dp"
+					android:layout_gravity="top|end"
+					android:layout_margin="10dp"
+					android:background="@drawable/bg_home_hero_circle"
+					android:contentDescription="@string/details"
+					android:src="@drawable/ic_info"
+					app:tint="#FFFFFFFF" />
+
+				<LinearLayout
+					android:layout_width="match_parent"
+					android:layout_height="wrap_content"
+					android:layout_gravity="bottom"
+					android:orientation="vertical"
+					android:paddingStart="14dp"
+					android:paddingEnd="76dp"
+					android:paddingBottom="18dp">
+
+					<TextView
+						android:id="@+id/text_title"
+						android:layout_width="match_parent"
+						android:layout_height="wrap_content"
+						android:ellipsize="end"
+						android:maxLines="3"
+						android:textColor="#FFFFFFFF"
+						android:textSize="20sp"
+						android:textStyle="bold"
+						tools:text="The Devil Butler" />
+
+					<TextView
+						android:id="@+id/text_genre"
+						android:layout_width="match_parent"
+						android:layout_height="wrap_content"
+						android:layout_marginTop="4dp"
+						android:ellipsize="end"
+						android:letterSpacing="0.12"
+						android:maxLines="1"
+						android:textColor="#B3FFFFFF"
+						android:textSize="11sp"
+						tools:text="ACTION" />
+
+				</LinearLayout>
+
+				<ImageButton
+					android:id="@+id/button_read"
+					android:layout_width="52dp"
+					android:layout_height="52dp"
+					android:layout_gravity="bottom|end"
+					android:layout_margin="12dp"
+					android:background="@drawable/bg_home_hero_badge"
+					android:backgroundTint="#FFFFFFFF"
+					android:contentDescription="@string/read"
+					android:src="@drawable/ic_read"
+					app:tint="#FF000000" />
+
+			</FrameLayout>
+
+		</com.google.android.material.card.MaterialCardView>
+
+		<!-- Side panel 1 (upper) -->
+		<com.google.android.material.card.MaterialCardView
+			android:id="@+id/panel_side_1"
+			android:layout_width="0dp"
+			android:layout_height="0dp"
+			android:layout_marginStart="3dp"
+			android:layout_marginBottom="3dp"
+			android:clickable="true"
+			android:focusable="true"
+			app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+			app:cardCornerRadius="3dp"
+			app:cardElevation="0dp"
+			app:layout_constraintBottom_toTopOf="@id/guide_h"
+			app:layout_constraintEnd_toEndOf="parent"
+			app:layout_constraintStart_toEndOf="@id/guide_v"
+			app:layout_constraintTop_toTopOf="parent"
+			app:strokeColor="#EEFFFFFF"
+			app:strokeWidth="2dp">
+
+			<org.koitharu.kotatsu.image.ui.CoverImageView
+				android:id="@+id/image_side_1"
+				android:layout_width="match_parent"
+				android:layout_height="match_parent"
+				android:scaleType="centerCrop"
+				app:aspectRationHeight="0"
+				app:aspectRationWidth="0"
+				tools:ignore="ContentDescription" />
+
+		</com.google.android.material.card.MaterialCardView>
+
+		<!-- Side panel 2 (lower) -->
+		<com.google.android.material.card.MaterialCardView
+			android:id="@+id/panel_side_2"
+			android:layout_width="0dp"
+			android:layout_height="0dp"
+			android:layout_marginStart="3dp"
+			android:layout_marginTop="3dp"
+			android:clickable="true"
+			android:focusable="true"
+			app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+			app:cardCornerRadius="3dp"
+			app:cardElevation="0dp"
+			app:layout_constraintBottom_toBottomOf="parent"
+			app:layout_constraintEnd_toEndOf="parent"
+			app:layout_constraintStart_toEndOf="@id/guide_v"
+			app:layout_constraintTop_toBottomOf="@id/guide_h"
+			app:strokeColor="#EEFFFFFF"
+			app:strokeWidth="2dp">
+
+			<org.koitharu.kotatsu.image.ui.CoverImageView
+				android:id="@+id/image_side_2"
+				android:layout_width="match_parent"
+				android:layout_height="match_parent"
+				android:scaleType="centerCrop"
+				app:aspectRationHeight="0"
+				app:aspectRationWidth="0"
+				tools:ignore="ContentDescription" />
+
+		</com.google.android.material.card.MaterialCardView>
+
+	</androidx.constraintlayout.widget.ConstraintLayout>
+
+	<com.google.android.material.progressindicator.CircularProgressIndicator
+		android:id="@+id/hero_progress"
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content"
+		android:indeterminate="true"
+		android:visibility="gone"
+		app:layout_constraintBottom_toBottomOf="@id/hero_spread"
+		app:layout_constraintEnd_toEndOf="parent"
+		app:layout_constraintStart_toStartOf="parent"
+		app:layout_constraintTop_toTopOf="@id/hero_spread" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

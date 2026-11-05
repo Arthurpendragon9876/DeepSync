@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto">
+
+	<item
+		android:id="@+id/action_search"
+		android:icon="?actionModeWebSearchDrawable"
+		android:orderInCategory="0"
+		android:title="@string/search_chapters"
+		app:actionViewClass="androidx.appcompat.widget.SearchView"
+		app:showAsAction="ifRoom|collapseActionView" />
+
+	<group
+		android:id="@+id/group_sort"
+		android:checkableBehavior="single">
+
+		<item
+			android:id="@+id/action_sort_source"
+			android:icon="@drawable/ic_sort_source_order"
+			android:title="@string/sort_chapters_source_order"
+			app:showAsAction="never" />
+
+		<item
+			android:id="@+id/action_sort_by_name"
+			android:icon="@drawable/ic_sort_by_name"
+			android:title="@string/sort_chapters_by_name"
+			app:showAsAction="never" />
+
+		<item
+			android:id="@+id/action_sort_by_date"
+			android:icon="@drawable/ic_sort_by_date"
+			android:title="@string/sort_chapters_by_date"
+			app:showAsAction="never" />
+
+	</group>
+
+	<item
+		android:id="@+id/action_reversed"
+		android:checkable="true"
+		android:icon="@drawable/ic_revert"
+		android:title="@string/reverse_list"
+		app:showAsAction="never" />
+
+	<item
+		android:id="@+id/action_downloaded"
+		android:checkable="true"
+		android:icon="@drawable/ic_storage"
+		android:title="@string/downloads_only"
+		app:showAsAction="never" />
+
+	<item
+		android:id="@+id/action_grid_view"
+		android:checkable="true"
+		android:icon="@drawable/ic_grid"
+		android:title="@string/chapters_grid_view"
+		app:showAsAction="never" />
+
+	<!-- Opens a picker rather than toggling, so it sits after the tick-box items. -->
+	<item
+		android:id="@+id/action_merge_scanlators"
+		android:icon="@drawable/ic_merge"
+		android:title="@string/merge_scanlators"
+		app:showAsAction="never" />
+
+</menu>

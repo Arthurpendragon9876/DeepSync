@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One match on the tracker: cover, name and a "Best match" tag. Selected = primary outline. -->
+<com.google.android.material.card.MaterialCardView
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto"
+	android:id="@+id/card"
+	android:layout_width="116dp"
+	android:layout_height="wrap_content"
+	android:layout_marginEnd="10dp"
+	android:checkable="false"
+	android:clickable="true"
+	android:focusable="true"
+	app:cardCornerRadius="18dp"
+	app:cardElevation="0dp"
+	app:strokeWidth="1dp">
+
+	<LinearLayout
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:orientation="vertical"
+		android:padding="6dp">
+
+		<org.koitharu.kotatsu.image.ui.CoverImageView
+			android:id="@+id/image_cover"
+			android:layout_width="match_parent"
+			android:layout_height="150dp"
+			android:background="?attr/colorSurfaceContainerHigh"
+			android:scaleType="centerCrop"
+			app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Kotatsu.Cover" />
+
+		<TextView
+			android:id="@+id/text_title"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="6dp"
+			android:ellipsize="end"
+			android:maxLines="2"
+			android:minLines="2"
+			android:textAppearance="?attr/textAppearanceLabelLarge" />
+
+		<TextView
+			android:id="@+id/text_badge"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:text="@string/ds_track_best_match"
+			android:textAppearance="?attr/textAppearanceLabelSmall"
+			android:textColor="?attr/colorPrimary"
+			android:visibility="invisible" />
+
+	</LinearLayout>
+</com.google.android.material.card.MaterialCardView>

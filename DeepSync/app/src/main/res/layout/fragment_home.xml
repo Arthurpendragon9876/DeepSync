@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home: one vertical scroll. A tilted-panel hero of trending titles, two quick buttons, then
+     horizontal poster rows (Continue on <tracker>, new chapters, Recently released, Trending,
+     Popular). Rows are inflated into rows_container because the number of signed-in trackers varies. -->
+<FrameLayout
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto"
+	android:layout_width="match_parent"
+	android:layout_height="match_parent">
+
+<org.koitharu.kotatsu.core.ui.widgets.LoadingIndicatorSwipeRefreshLayout
+	android:id="@+id/swipeRefreshLayout"
+	android:layout_width="match_parent"
+	android:layout_height="match_parent">
+
+	<androidx.core.widget.NestedScrollView
+		android:id="@+id/scrollView"
+		android:layout_width="match_parent"
+		android:layout_height="match_parent"
+		android:clipChildren="false"
+		android:clipToPadding="false">
+
+		<LinearLayout
+			android:id="@+id/layout_content"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:clipChildren="false"
+			android:clipToPadding="false"
+			android:orientation="vertical">
+
+
+			<include
+				android:id="@+id/hero"
+				layout="@layout/layout_home_hero"
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content" />
+
+			<include
+				android:id="@+id/hero_alt"
+				layout="@layout/layout_home_hero_alt"
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content" />
+
+			<LinearLayout
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content"
+				android:baselineAligned="false"
+				android:orientation="horizontal"
+				android:paddingHorizontal="16dp"
+				android:paddingTop="8dp"
+				android:paddingBottom="12dp">
+
+				<include
+					android:id="@+id/button_updates"
+					layout="@layout/item_home_quick_button"
+					android:layout_width="0dp"
+					android:layout_height="68dp"
+					android:layout_marginEnd="6dp"
+					android:layout_weight="1" />
+
+				<include
+					android:id="@+id/button_random"
+					layout="@layout/item_home_quick_button"
+					android:layout_width="0dp"
+					android:layout_height="68dp"
+					android:layout_marginStart="6dp"
+					android:layout_weight="1" />
+
+			</LinearLayout>
+
+			<LinearLayout
+				android:id="@+id/rows_container"
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content"
+				android:orientation="vertical" />
+
+		</LinearLayout>
+
+	</androidx.core.widget.NestedScrollView>
+
+</org.koitharu.kotatsu.core.ui.widgets.LoadingIndicatorSwipeRefreshLayout>
+
+</FrameLayout>

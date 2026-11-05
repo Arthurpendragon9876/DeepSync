@@ -1,0 +1,493 @@
+package org.koitharu.kotatsu.reader.ui.tts
+
+import android.content.Context
+import android.media.AudioAttributes
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import android.speech.tts.Voice
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import org.koitharu.kotatsu.core.prefs.AppSettings
+import java.text.BreakIterator
+import java.util.Locale
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Speaks the text of the novel reader, sentence by sentence. The reader feeds it one chapter of
+ * plain text and follows [position] to highlight and scroll; everything else (chunking, queueing,
+ * the engine lifecycle) lives here so both the reader and the foreground service can drive it.
+ */
+@Singleton
+class ReaderTts @Inject constructor(
+	@ApplicationContext private val context: Context,
+	private val settings: AppSettings,
+) : TextToSpeech.OnInitListener {
+
+	/** A sentence of the current chapter: [start] until [end] are offsets into the chapter text. */
+	data class Position(val chapter: Int, val index: Int, val start: Int, val end: Int)
+
+	private var tts: TextToSpeech? = null
+	private var isInitialized = false
+	private var chunks: List<Sentence> = emptyList()
+	private var text: String = ""
+	private var chapter: Int = -1
+	private var pendingPlayFrom: Int? = null
+
+	/** How much of the current sentence the engine has already spoken, in characters. */
+	private var spokenOffset = 0
+
+	/** Characters dropped from the front of the current utterance, which engine offsets exclude. */
+	private var spokenPrefix = 0
+
+	private val _isPlaying = MutableStateFlow(false)
+	private val _position = MutableStateFlow<Position?>(null)
+	private val _chapterFinished = MutableSharedFlow<Int>(extraBufferCapacity = 1)
+	private val _sentenceCount = MutableStateFlow(0)
+	private val _sleepRemainingMs = MutableStateFlow(0L)
+	private val _sleepAtChapterEnd = MutableStateFlow(false)
+	private val sleepHandler = Handler(Looper.getMainLooper())
+	private var sleepDeadline = 0L
+
+	/** Number of sentences in the loaded chapter (for the progress bar). */
+	val sentenceCount: StateFlow<Int> = _sentenceCount.asStateFlow()
+
+	/** Time left on the sleep timer, 0 when it is off. */
+	val sleepRemainingMs: StateFlow<Long> = _sleepRemainingMs.asStateFlow()
+
+	/** Stop after the current chapter instead of moving on. */
+	val sleepAtChapterEnd: StateFlow<Boolean> = _sleepAtChapterEnd.asStateFlow()
+
+	val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
+	val position: StateFlow<Position?> = _position.asStateFlow()
+
+	/** Emits the chapter index that just finished, so the reader can move on to the next one. */
+	val chapterFinished: SharedFlow<Int> = _chapterFinished.asSharedFlow()
+
+	val isAttached: Boolean
+		get() = chapter >= 0
+
+	/**
+	 * The handful of voices worth offering for what is currently being read, best first. The engine's
+	 * own default is usually its lowest-quality compact voice, which is what makes stock TTS sound
+	 * robotic — so a fresh install lands on the best installed voice instead of that one.
+	 */
+	fun voicePresets(): List<Voice> {
+		val all = tts?.takeIf { isInitialized }?.voices ?: return emptyList()
+		val language = spokenLocale().language
+		val installed = all.filter { !it.isInstallRequired() && it.locale.language == language }
+		val speakers = installed
+			.sortedWith(compareByDescending<Voice> { it.quality }.thenBy { it.latency }.thenBy { it.name })
+			// One entry per speaker: engines list the same voice once per variant, and four rows of
+			// the same person is what made the picker useless.
+			.distinctBy { it.speakerId() }
+		if (speakers.size <= 2) {
+			return speakers.map { it.offlineVariant(installed) }
+		}
+		// Slots 1-2 are the original pair (old Voice 2 and Voice 4 of a spread over the whole list),
+		// kept where they were so nobody's chosen voice changes.
+		val spread = List(4) { speakers[it * (speakers.size - 1) / 3] }
+		val picked = mutableListOf(spread[1], spread[3])
+		// Slots 3-4: a woman and a man who aren't already on the list, the device's own accent first.
+		val country = Locale.getDefault().country
+		for (female in listOf(true, false)) {
+			speakers.filter { it !in picked && it.isFemale() == female }
+				.minByOrNull { if (it.locale.country.equals(country, ignoreCase = true)) 0 else 1 }
+				?.let(picked::add)
+		}
+		// Engine keeps gender to itself: still hand out distinct people, from the rest of the spread.
+		(spread + speakers).distinct().filterNot { it in picked }.take(MAX_PRESETS - picked.size).let(picked::addAll)
+		return picked.take(MAX_PRESETS).map { it.offlineVariant(installed) }
+	}
+
+	/** Every installed voice for the language being read, best first (the full list, not just presets). */
+	fun allVoices(): List<Voice> {
+		val all = tts?.takeIf { isInitialized }?.voices ?: return emptyList()
+		val language = spokenLocale().language
+		return all.filter { !it.isInstallRequired() && it.locale.language == language }
+			.sortedWith(compareByDescending<Voice> { it.quality }.thenBy { it.latency }.thenBy { it.name })
+	}
+
+	/** Title and detail line for a voice row in the picker. */
+	fun describeVoice(voice: Voice): Pair<String, String> {
+		val code = voice.name.split('-').getOrNull(3)?.uppercase(Locale.ROOT)
+		val gender = when (voice.isFemale()) {
+			true -> " \u2640"
+			false -> " \u2642"
+			null -> ""
+		}
+		val title = voice.locale.getDisplayName(Locale.getDefault()) + (code?.let { " \u00B7 $it" } ?: "") + gender
+		val quality = when {
+			voice.quality >= Voice.QUALITY_VERY_HIGH -> "Very high quality"
+			voice.quality >= Voice.QUALITY_HIGH -> "High quality"
+			voice.quality >= Voice.QUALITY_NORMAL -> "Normal quality"
+			else -> "Basic quality"
+		}
+		return title to (quality + if (voice.isNetworkConnectionRequired) " \u00B7 Online" else " \u00B7 Offline")
+	}
+
+	fun selectedVoiceName(): String? = settings.epubTtsVoiceName
+
+	fun selectVoiceByName(name: String?) {
+		settings.epubTtsVoiceName = name
+		applySettings()
+		if (_isPlaying.value) play()
+	}
+
+	/** 0 turns the timer off. */
+	fun setSleepTimer(minutes: Int) {
+		sleepHandler.removeCallbacksAndMessages(null)
+		_sleepAtChapterEnd.value = false
+		if (minutes <= 0) {
+			_sleepRemainingMs.value = 0L
+			return
+		}
+		sleepDeadline = SystemClock.elapsedRealtime() + minutes * 60_000L
+		_sleepRemainingMs.value = minutes * 60_000L
+		sleepHandler.postDelayed(sleepTick, 1000L)
+	}
+
+	fun setSleepAtChapterEnd(enabled: Boolean) {
+		sleepHandler.removeCallbacksAndMessages(null)
+		_sleepRemainingMs.value = 0L
+		_sleepAtChapterEnd.value = enabled
+	}
+
+	/** True (once) when the listener asked to stop at the end of this chapter. */
+	fun consumeSleepAtChapterEnd(): Boolean {
+		val pending = _sleepAtChapterEnd.value
+		_sleepAtChapterEnd.value = false
+		return pending
+	}
+
+	private val sleepTick = object : Runnable {
+		override fun run() {
+			val left = sleepDeadline - SystemClock.elapsedRealtime()
+			if (left <= 0L) {
+				_sleepRemainingMs.value = 0L
+				pause()
+			} else {
+				_sleepRemainingMs.value = left
+				sleepHandler.postDelayed(this, 1000L)
+			}
+		}
+	}
+
+	fun selectedVoiceIndex(): Int = settings.epubTtsVoiceIndex.coerceIn(0, MAX_PRESETS - 1)
+
+	fun selectVoice(index: Int) {
+		settings.epubTtsVoiceIndex = index
+		applySettings()
+		if (_isPlaying.value) {
+			// The engine only picks up a new voice on the next utterance, so re-queue from here.
+			play()
+		}
+	}
+
+	/**
+	 * Language of the text being read, guessed from its script so novels in other languages get
+	 * their own voices instead of an English one mangling them.
+	 */
+	private fun spokenLocale(): Locale = guessLocale(text) ?: Locale.getDefault()
+
+	/**
+	 * Loads a chapter without starting playback. Re-loading the same chapter keeps the position so
+	 * a style change that re-renders the reader doesn't restart the speech.
+	 */
+	fun setChapter(index: Int, chapterText: String) {
+		if (chapter == index && text == chapterText) {
+			return
+		}
+		chapter = index
+		text = chapterText
+		chunks = splitSentences(chapterText)
+		_sentenceCount.value = chunks.size
+		_position.value = null
+	}
+
+	/** Starts (or restarts) playback from the sentence containing [fromOffset] in the chapter text. */
+	fun play(fromOffset: Int = _position.value?.start ?: 0) {
+		val index = chunks.indexOfFirst { fromOffset < it.end }.coerceAtLeast(0)
+		if (!isInitialized) {
+			pendingPlayFrom = index
+			ensureEngine()
+			return
+		}
+		speakFrom(index)
+	}
+
+	fun pause() {
+		tts?.stop()
+		_isPlaying.value = false
+	}
+
+	fun toggle() {
+		if (_isPlaying.value) pause() else play()
+	}
+
+	/** Moves [delta] sentences and keeps speaking. */
+	fun skip(delta: Int) {
+		val current = _position.value?.index ?: 0
+		val target = (current + delta).coerceIn(0, (chunks.size - 1).coerceAtLeast(0))
+		if (chunks.isEmpty()) {
+			return
+		}
+		_position.value = positionAt(target)
+		if (_isPlaying.value || !isInitialized) {
+			play(chunks[target].start)
+		}
+	}
+
+	fun stop() {
+		tts?.stop()
+		tts?.shutdown()
+		tts = null
+		isInitialized = false
+		pendingPlayFrom = null
+		chapter = -1
+		text = ""
+		chunks = emptyList()
+		_sentenceCount.value = 0
+		_position.value = null
+		_isPlaying.value = false
+		sleepHandler.removeCallbacksAndMessages(null)
+		_sleepRemainingMs.value = 0L
+		_sleepAtChapterEnd.value = false
+	}
+
+	/**
+	 * Speed and pitch only reach the engine at speak() time, so a live change has to re-queue.
+	 * Re-queues from the word currently being spoken instead of the start of the sentence, so the
+	 * new value is heard right away and the listener does not lose their place.
+	 */
+	fun applyTuning() {
+		applySettings()
+		if (_isPlaying.value) {
+			val index = _position.value?.index ?: return play()
+			speakFrom(index, skipChars = spokenOffset)
+		}
+	}
+
+	fun applySettings() {
+		val engine = tts ?: return
+		engine.setSpeechRate(settings.epubTtsSpeed)
+		engine.setPitch(settings.epubTtsPitch)
+		val presets = voicePresets()
+		val chosen = settings.epubTtsVoiceName?.let { name -> allVoices().firstOrNull { it.name == name } }
+		val voice = chosen ?: presets.getOrNull(selectedVoiceIndex()) ?: presets.firstOrNull()
+		if (voice != null) {
+			engine.voice = voice
+		} else {
+			// No voice for this script is installed; at least point the engine at the right language.
+			engine.language = spokenLocale()
+		}
+	}
+
+	override fun onInit(status: Int) {
+		if (status != TextToSpeech.SUCCESS) {
+			isInitialized = false
+			pendingPlayFrom = null
+			return
+		}
+		isInitialized = true
+		// Speak on the media stream: on the default stream the engine is mixed at notification
+		// volume and ducked, which is most of why it sounds thin and quiet.
+		tts?.setAudioAttributes(
+			AudioAttributes.Builder()
+				.setUsage(AudioAttributes.USAGE_MEDIA)
+				.setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+				.build(),
+		)
+		tts?.setOnUtteranceProgressListener(ProgressListener())
+		applySettings()
+		pendingPlayFrom?.let {
+			pendingPlayFrom = null
+			speakFrom(it)
+		}
+	}
+
+	private fun ensureEngine() {
+		if (tts == null) {
+			tts = TextToSpeech(context, this)
+		}
+	}
+
+	/**
+	 * @param skipChars characters of the first sentence already spoken; they are dropped so a
+	 * re-queue continues mid-sentence rather than repeating it.
+	 */
+	private fun speakFrom(startIndex: Int, skipChars: Int = 0) {
+		val engine = tts ?: return
+		if (chunks.isEmpty()) {
+			return
+		}
+		applySettings()
+		engine.stop()
+		_isPlaying.value = true
+		spokenPrefix = skipChars
+		spokenOffset = skipChars
+		for (i in startIndex..chunks.lastIndex) {
+			val queueMode = if (i == startIndex) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+			val sentence = spokenText(i).let { if (i == startIndex) it.drop(skipChars) else it }
+			engine.speak(sentence, queueMode, null, i.toString())
+		}
+	}
+
+	/** Line wrapping inside a sentence makes engines pause mid-phrase; feed them a clean single line. */
+	private fun spokenText(index: Int): String = WHITESPACE
+		.replace(text.substring(chunks[index].start, chunks[index].end), " ")
+		.trim()
+
+	private fun positionAt(index: Int): Position? = chunks.getOrNull(index)?.let {
+		Position(chapter, index, it.start, it.end)
+	}
+
+	private inner class ProgressListener : UtteranceProgressListener() {
+
+		override fun onStart(utteranceId: String?) {
+			val index = utteranceId?.toIntOrNull() ?: return
+			// Only the utterance a re-queue started mid-sentence carries a prefix; every one after
+			// it is spoken whole.
+			if (_position.value?.index != index) {
+				spokenPrefix = 0
+			}
+			spokenOffset = spokenPrefix
+			_position.value = positionAt(index)
+		}
+
+		override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
+			spokenOffset = spokenPrefix + start
+		}
+
+		override fun onDone(utteranceId: String?) {
+			val index = utteranceId?.toIntOrNull() ?: return
+			if (index >= chunks.lastIndex) {
+				_isPlaying.value = false
+				_chapterFinished.tryEmit(chapter)
+			}
+		}
+
+		@Deprecated("Deprecated in Java", ReplaceWith("onError(utteranceId, errorCode)"))
+		override fun onError(utteranceId: String?) = Unit
+
+		override fun onError(utteranceId: String?, errorCode: Int) {
+			_isPlaying.value = false
+		}
+	}
+}
+
+private const val MAX_PRESETS = 4
+private val WHITESPACE = Regex("""\s+""")
+
+private fun Voice.isInstallRequired(): Boolean =
+	features?.contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED) == true
+
+/** "en-us-x-sfg-local" and "en-us-x-sfg-network" are the same person. */
+private fun Voice.speakerId(): String = name.substringBeforeLast('-')
+
+/**
+ * The on-device copy of the same speaker when there is one: a network voice goes silent the moment
+ * the connection drops, which is exactly when a commute or a flight starts.
+ */
+private fun Voice.offlineVariant(voices: List<Voice>): Voice =
+	if (!isNetworkConnectionRequired) this else voices.firstOrNull {
+		!it.isNetworkConnectionRequired && it.speakerId() == speakerId()
+	} ?: this
+
+/**
+ * Engines don't expose gender, so read it off the name. Older Google builds and Samsung tag it
+ * ("…#female_1-local", "en-US-SMTf00"); current Google voices only carry a speaker code.
+ * ponytail: code table only covers Google's English speakers; other voices fall back to the spread.
+ */
+private fun Voice.isFemale(): Boolean? {
+	val lower = name.lowercase(Locale.ROOT)
+	return when {
+		"#female" in lower || "smtf" in lower -> true
+		"#male" in lower || "smtm" in lower -> false
+		else -> when (lower.split('-').getOrNull(3)) {
+			in GOOGLE_FEMALE -> true
+			in GOOGLE_MALE -> false
+			else -> null
+		}
+	}
+}
+
+private val GOOGLE_FEMALE = setOf(
+	"sfg", "iob", "iog", "tpc", "tpf", // en-US
+	"gba", "gbc", "gbg", // en-GB
+	"afh", "aua", "auc", // en-AU
+	"ahp", "cxx", "ene", // en-IN
+)
+private val GOOGLE_MALE = setOf(
+	"iol", "iom", "tpd", // en-US
+	"gbb", "gbd", "rjs", // en-GB
+	"aub", "aud", // en-AU
+	"end", // en-IN
+)
+
+/**
+ * Cheap script sniff. Only tells apart the scripts that map to a different voice; anything Latin
+ * falls through to the device language, which is the right answer for it.
+ */
+private fun guessLocale(text: String): Locale? {
+	val sample = text.take(2000)
+	var hiragana = 0
+	var hangul = 0
+	var han = 0
+	var cyrillic = 0
+	var arabic = 0
+	for (char in sample) {
+		when (Character.UnicodeScript.of(char.code)) {
+			Character.UnicodeScript.HIRAGANA, Character.UnicodeScript.KATAKANA -> hiragana++
+			Character.UnicodeScript.HANGUL -> hangul++
+			Character.UnicodeScript.HAN -> han++
+			Character.UnicodeScript.CYRILLIC -> cyrillic++
+			Character.UnicodeScript.ARABIC -> arabic++
+			else -> Unit
+		}
+	}
+	return when {
+		hiragana > 0 -> Locale.JAPANESE
+		hangul > han -> Locale.KOREAN
+		han > 0 -> Locale.CHINESE
+		cyrillic > sample.length / 4 -> Locale.forLanguageTag("ru")
+		arabic > sample.length / 4 -> Locale.forLanguageTag("ar")
+		else -> null
+	}
+}
+
+private class Sentence(val start: Int, val end: Int)
+
+/** Sentence ranges, using the platform breaker so it works for every language the engine speaks. */
+private fun splitSentences(text: String): List<Sentence> {
+	if (text.isBlank()) {
+		return emptyList()
+	}
+	val iterator = BreakIterator.getSentenceInstance()
+	iterator.setText(text)
+	val result = ArrayList<Sentence>()
+	var start = iterator.first()
+	var end = iterator.next()
+	while (end != BreakIterator.DONE) {
+		// Trim the whitespace at the edges: a range that starts on a line break points at the tail
+		// of the previous page, which is the wrong page to highlight and turn to.
+		var from = start
+		var to = end
+		while (from < to && text[from].isWhitespace()) from++
+		while (to > from && text[to - 1].isWhitespace()) to--
+		if (from < to) {
+			result.add(Sentence(from, to))
+		}
+		start = end
+		end = iterator.next()
+	}
+	return result
+}

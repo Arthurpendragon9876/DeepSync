@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One card of the Spotlight carousel: big portrait cover, title with a rating pill, and a synopsis pill. -->
+<LinearLayout
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto"
+	xmlns:tools="http://schemas.android.com/tools"
+	android:layout_width="252dp"
+	android:layout_height="wrap_content"
+	android:layout_marginHorizontal="6dp"
+	android:orientation="vertical"
+	android:padding="10dp">
+
+	<com.google.android.material.card.MaterialCardView
+		android:layout_width="match_parent"
+		android:layout_height="340dp"
+		android:clickable="true"
+		android:focusable="true"
+		app:cardCornerRadius="28dp"
+		app:cardElevation="0dp">
+
+		<org.koitharu.kotatsu.image.ui.CoverImageView
+			android:id="@+id/image_cover"
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:scaleType="centerCrop"
+			app:aspectRationHeight="0"
+			app:aspectRationWidth="0"
+			tools:ignore="ContentDescription" />
+
+	</com.google.android.material.card.MaterialCardView>
+
+	<LinearLayout
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_marginTop="12dp"
+		android:gravity="center_vertical"
+		android:orientation="horizontal"
+		android:paddingHorizontal="6dp">
+
+		<TextView
+			android:id="@+id/text_title"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:ellipsize="end"
+			android:maxLines="1"
+			android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+		<TextView
+			android:id="@+id/text_rating"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_marginStart="8dp"
+			android:background="@drawable/bg_home_pill"
+			android:paddingHorizontal="12dp"
+			android:paddingVertical="6dp"
+			android:textAppearance="?attr/textAppearanceLabelLarge" />
+
+	</LinearLayout>
+
+	<LinearLayout
+		android:id="@+id/pill_info"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_marginTop="10dp"
+		android:background="@drawable/bg_home_pill"
+		android:gravity="center_vertical"
+		android:orientation="horizontal"
+		android:padding="14dp">
+
+		<TextView
+			android:id="@+id/text_info"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:ellipsize="end"
+			android:maxLines="2"
+			android:textAppearance="?attr/textAppearanceBodyMedium"
+			android:textColor="?attr/colorOnSurfaceVariant" />
+
+		<ImageView
+			android:layout_width="20dp"
+			android:layout_height="20dp"
+			android:layout_marginStart="8dp"
+			android:importantForAccessibility="no"
+			android:rotation="-45"
+			android:src="@drawable/ic_arrow_forward"
+			app:tint="?attr/colorOnSurface" />
+
+	</LinearLayout>
+
+</LinearLayout>
