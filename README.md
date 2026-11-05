@@ -1,6 +1,3 @@
-Got it! I have corrected that detail. Here is the updated README snippet focusing on manual GitHub releases for updates rather than in-app updates:
-
-```markdown
 <p align="center">
   <img src="assets/app-icon-dark.svg" alt="DeepSync dark mode app icon" width="112" />
 </p>
