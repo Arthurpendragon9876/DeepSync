@@ -25,28 +25,22 @@
   <a href="https://m3.material.io/"><img alt="Material 3 Expressive" src="https://img.shields.io/badge/Material%203-Expressive-6750A4?style=for-the-badge&logo=materialdesign&logoColor=white"></a>
 </p>
 
-## About
-
-DeepSync is a free, open-source custom fork expanding into an all-in-one comic, novel, and **anime** streaming hub for Android. Built on a fast, clean, and modern Material 3 Expressive interface, it introduces heavy enhancements for novel reading, robust synchronization workflows, and integrated anime streaming capabilities.
-
-⭐Please give the repo a star if you like the project. It helps more people find it.🌟
-
 ## Screenshots
 
 <p align="center">
-  <img src="assets/anime_player.jpg" alt="DeepSync landscape anime video player" width="95%" />
+  <img src="assets/anime_player.jpeg" alt="DeepSync landscape anime video player" width="95%" />
 </p>
 <p align="center">
   <sub>Landscape Anime Player</sub>
 </p>
 
 <p align="center">
-  <img src="assets/manga_home.jpg" alt="DeepSync Manga tab home screen" width="31%" />
-  <img src="assets/novel_home.jpg" alt="DeepSync Novel tab home screen" width="31%" />
-  <img src="assets/anime_home.jpg" alt="DeepSync Anime tab home screen" width="31%" />
-  <img src="assets/novel_reader.jpg" alt="DeepSync Novel reading screen" width="31%" />
-  <img src="assets/webtoon_reader.jpg" alt="DeepSync Webtoon reading screen" width="31%" />
-  <img src="assets/home_banner_settings.jpg" alt="DeepSync Home banner customization menu" width="31%" />
+  <img src="assets/manga_home.jpeg" alt="DeepSync Manga tab home screen" width="31%" />
+  <img src="assets/novel_home.jpeg" alt="DeepSync Novel tab home screen" width="31%" />
+  <img src="assets/anime_home.jpeg" alt="DeepSync Anime tab home screen" width="31%" />
+  <img src="assets/novel_reader.jpeg" alt="DeepSync Novel reading screen" width="31%" />
+  <img src="assets/webtoon_reader.jpeg" alt="DeepSync Webtoon reading screen" width="31%" />
+  <img src="assets/home_banner_settings.jpeg" alt="DeepSync Home banner customization menu" width="31%" />
 </p>
 
 <p align="center">
