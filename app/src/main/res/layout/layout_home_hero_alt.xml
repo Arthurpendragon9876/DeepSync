@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The other Home banner styles; one block is visible at a time (PANELS lives in layout_home_hero).
+     CARD: rounded banner with the cover overlapping its corner.
+     SPOTLIGHT: centred portrait carousel. Wide ones use AniList banner art when there is some, else a blurred cover. -->
+<FrameLayout
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto"
+	xmlns:tools="http://schemas.android.com/tools"
+	android:id="@+id/alt_root"
+	android:layout_width="match_parent"
+	android:layout_height="wrap_content"
+	android:clipChildren="false"
+	android:visibility="gone">
+
+	<!-- CARD -->
+	<com.google.android.material.card.MaterialCardView
+		android:id="@+id/card_root"
+		android:layout_width="match_parent"
+		android:layout_height="300dp"
+		android:layout_marginHorizontal="16dp"
+		android:layout_marginVertical="8dp"
+		android:clickable="true"
+		android:focusable="true"
+		android:visibility="gone"
+		app:cardBackgroundColor="#FF000000"
+		app:cardCornerRadius="28dp"
+		app:cardElevation="0dp">
+
+		<FrameLayout
+			android:layout_width="match_parent"
+			android:layout_height="match_parent">
+
+			<org.koitharu.kotatsu.image.ui.CoverImageView
+				android:id="@+id/image_card_bg"
+				android:layout_width="match_parent"
+				android:layout_height="match_parent"
+				android:scaleType="centerCrop"
+				app:aspectRationHeight="0"
+				app:aspectRationWidth="0"
+				tools:ignore="ContentDescription" />
+
+			<View
+				android:layout_width="match_parent"
+				android:layout_height="match_parent"
+				android:background="@drawable/bg_home_banner_scrim" />
+
+			<LinearLayout
+				android:layout_width="match_parent"
+				android:layout_height="wrap_content"
+				android:layout_gravity="bottom"
+				android:gravity="bottom"
+				android:orientation="horizontal"
+				android:padding="20dp">
+
+				<com.google.android.material.card.MaterialCardView
+					android:layout_width="108dp"
+					android:layout_height="158dp"
+					app:cardCornerRadius="18dp"
+					app:cardElevation="8dp">
+
+					<org.koitharu.kotatsu.image.ui.CoverImageView
+						android:id="@+id/image_card"
+						android:layout_width="match_parent"
+						android:layout_height="match_parent"
+						android:scaleType="centerCrop"
+						app:aspectRationHeight="0"
+						app:aspectRationWidth="0"
+						tools:ignore="ContentDescription" />
+
+				</com.google.android.material.card.MaterialCardView>
+
+				<LinearLayout
+					android:layout_width="0dp"
+					android:layout_height="wrap_content"
+					android:layout_marginStart="16dp"
+					android:layout_weight="1"
+					android:orientation="vertical">
+
+					<TextView
+						android:id="@+id/text_card_badge"
+						android:layout_width="match_parent"
+						android:layout_height="wrap_content"
+						android:ellipsize="end"
+						android:letterSpacing="0.06"
+						android:maxLines="1"
+						android:textColor="?attr/colorPrimary"
+						android:textSize="12sp"
+						android:textStyle="bold" />
+
+					<TextView
+						android:id="@+id/text_card_title"
+						android:layout_width="match_parent"
+						android:layout_height="wrap_content"
+						android:layout_marginTop="4dp"
+						android:ellipsize="end"
+						android:maxLines="2"
+						android:textColor="#FFFFFFFF"
+						android:textSize="22sp"
+						android:textStyle="bold" />
+
+					<TextView
+						android:id="@+id/text_card_genre"
+						android:layout_width="match_parent"
+						android:layout_height="wrap_content"
+						android:layout_marginTop="4dp"
+						android:ellipsize="end"
+						android:maxLines="1"
+						android:textColor="#B3FFFFFF"
+						android:textSize="13sp" />
+
+					<LinearLayout
+						android:id="@+id/dots_card"
+						android:layout_width="wrap_content"
+						android:layout_height="wrap_content"
+						android:layout_marginTop="14dp"
+						android:orientation="horizontal" />
+
+				</LinearLayout>
+
+			</LinearLayout>
+
+		</FrameLayout>
+
+	</com.google.android.material.card.MaterialCardView>
+
+	<!-- SPOTLIGHT -->
+	<androidx.recyclerview.widget.RecyclerView
+		android:id="@+id/spot_recycler"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:clipChildren="false"
+		android:clipToPadding="false"
+		android:orientation="horizontal"
+		android:overScrollMode="never"
+		android:paddingVertical="12dp"
+		android:visibility="gone"
+		app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+
+	<com.google.android.material.progressindicator.CircularProgressIndicator
+		android:id="@+id/alt_progress"
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content"
+		android:layout_gravity="center"
+		android:indeterminate="true"
+		android:visibility="gone" />
+
+</FrameLayout>
