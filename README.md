@@ -1,208 +1,206 @@
+<p align="center">
+  <img src="assets/app-icon-dark.svg" alt="DeepSync app icon" width="112" />
+</p>
+
 <h1 align="center">DeepSync</h1>
 
 <p align="center">
-  A manga, light-novel and anime reader for Android with a full novel reader, text-to-speech, tracker sync and a Material 3 Expressive design.
+  A manga, light-novel and anime reader for Android with a full novel reader, text-to-speech, tracker-powered Home and a Material 3 Expressive design. Supports Mihon, Aniyomi and LNReader extensions.
 </p>
 
 <p align="center">
-  <img alt="Beta" src="https://img.shields.io/badge/status-beta-orange?style=for-the-badge">
-  <img alt="Version 0.0.1" src="https://img.shields.io/badge/version-0.0.1-blue?style=for-the-badge">
-  <img alt="Android 8.0+" src="https://img.shields.io/badge/android-8.0%2B-3DDC84?style=for-the-badge">
+  <a href="https://github.com/Arthurpendragon9876/DeepSync/releases/latest"><strong>Download APK</strong></a>
+  &nbsp;|&nbsp;
+  <a href="https://github.com/Arthurpendragon9876/DeepSync/issues"><strong>Report a bug</strong></a>
+  &nbsp;|&nbsp;
+  <a href="https://github.com/HuzaifaKhalid1311/DropSauce"><strong>Based on DropSauce</strong></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/Arthurpendragon9876/DeepSync/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/Arthurpendragon9876/DeepSync?include_prereleases&style=for-the-badge&logo=github&label=latest"></a>
+  <a href="https://github.com/Arthurpendragon9876/DeepSync/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/Arthurpendragon9876/DeepSync/total?style=for-the-badge&logo=github&label=downloads"></a>
+  <a href="https://github.com/Arthurpendragon9876/DeepSync/issues"><img alt="Open issues" src="https://img.shields.io/github/issues/Arthurpendragon9876/DeepSync?style=for-the-badge&logo=github"></a>
   <a href="LICENSE"><img alt="GPLv3 license" src="https://img.shields.io/badge/license-GPLv3-green?style=for-the-badge"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Arthurpendragon9876/DeepSync"><strong>GitHub</strong></a>
-  |
-  <a href="https://github.com/Arthurpendragon9876/DeepSync/releases"><strong>Releases</strong></a>
-  |
-  <a href="https://github.com/Arthurpendragon9876/DeepSync/issues"><strong>Issues</strong></a>
-  |
-  <a href="https://github.com/HuzaifaKhalid1311/DropSauce"><strong>Main branch (DropSauce)</strong></a>
+  <img alt="Beta" src="https://img.shields.io/badge/status-beta-orange?style=for-the-badge">
+  <a href="https://developer.android.com/"><img alt="Android 8.0+" src="https://img.shields.io/badge/Android-8.0%2B-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
+  <a href="https://kotlinlang.org/"><img alt="Kotlin" src="https://img.shields.io/badge/Kotlin-7F52FF?style=for-the-badge&logo=kotlin&logoColor=white"></a>
+  <a href="https://developer.android.com/compose"><img alt="Jetpack Compose" src="https://img.shields.io/badge/Jetpack%20Compose-4285F4?style=for-the-badge&logo=jetpackcompose&logoColor=white"></a>
+  <a href="https://m3.material.io/"><img alt="Material 3 Expressive" src="https://img.shields.io/badge/Material%203-Expressive-6750A4?style=for-the-badge&logo=materialdesign&logoColor=white"></a>
 </p>
 
 ---
 
 ## About
 
-DeepSync is in **beta (v0.0.1)**, so expect rough edges. Bug reports on GitHub are very welcome.
+DeepSync is a free and open-source reader for **manga, light novels and anime** on Android. It is a fork of [DropSauce](https://github.com/HuzaifaKhalid1311/DropSauce) by HuzaifaKhalid1311, which is the main branch this project is built on.
 
-It is a fork of [DropSauce](https://github.com/HuzaifaKhalid1311/DropSauce) by HuzaifaKhalid1311, which is the **main branch** this project is built on (itself built on [Kotatsu](https://github.com/KotatsuApp/Kotatsu)). DeepSync adds:
+On top of DropSauce, DeepSync adds:
 
-- a rebuilt **novel reader** (scroll styles, presets, typography, custom themes, text-to-speech),
-- a redesigned **Home** with manga / novel / anime modes and three banner styles,
-- a **metadata picker** that can take covers and info from AniList, MyAnimeList or MangaBaka,
-- **type-aware tracker matching**, so a manhwa and a Boys' Love manga with the same name are no longer confused,
-- an **anime player** with stream picking,
-- more trackers, including MangaBaka and Discord rich presence.
+- A **rebuilt novel reader** with scroll styles, presets, custom backgrounds and text-to-speech.
+- An **anime player** and Aniyomi extension support, managed from the same extension catalogue as manga and novels.
+- A **redesigned Home** with banner styles, driven by AniList, MyAnimeList, MangaBaka or your own installed sources.
+- A smarter tracker prompt, plus **mark as unread / unwatched** that keeps your trackers in sync.
 
-The app installs as `com.kotatsu.deepsync` (debug builds add `.debug`, preview builds `.preview`), so it sits next to DropSauce rather than replacing it.
+DeepSync installs as `com.kotatsu.deepsync` (debug builds add `.debug`, preview builds `.preview`), so it sits **next to DropSauce** instead of replacing it.
+
+> **Beta notice:** DeepSync is in beta (v0.0.1), so expect rough edges. Bug reports on GitHub are very welcome. See [Known issues](#known-issues).
 
 ## Screenshots
 
 <p align="center">
-  <img src="assets/main_favorites-preview.webp" alt="Favorites screen" width="31%" />
-  <img src="assets/manga_details_page-preview.webp" alt="Details screen" width="31%" />
-  <img src="assets/reading_ui-preview.webp" alt="Manga reading screen" width="31%" />
-  <img src="assets/novel_reading_ui-preview.webp" alt="Novel reading screen" width="31%" />
-  <img src="assets/extension_page-preview.webp" alt="Extensions screen" width="31%" />
-  <img src="assets/settings-preview.webp" alt="Settings screen" width="31%" />
+  <img src="assets/home_card_banner-preview.webp" alt="DeepSync Home with the Card banner" width="31%" />
+  <img src="assets/home_metadata_sheet-preview.webp" alt="DeepSync Home metadata picker" width="31%" />
+  <img src="assets/main_favorites-preview.webp" alt="DeepSync favorites screen" width="31%" />
+  <img src="assets/manga_details_page-preview.webp" alt="DeepSync details screen" width="31%" />
+  <img src="assets/details_tracker_metadata-preview.webp" alt="DeepSync details with tracker metadata" width="31%" />
+  <img src="assets/reading_ui-preview.webp" alt="DeepSync manga and webtoon reader" width="31%" />
+  <img src="assets/novel_reading_ui-preview.webp" alt="DeepSync novel reader" width="31%" />
+  <img src="assets/novel_listen_tts-preview.webp" alt="DeepSync novel Listen (text-to-speech) panel" width="31%" />
+  <img src="assets/anime_player-preview.webp" alt="DeepSync anime player" width="31%" />
+  <img src="assets/extension_page-preview.webp" alt="DeepSync extension catalogue" width="31%" />
+  <img src="assets/global_search-preview.webp" alt="DeepSync global search with tracker chips" width="31%" />
+  <img src="assets/settings-preview.webp" alt="DeepSync settings screen" width="31%" />
 </p>
 
 <p align="center">
-  <sub>Favorites | Details | Manga/Webtoon Reader | Novel Reader | Extensions | Settings</sub>
+  <sub>Home Banner | Metadata Picker | Favorites | Details | Tracker Details | Manga/Webtoon Reader | Novel Reader | Listen (TTS) | Anime Player | Extensions | Global Search | Settings</sub>
 </p>
-
-<!--
-Add these once the screenshots are in /assets, then delete this comment.
-
-<p align="center">
-  <img src="assets/home_banner-preview.webp" alt="Home with trending banner" width="31%" />
-  <img src="assets/metadata_picker-preview.webp" alt="Metadata picker" width="31%" />
-  <img src="assets/tracker_match-preview.webp" alt="Tracker match sheet" width="31%" />
-  <img src="assets/novel_settings-preview.webp" alt="Novel reader settings and presets" width="31%" />
-  <img src="assets/novel_tts-preview.webp" alt="Novel text-to-speech player" width="31%" />
-  <img src="assets/anime_player-preview.webp" alt="Anime player" width="31%" />
-</p>
-
-<p align="center">
-  <sub>Home | Metadata picker | Tracker match | Novel settings | Listen (TTS) | Anime player</sub>
-</p>
--->
 
 ## Highlights
-- Manga, webtoon, light-novel and anime in one app, switchable from Home.
-- Full novel reader with offline EPUB importing, presets, themes and text-to-speech.
-- Multi-source extension engine supporting LNReader JS plugins and Tsundoku APK extensions.
-- Tracker sync with AniList, MyAnimeList, MangaBaka, Kitsu and Shikimori, plus Discord rich presence.
-- Google Drive sync, local backup/restore, and in-app updates.
-- Restores Kotatsu and Mihon backups.
+
+- **Three modes, one app.** Manga, Novels and Anime each have their own Home, search and library flow. Double-tap the mode button next to the nav bar to jump between them.
+- **Full novel reader** with presets, themes, typography controls, offline EPUB import and a built-in Listen (text-to-speech) player.
+- **Tracker-powered Home.** Choose AniList, MyAnimeList or MangaBaka for rows, search and details, or switch to the Source catalogue to show what your installed sources offer.
+- **Extension ecosystem.** Mihon and Tsundoku APK extensions, LNReader JS plugins and Aniyomi anime extensions, installed from shared extension stores.
+- **Tracking that stays honest.** Progress syncs to your trackers, and marking a title unread or unwatched resets it on the trackers too.
+- **Sync and backup.** Google Drive sync, local backup and restore, and restore from Kotatsu and Mihon backups.
 - Free and open-source under the GPLv3 license.
+
+<details>
+<summary><strong>What's new in Beta v5</strong></summary>
+
+- Metadata providers (AniList, MyAnimeList, MangaBaka) for Home, search and details, plus a separate Source catalogue toggle.
+- Details pages can show a tracker's cover, banner, synopsis, genres and score.
+- Choose a source and search inside it when a tracker title has no automatic match. Your pairing is remembered.
+- Anime, Manga and Novel tabs in the extension catalogue. Anime extensions now install from the shared stores without a system installer prompt.
+- Anime player remembers your server choice and asks again if the next episode does not offer it.
+- Global search follows the current mode and can include tracker catalogues.
+- Mark as unread / unwatched from Favourites and History, with tracker reset.
+- Swipeable, endless Home banner and spotlight.
+- Minimise the novel Listen panel to a small button while audio keeps playing.
+- Fixes for release-build crashes, novels filed under Manga, empty Home rows and empty details pages.
+
+See the full [release notes](https://github.com/Arthurpendragon9876/DeepSync/releases/latest).
+
+</details>
 
 <details>
 <summary><strong>Features</strong></summary>
 
 **Reading**
-- Manga, webtoon and novel reading with configurable reader behavior, haptics and zoom gestures.
-- EPUB importing for offline novel reading, and PDF import that converts PDFs into readable CBZ chapters.
+- Comfortable manga, webtoon and novel reading with configurable reader behaviour, haptics and zoom gestures.
+- Novel reader with Presets / Text / Layout / Theme / Options settings, extra themes (Sepia, Dusk, Forest), letter spacing, paragraph indent, hyphenation and column width.
+- Listen player with sentence highlighting, voice selection, speed and pitch, follow-reading, auto-continue to the next chapter and a sleep timer.
+- EPUB importing for offline reading and PDF import that converts PDFs into readable CBZ chapters.
 - Downloads for offline reading when a source supports it.
 
-**Novel reader**
-- Scroll or paged reading, with several scroll styles and a chapter header between chapters.
-- Presets, typography controls (letter spacing, paragraph indent, hyphenation, column width), extra themes and bundled fonts.
-- Listen mode: text-to-speech with voice choice, speed and pitch, sentence highlighting, follow-reading, auto-advance and a sleep timer.
-- Interactive zoom gestures.
-
 **Anime**
-- Anime sources through an extension manager, a built-in player and a stream picker.
+- Built-in anime player with server selection that carries over between episodes.
+- Watching, Re-watching and episode wording across tracker screens.
 
-**Home and discovery**
-- Home for manga, novels and anime, with Panels, Card and Spotlight banner styles.
-- Trending and rankings from AniList, MyAnimeList or MangaBaka, or lists straight from your installed sources.
-- Suggestions, search with a Manga/Novel toggle, and a redesigned filter menu.
+**Discovery and library**
+- Home rows from AniList, MyAnimeList, MangaBaka or your installed sources.
+- Global search for the current mode, optionally including tracker catalogues.
+- Favorites, history, bookmarks, categories and stats to keep your library organised.
+- Mark as read / unread and watched / unwatched.
 
-**Metadata and tracking**
-- Metadata picker: choose AniList, MyAnimeList, MangaBaka or your sources, and whether covers and info on a title's page come from the tracker or from the source.
-- Tracked titles use the cover and info of the entry they are tracked as, on the tracker they are tracked on.
-- Untracked titles are matched by every name (romaji, English, native, synonyms) and by type (manga, manhwa, manhua) and Boys' Love, so same-named titles are told apart.
-- Tracker prompt and link sheet show each candidate's type next to its name, and auto-link skips namesakes of the wrong kind.
+**Extensions**
+- Native sources, LNReader JS plugins, Tsundoku APK extensions and Aniyomi anime extensions.
+- Shared extension stores with Anime / Manga / Novel tabs, update support and an extension search box.
+
+**Tracking, sync and system**
 - Reverse tracking with a redesigned tracking menu.
-
-**Library and data**
-- Favorites, history, bookmarks, categories and reading stats.
 - Google Drive sync for library, history, bookmarks, tracking, stats, settings and covers.
-- Local backup and restore system.
-
-**App**
-- Material 3 Expressive design, including the details page.
-- Onboarding/welcome flow with sync and restore setup.
+- Local backup and restore.
 - Android widgets for continue reading, favorites and reading stats.
 - App lock with biometric or device credential support.
+- Material 3 Expressive details page.
 - In-app updates, with APKs also published through GitHub Releases.
-
-</details>
-
-<details>
-<summary><strong>Recent improvements</strong></summary>
-
-- Metadata picker with a tracker/source switch for covers and info.
-- Type-aware matching between sources and trackers (manga, manhwa, manhua, Boys' Love), and exact-entry lookup for tracked titles.
-- Rebuilt novel reader with presets, themes and text-to-speech.
-- Home banner styles and a manga / novel / anime switch.
-- Anime player with stream picking.
-- MangaBaka tracker and Discord rich presence.
-- Edge-case crash fixes and release build cleanups.
 
 </details>
 
 ## Install
 
-1. Open the [latest DeepSync release](https://github.com/Arthurpendragon9876/DeepSync/releases/latest).
-2. Download the newest DeepSync APK.
-3. Install it on a device running Android 8.0 or newer.
-4. Add your preferred source or extension repository, then start reading.
+1. Open the [latest GitHub release](https://github.com/Arthurpendragon9876/DeepSync/releases/latest).
+2. Download the newest `DeepSync` APK.
+3. Install it on a device running **Android 8.0 or newer**.
+4. Add an extension repository or plugin from the Extensions screen, then start reading or watching.
 
 Android may ask you to allow installs from your browser or file manager. That is normal for APKs downloaded outside the Play Store.
+
+## Known issues
+
+- Pressing the volume keys can still cause crashes in the reader.
+- This is an early beta. If something else breaks, please [open an issue](https://github.com/Arthurpendragon9876/DeepSync/issues) with your device, Android version and steps to reproduce.
 
 ## FAQ
 
 ### Does DeepSync include manga, novels or anime?
-> No. DeepSync does not include built-in content. Sources are provided through external libraries, JS plugins, or repositories added by users.
+> No. DeepSync does not include built-in content. Sources come from external libraries, JS plugins and extension repositories that you add yourself.
 
 ### Is DeepSync free?
 > Yes. DeepSync is free and open source under the GPLv3 license.
 
-### Can it run next to DropSauce or Kotatsu?
-> Yes. DeepSync uses its own package name (`com.kotatsu.deepsync`), so it installs alongside them. You can bring your library over with a Kotatsu or Mihon backup.
+### Can I use it alongside DropSauce?
+> Yes. DeepSync uses its own app id (`com.kotatsu.deepsync`), so both apps can be installed at the same time.
 
-### Why do my tracked titles show the tracker's cover?
-> By default, covers and info come from the tracker a title is tracked on. Open the metadata sheet on Home and turn off **Covers & info from tracker** to use what the source provides instead.
+### Which trackers are supported?
+> AniList, MyAnimeList and MangaBaka can supply Home, search and details. Reading and watching progress syncs to your signed-in trackers. MyAnimeList browsing works without signing in.
 
 ### How do updates work?
 > DeepSync supports in-app updates, and release APKs are also published on GitHub. You can update from inside the app or install the latest APK from the Releases page.
 
 ### Can I contribute?
-> Yes. Pull requests for patches, fixes, and new features are welcome.
+> Yes. Pull requests for patches, fixes and new features are welcome.
 
 ## Project structure
 
 ```plaintext
 app/src/main/
 ├── kotlin/org/koitharu/kotatsu/
-│   ├── core/          # Shared database, network, parser, preferences, UI, and utility code
-│   ├── main/          # App entry points, main activity, and app-level screens
-│   ├── home/          # Home screen, banner styles, and the metadata picker
-│   ├── metadata/      # Tracker metadata lookup, matching, and cover/info sources
-│   ├── reader/        # Manga and novel reader UI (EPUB reader, TTS, presets)
-│   ├── details/       # Manga, novel and anime details, chapters, and related services
-│   ├── anime/         # Anime extensions, player, and stream picker
-│   ├── explore/       # Browse and discovery screens
-│   ├── search/        # Search screens and search flows (with Manga/Novel toggle)
-│   ├── suggestions/   # Suggested titles
-│   ├── favourites/    # Favorites and library-facing flows
-│   ├── history/       # Reading history and progress
-│   ├── stats/         # Reading statistics
-│   ├── download/      # Offline downloads and download queue
-│   ├── extensions/    # Extension browsing, JS plugins, and APK extension management
-│   ├── lnreader/      # LNReader JS plugin integration
-│   ├── mihon/         # Mihon & Tsundoku APK extension integration
-│   ├── backup/        # Local backup and restore
-│   ├── sync/          # Google Drive sync data, domain, UI, and workers
-│   ├── scrobbling/    # Trackers (AniList, MAL, MangaBaka, Kitsu, Shikimori) and Discord
-│   ├── tracker/       # Update checking and reverse tracking
-│   ├── widget/        # Android home screen widgets
-│   └── settings/      # Settings screens and preferences
+│   ├── core/            # Shared database, network, parser, preferences, UI, and utility code
+│   ├── main/            # App entry points, main activity, floating nav bar
+│   ├── home/            # Home rows, banner styles, mode switching
+│   ├── metadata/        # Tracker metadata, source chooser, title-to-source pairing
+│   ├── reader/          # Manga reader and the novel reader (chrome, TTS, themes)
+│   ├── anime/           # Anime extensions, player, stream handling
+│   ├── details/         # Details pages, chapters and tracker metadata overlay
+│   ├── explore/         # Browse and discovery
+│   ├── search/          # Global search (follows the current mode)
+│   ├── favourites/      # Favorites and library flows
+│   ├── history/         # Reading history, progress and mark as unread
+│   ├── download/        # Offline downloads and download queue
+│   ├── extensions/      # Extension browsing and plugin management
+│   ├── lnreader/        # LNReader JS plugin integration
+│   ├── mihon/           # Mihon and Tsundoku APK extension integration
+│   ├── scrobbling/      # AniList, MyAnimeList, MangaBaka and other trackers
+│   ├── backup/          # Local backup and restore
+│   ├── sync/            # Sync data, domain, UI and workers
+│   ├── widget/          # Android home screen widgets
+│   └── settings/        # Settings, including the extension store catalogue
 └── res/
-    ├── drawable*/     # Icons, backgrounds, and app artwork
-    ├── layout*/       # XML screens, widgets, and reusable layouts
-    ├── mipmap*/       # Launcher icons
-    ├── values*/       # Strings, colors, themes, and translations
-    └── xml/           # Android XML configuration
+    ├── drawable*/       # Icons, backgrounds and app artwork
+    ├── layout*/         # XML screens, widgets and reusable layouts
+    ├── values*/         # Strings, colors, themes and translations
+    └── xml/             # Android XML configuration
 ```
 
 ## Contribute
 
-You can send a Pull Request for your patches, fixes, or new features here.
+You can send a Pull Request for your patches, fixes or new features.
 
 1. Fork the repository.
 2. Create a focused branch for your change.
@@ -213,11 +211,13 @@ Small fixes are welcome. Clear screenshots or short screen recordings are extra 
 
 ## Credits
 
-DeepSync exists because of the work already done by the open-source Android manga reader community.
+DeepSync stands on the work of the open-source Android reader community.
 
-Special thanks to [DropSauce](https://github.com/HuzaifaKhalid1311/DropSauce) (the main branch), the original [Kotatsu](https://github.com/KotatsuApp/Kotatsu) developers, [LNReader](https://github.com/LNReader/lnreader) developers, and the [Mihon](https://github.com/mihonapp/mihon) developers/community for the ideas, code, source ecosystem, and long-running maintenance work that helped shape projects like this.
-
-The novel reader's features and presets are modelled on [Novery](https://github.com/emptycastle) (GPL-3.0). Fonts copied from Novery keep their own open-source licences (mostly SIL OFL 1.1).
+- [DropSauce](https://github.com/HuzaifaKhalid1311/DropSauce) by HuzaifaKhalid1311, the main branch this project is built on.
+- [Kotatsu](https://github.com/KotatsuApp/Kotatsu), the original reader that DropSauce is based on.
+- [Mihon](https://github.com/mihonapp/mihon) and [Aniyomi](https://github.com/aniyomiorg/aniyomi) for the extension ecosystem.
+- [LNReader](https://github.com/LNReader/lnreader) for the JS plugin ecosystem.
+- Novery (emptycastle, GPL-3.0), whose features and presets informed the novel reader. Bundled fonts keep their own open-source licences, mostly SIL OFL 1.1.
 
 ## License
 
@@ -225,7 +225,7 @@ The novel reader's features and presets are modelled on [Novery](https://github.
 
 <div align="left">
 
-DeepSync is free, open-source software under the GPL license. You may copy, distribute, and modify the software as long as you keep track of changes/dates in the source files. Any modifications to the software, including code licensed under the GPL (via a compiler), must also be provided under the GPL license.
+DeepSync is free, open-source software under the GPL license. You may copy, distribute and modify the software as long as you keep track of changes and dates in the source files. Any modifications to the software, including code licensed under the GPL (via a compiler), must also be provided under the GPL license.
 
 </div>
 
