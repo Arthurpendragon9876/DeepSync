@@ -59,14 +59,22 @@ DeepSync installs as `com.kotatsu.deepsync` (debug builds add `.debug`, preview 
   <img src="assets/reading_ui-preview.webp" alt="DeepSync manga and webtoon reader" width="31%" />
   <img src="assets/novel_reading_ui-preview.webp" alt="DeepSync novel reader" width="31%" />
   <img src="assets/novel_listen_tts-preview.webp" alt="DeepSync novel Listen (text-to-speech) panel" width="31%" />
-  <img src="assets/anime_player-preview.webp" alt="DeepSync anime player" width="31%" />
   <img src="assets/extension_page-preview.webp" alt="DeepSync extension catalogue" width="31%" />
   <img src="assets/global_search-preview.webp" alt="DeepSync global search with tracker chips" width="31%" />
+  <img src="assets/novel_settings-preview.webp" alt="DeepSync novel reader settings panel" width="31%" />
   <img src="assets/settings-preview.webp" alt="DeepSync settings screen" width="31%" />
 </p>
 
 <p align="center">
-  <sub>Home Banner | Metadata Picker | Favorites | Details | Tracker Details | Manga/Webtoon Reader | Novel Reader | Listen (TTS) | Anime Player | Extensions | Global Search | Settings</sub>
+  <sub>Home Banner | Metadata Picker | Favorites | Details | Tracker Details | Manga/Webtoon Reader | Novel Reader | Listen (TTS) | Extensions | Global Search | Novel Settings | Settings</sub>
+</p>
+
+<p align="center">
+  <img src="assets/anime_player-preview.webp" alt="DeepSync anime player in landscape" width="85%" />
+</p>
+
+<p align="center">
+  <sub>Anime Player (landscape)</sub>
 </p>
 
 ## Highlights
