@@ -88,7 +88,7 @@ DeepSync installs as `com.kotatsu.deepsync` (debug builds add `.debug`, preview 
 - Free and open-source under the GPLv3 license.
 
 <details>
-<summary><strong>What's new in Beta v5</strong></summary>
+<summary><strong>What's new in Beta v2</strong></summary>
 
 - Metadata providers (AniList, MyAnimeList, MangaBaka) for Home, search and details, plus a separate Source catalogue toggle.
 - Details pages can show a tracker's cover, banner, synopsis, genres and score.
