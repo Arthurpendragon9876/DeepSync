@@ -69,7 +69,7 @@ The Android app installs as `com.kotatsu.deepsync` (debug builds add `.debug`, p
 - Multi-source extension engine supporting LNReader JS plugins and Tsundoku APK extensions.
 - Tracking with AniList, MyAnimeList and MangaBaka: best-match linking, a merged Sync Library and automatic synchronization where the furthest progress wins.
 - Material 3 Expressive design with a Home you can rearrange, and accent colours that follow your theme.
-- Google Drive sync, local backup/restore and in-app updates, plus Kotatsu and Mihon backup restoration.
+- local backup/restore and in-app updates, plus Kotatsu and Mihon backup restoration.
 - Free and open-source under the GPLv3 license.
 
 <details>
