@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.plus
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.model.toChipModel
+import org.koitharu.kotatsu.core.model.contentMode
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.observeAsFlow
 import org.koitharu.kotatsu.core.ui.BaseViewModel
@@ -215,7 +216,11 @@ class FeedViewModel @Inject constructor(
 
 	private suspend fun List<TrackingLogItem>.mapListTo(destination: MutableList<ListModel>, isUnreadOnly: Boolean) {
 		// The query keeps unread rows; an entry whose chapters were all read since still shows as read
-		val feedItems = map { it to mangaListMapper.toFeedItem(it) }.filter { !isUnreadOnly || it.second.isNew }
+		// The feed is kept apart per mode: manga, novels and anime each show only their own updates
+		val mode = settings.homeMode
+		val feedItems = map { it to mangaListMapper.toFeedItem(it) }
+			.filter { it.second.manga.source.contentMode == mode }
+			.filter { !isUnreadOnly || it.second.isNew }
 		val bucketedItems = feedItems.groupByDateBucket(instantOf = { it.first.createdAt })
 		for ((date, items) in bucketedItems) {
 			destination += if (date != null) {

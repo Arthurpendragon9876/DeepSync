@@ -214,6 +214,7 @@ class AppRouter private constructor(
                 contextOrNull() ?: return,
                 animeManga,
                 state?.chapterId ?: -1L,
+                activityIntent.getBooleanExtra(ReaderIntent.EXTRA_INCOGNITO, false),
             )
             return
         }
@@ -235,6 +236,41 @@ class AppRouter private constructor(
      * The button beside Favourite: pick a source, then search inside it. Choosing a result migrates this title
      * (history, favourites, progress) to it; a tracker title's pairing is remembered as well.
      */
+    /**
+     * Opens a tracker title's page at once, with the tracker's own cover and info; the source for chapters or
+     * episodes is searched while it is on screen. Used when covers and info come from the tracker.
+     */
+    fun openMetaDetails(
+        ref: org.koitharu.kotatsu.metadata.MetaRef,
+        title: String,
+        coverUrl: String?,
+        bannerUrl: String?,
+    ) {
+        startActivity(
+            org.koitharu.kotatsu.details.ui.MetaDetailsActivity.intent(
+                contextOrNull() ?: return, ref, title, coverUrl, bannerUrl,
+            ),
+        )
+    }
+
+    /** A relation or recommendation of a tracker page: opened the same way, from the tracker first. */
+    fun openTrackerTitle(
+        media: org.koitharu.kotatsu.scrobbling.anilist.data.InfoMedia,
+        from: Manga?,
+    ) {
+        val mode = when {
+            media.type == "ANIME" -> org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME
+            media.format == "NOVEL" -> org.koitharu.kotatsu.home.ui.model.HomeMode.NOVEL
+            else -> org.koitharu.kotatsu.home.ui.model.HomeMode.MANGA
+        }
+        openMetaDetails(
+            ref = org.koitharu.kotatsu.metadata.MetaRef(org.koitharu.kotatsu.home.ui.model.HomeMetadata.ANILIST, media.id, mode),
+            title = media.title,
+            coverUrl = media.coverUrl,
+            bannerUrl = media.bannerUrl,
+        )
+    }
+
     fun openSourceChooser(manga: Manga) {
         startActivity(
             org.koitharu.kotatsu.metadata.SourceChooserActivity.intent(
@@ -381,6 +417,10 @@ class AppRouter private constructor(
         startActivity(sourceSettingsIntent(contextOrNull() ?: return, source).apply {
             if (scrollToLanguage) putExtra(KEY_SCROLL_TO_LANGUAGE, true)
         })
+    }
+
+    fun openHomeLayoutSettings() {
+        startActivity(homeLayoutSettingsIntent(contextOrNull() ?: return))
     }
 
     fun openSuggestionsSettings() {
@@ -902,6 +942,10 @@ class AppRouter private constructor(
             Intent(context, SettingsActivity::class.java)
                 .setAction(ACTION_READER)
 
+        fun homeLayoutSettingsIntent(context: Context) =
+            Intent(context, SettingsActivity::class.java)
+                .setAction(ACTION_HOME_LAYOUT)
+
         fun suggestionsSettingsIntent(context: Context) =
             Intent(context, SettingsActivity::class.java)
                 .setAction(ACTION_SUGGESTIONS)
@@ -992,6 +1036,7 @@ class AppRouter private constructor(
         const val ACTION_SOURCE = "${BuildConfig.APPLICATION_ID}.action.MANAGE_SOURCE_SETTINGS"
         const val ACTION_SOURCES = "${BuildConfig.APPLICATION_ID}.action.MANAGE_SOURCES"
         const val ACTION_MANAGE_DISCORD = "${BuildConfig.APPLICATION_ID}.action.MANAGE_DISCORD"
+        const val ACTION_HOME_LAYOUT = "${BuildConfig.APPLICATION_ID}.action.MANAGE_HOME_LAYOUT"
         const val ACTION_SUGGESTIONS = "${BuildConfig.APPLICATION_ID}.action.MANAGE_SUGGESTIONS"
         const val ACTION_TRACKER = "${BuildConfig.APPLICATION_ID}.action.MANAGE_TRACKER"
         const val ACTION_SYNC = "${BuildConfig.APPLICATION_ID}.action.MANAGE_SYNC"

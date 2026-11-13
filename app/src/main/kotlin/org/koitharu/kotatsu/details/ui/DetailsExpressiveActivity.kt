@@ -151,6 +151,19 @@ class DetailsExpressiveActivity :
 				router.showAuthorDialog(author, viewModel.getMangaOrNull()?.source ?: return@DetailsExpressiveActions)
 			},
 			onTagClick = { tag -> router.showTagDialog(tag) },
+			onTrackerClick = { index ->
+				if (index >= 0) {
+					router.showScrobblingInfoSheet(index)
+				} else {
+					// Not tracked yet: pick the entry to link, starting with the tracker the info comes from.
+					router.showScrobblingSelectorSheet(
+						manga = viewModel.getMangaOrNull() ?: return@DetailsExpressiveActions,
+						scrobblerService = trackerService(),
+					)
+				}
+			},
+			onInfoGenreClick = { name -> router.openSearch(name) },
+			onInfoMediaClick = { media -> router.openTrackerTitle(media, viewModel.getMangaOrNull()) },
 			onScrobblingMore = {
 				router.showScrobblingSelectorSheet(
 					manga = viewModel.getMangaOrNull() ?: return@DetailsExpressiveActions,
@@ -167,6 +180,10 @@ class DetailsExpressiveActivity :
 			onEpisodeClick = { chapter ->
 				val manga = viewModel.getMangaOrNull() ?: return@DetailsExpressiveActions
 				org.koitharu.kotatsu.anime.player.AnimePlayerLauncher.openEpisode(this, manga, chapter.id)
+			},
+			onEpisodesPageClick = {
+				val manga = viewModel.getMangaOrNull()
+				manga != null && org.koitharu.kotatsu.anime.player.AnimePlayerLauncher.openEpisodeList(this, manga)
 			},
 		)
 		viewBinding.composeView.setViewCompositionStrategy(
@@ -187,6 +204,7 @@ class DetailsExpressiveActivity :
 				val coverRefreshes by viewModel.coverRefreshes.collectAsState()
 				val backdropUrl by viewModel.backdropUrl.collectAsState()
 				val tags by viewModel.tags.collectAsState()
+				val trackerInfo by viewModel.trackerInfo.collectAsState()
 				val favLabel = favs.takeIf { it.isNotEmpty() }?.joinToString { it.title }
 
 				val isBackdropEnabled by rememberBooleanPref(AppSettings.KEY_DETAILS_BACKDROP, true)
@@ -214,9 +232,19 @@ class DetailsExpressiveActivity :
 					bottomContentPadding = with(density) { bottomInset.intValue.toDp() },
 					onScroll = ::onContentScroll,
 					actions = actions,
+					trackerInfo = trackerInfo,
+					trackerService = trackerService(),
 				)
 			}
 		}
+	}
+
+	/** The tracker that supplies this page's info; its status is what the squircle button shows. */
+	private fun trackerService() = when (settings.homeMetadataProvider) {
+		org.koitharu.kotatsu.home.ui.model.HomeMetadata.ANILIST -> org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerService.ANILIST
+		org.koitharu.kotatsu.home.ui.model.HomeMetadata.MAL -> org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerService.MAL
+		org.koitharu.kotatsu.home.ui.model.HomeMetadata.MANGABAKA -> org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerService.MANGABAKA
+		else -> null
 	}
 
 	private fun setupSwipeRefresh() {

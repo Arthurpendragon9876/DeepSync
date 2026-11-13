@@ -60,6 +60,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -108,6 +109,10 @@ class NovelChromeState {
 
 	var onBack: () -> Unit = {}
 	var onHighlightClick: () -> Unit = {}
+
+	/** Opens the chapter being read on the source's website in the built-in browser. */
+	var onWebClick: () -> Unit = {}
+	var canOpenWeb: () -> Boolean = { false }
 	var onChaptersClick: () -> Unit = {}
 	var onListenClick: () -> Unit = {}
 	var onSearchClick: () -> Unit = {}
@@ -287,6 +292,15 @@ private fun NovelTopBar(state: NovelChromeState) {
 								color = Bar.textSecondary,
 							)
 						}
+					}
+				}
+				if (state.canOpenWeb()) {
+					IconButton(onClick = state.onWebClick, modifier = Modifier.size(48.dp)) {
+						Icon(
+							painter = painterResource(R.drawable.ic_web),
+							contentDescription = stringResource(R.string.open_in_browser),
+							tint = Bar.textPrimary,
+						)
 					}
 				}
 				IconButton(onClick = state.onHighlightClick, modifier = Modifier.size(48.dp)) {

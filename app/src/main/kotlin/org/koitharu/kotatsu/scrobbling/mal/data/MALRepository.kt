@@ -232,6 +232,22 @@ class MALRepository @Inject constructor(
 		saveRate(response, mangaId, rateId.toLong())
 	}
 
+	override suspend fun setProgress(entry: TrackerReadingEntry, chapter: Int): Boolean {
+		val id = entry.targetId
+		val body = FormBody.Builder()
+			.add(if (id.isAnimeId()) "num_watched_episodes" else "num_chapters_read", chapter.toString())
+		if (entry.status == "PLANNING") {
+			body.add("status", if (id.isAnimeId()) "watching" else "reading")
+		}
+		val url = BASE_API_URL.toHttpUrl().newBuilder()
+			.addPathSegment(id.segment())
+			.addPathSegment(id.realId().toString())
+			.addPathSegment("my_list_status")
+			.build()
+		okHttp.newCall(Request.Builder().url(url).put(body.build()).build()).await().parseJson()
+		return true
+	}
+
 	/** `null` when the series is not on the user's list yet, in which case MAL omits `my_list_status`. */
 	private suspend fun findExistingRate(scrobblerMangaId: Long): JSONObject? {
 		val url = BASE_API_URL.toHttpUrl().newBuilder()
@@ -378,7 +394,7 @@ class MALRepository @Inject constructor(
 		val url = base
 			.addQueryParameter("limit", limit.coerceAtMost(100).toString())
 			.addQueryParameter("nsfw", (!hideAdult).toString())
-			.addQueryParameter("fields", "alternative_titles,synopsis,genres,mean,nsfw,media_type")
+			.addQueryParameter("fields", "alternative_titles,synopsis,genres,mean,nsfw,media_type,start_date")
 			.build()
 		val request = Request.Builder().url(url).header("X-MAL-CLIENT-ID", clientId).get().build()
 		val response = okHttp.newCall(request).await().parseJson()
@@ -388,24 +404,44 @@ class MALRepository @Inject constructor(
 			val mediaType = node.getStringOrNull("media_type").orEmpty()
 			// manga rankings mix novels in; keep each tab to its own kind
 			if (!anime && (mediaType in NOVEL_MEDIA_TYPES) != novel) return@mapJSONNotNull null
-			val alt = node.optJSONObject("alternative_titles")
-			val synonyms = alt?.optJSONArray("synonyms")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty()
-			val id = node.getLong("id")
-			val title = node.getString("title")
-			MetadataTitle(
-				id = id,
-				title = title,
-				names = (listOf(title, alt?.getStringOrNull("en"), alt?.getStringOrNull("ja")) + synonyms)
-					.filterNotNull().filter { it.isNotBlank() }.distinct(),
-				coverUrl = node.optJSONObject("main_picture")?.let { it.getStringOrNull("large") ?: it.getStringOrNull("medium") },
-				bannerUrl = null,
-				genres = node.optJSONArray("genres")?.let { g -> (0 until g.length()).mapNotNull { g.optJSONObject(it)?.getStringOrNull("name") } }.orEmpty(),
-				isAdult = node.optString("nsfw") == "black",
-				score = node.optDouble("mean").takeIf { !it.isNaN() && it > 0 }?.toFloat(),
-				url = "$BASE_WEB_URL/$segment/$id",
-				description = node.getStringOrNull("synopsis"),
-			)
+			metadataOf(node, segment)
 		}
+	}
+
+	/** One exact MAL entry by id, for titles already tracked on MAL. [id] may carry the anime offset. */
+	suspend fun metadataById(id: Long): MetadataTitle? {
+		val url = "$BASE_API_URL/${id.segment()}/${id.realId()}".toHttpUrl().newBuilder()
+			.addQueryParameter("fields", "alternative_titles,synopsis,genres,mean,nsfw,media_type,start_date,main_picture")
+			.build()
+		val request = Request.Builder().url(url).header("X-MAL-CLIENT-ID", clientId).get().build()
+		val node = okHttp.newCall(request).await().parseJson()
+		if (!node.has("id")) return null
+		return metadataOf(node, id.segment())
+	}
+
+	private fun metadataOf(node: JSONObject, segment: String): MetadataTitle {
+		val mediaType = node.getStringOrNull("media_type").orEmpty()
+		val alt = node.optJSONObject("alternative_titles")
+		val synonyms = alt?.optJSONArray("synonyms")?.let { a -> (0 until a.length()).map { a.optString(it) } }.orEmpty()
+		val id = node.getLong("id")
+		val title = node.getString("title")
+		val genres = node.optJSONArray("genres")?.let { g -> (0 until g.length()).mapNotNull { g.optJSONObject(it)?.getStringOrNull("name") } }.orEmpty()
+		return MetadataTitle(
+			id = id,
+			title = title,
+			names = (listOf(title, alt?.getStringOrNull("en"), alt?.getStringOrNull("ja")) + synonyms)
+				.filterNotNull().filter { it.isNotBlank() }.distinct(),
+			coverUrl = node.optJSONObject("main_picture")?.let { it.getStringOrNull("large") ?: it.getStringOrNull("medium") },
+			bannerUrl = null,
+			genres = genres,
+			isAdult = node.optString("nsfw") == "black",
+			score = node.optDouble("mean").takeIf { !it.isNaN() && it > 0 }?.toFloat(),
+			url = "$BASE_WEB_URL/$segment/$id",
+			description = node.getStringOrNull("synopsis"),
+			// MAL types: manga, manhwa, manhua, one_shot, doujinshi, novel, light_novel, oel
+			format = mediaType.ifEmpty { null },
+			year = node.getStringOrNull("start_date")?.take(4)?.toIntOrNull(),
+		)
 	}
 
 	private fun jsonToManga(json: JSONObject, sourceTitle: String, anime: Boolean = false): ScrobblerManga {

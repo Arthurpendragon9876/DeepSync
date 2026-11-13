@@ -21,6 +21,7 @@ import org.koitharu.kotatsu.parsers.util.toIntUp
 import org.koitharu.kotatsu.scrobbling.common.data.ScrobblerRepository
 import org.koitharu.kotatsu.scrobbling.common.data.ScrobblerStorage
 import org.koitharu.kotatsu.scrobbling.common.data.ScrobblingEntity
+import org.koitharu.kotatsu.scrobbling.common.domain.MetadataKinds
 import org.koitharu.kotatsu.scrobbling.common.domain.TitleMatcher
 import org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerManga
 import org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerMangaInfo
@@ -43,6 +44,22 @@ private const val REQUEST_QUERY = "query"
 private const val REQUEST_MUTATION = "mutation"
 private const val KEY_SCORE_FORMAT = "score_format"
 private const val MAX_LIBRARY_CHUNKS = 30
+private const val META_FIELDS = """
+  id
+  title { userPreferred romaji english native }
+  synonyms
+  coverImage { extraLarge large }
+  bannerImage
+  description(asHtml: false)
+  genres
+  tags { name }
+  isAdult
+  averageScore
+  siteUrl
+  format
+  countryOfOrigin
+  startDate { year }
+"""
 private fun collectionFields(anime: Boolean) = """
   lists {
     entries {
@@ -76,7 +93,25 @@ data class MetadataTitle(
 	val score: Float?,
 	val url: String,
 	val description: String? = null,
-)
+	/** The tracker's own format label (AniList MANGA/ONE_SHOT/NOVEL, MAL manga/manhwa/manhua, MangaBaka type). */
+	val format: String? = null,
+	/** ISO country of origin when the tracker says it (JP manga, KR manhwa, CN manhua, TW manhua). */
+	val country: String? = null,
+	/** Tags / themes beyond genres, e.g. "Boys' Love", used to tell same-named titles apart. */
+	val tags: List<String> = emptyList(),
+	val year: Int? = null,
+) {
+
+	/** Normalised kind: MANHWA, MANHUA, MANGA, NOVEL, ONE_SHOT or null when unknown. */
+	val kind: String?
+		get() = MetadataKinds.kindOf(format, country)
+
+	val isBoysLove: Boolean
+		get() = MetadataKinds.isBoysLove(genres + tags)
+
+	val isGirlsLove: Boolean
+		get() = MetadataKinds.isGirlsLove(genres + tags)
+}
 
 @OptIn(InternalParsersApi::class)
 @Singleton
@@ -169,6 +204,9 @@ class AniListRepository @Inject constructor(
 				names = names,
 				score = TitleMatcher.bestScore(listOf(query), names),
 				matchedName = best,
+				format = json.getStringOrNull("format"),
+				country = json.getStringOrNull("countryOfOrigin"),
+				labels = labelsOf(json),
 			)
 		}
 	}
@@ -199,11 +237,22 @@ class AniListRepository @Inject constructor(
 						medium
 					}
 					siteUrl
+					format
+					countryOfOrigin
+					genres
+					tags { name }
 				}
 			}
 		""",
 		)
 		return response.getJSONObject("data").getJSONObject("Page").getJSONArray("media")
+	}
+
+	private fun labelsOf(json: JSONObject): List<String> {
+		val out = ArrayList<String>()
+		json.optJSONArray("genres")?.let { for (i in 0 until it.length()) out += it.optString(i) }
+		json.optJSONArray("tags")?.let { for (i in 0 until it.length()) it.optJSONObject(i)?.getStringOrNull("name")?.let(out::add) }
+		return out.filter { it.isNotBlank() }
 	}
 
 	private fun namesOf(json: JSONObject): List<String> {
@@ -325,6 +374,21 @@ class AniListRepository @Inject constructor(
 			""",
 		)
 		saveRate(response.getJSONObject("data").getJSONObject("SaveMediaListEntry"), mangaId)
+	}
+
+	override suspend fun setProgress(entry: TrackerReadingEntry, chapter: Int): Boolean {
+		// Saving by media id both creates and updates, and leaves score, notes and dates alone
+		val promote = if (entry.status == "PLANNING") ", status: CURRENT" else ""
+		doRequest(
+			REQUEST_MUTATION,
+			"""
+				SaveMediaListEntry(mediaId: ${entry.targetId}, progress: $chapter$promote) {
+					id
+					progress
+				}
+			""",
+		)
+		return true
 	}
 
 	override suspend fun getMangaInfo(id: Long): ScrobblerMangaInfo {
@@ -451,34 +515,190 @@ class AniListRepository @Inject constructor(
 					id
 					title { userPreferred romaji english native }
 					synonyms
-					coverImage { extraLarge large }
-					bannerImage
-					description(asHtml: false)
-					genres
-					isAdult
-					averageScore
-					siteUrl
+					$META_FIELDS
 				}
 			}
 		""",
 		)
 		val media = response.getJSONObject("data").getJSONObject("Page").getJSONArray("media")
-		return media.mapJSON { json ->
-			val genres = json.optJSONArray("genres")?.let { arr -> (0 until arr.length()).map { arr.optString(it) } }.orEmpty()
-			val cover = json.optJSONObject("coverImage")
-			MetadataTitle(
-				id = json.getLong("id"),
-				title = json.getJSONObject("title").getString("userPreferred"),
-				names = namesOf(json),
-				coverUrl = cover?.getStringOrNull("extraLarge") ?: cover?.getStringOrNull("large"),
-				bannerUrl = json.getStringOrNull("bannerImage"),
-				description = json.getStringOrNull("description"),
-				genres = genres,
-				isAdult = json.optBoolean("isAdult"),
-				score = json.optInt("averageScore").takeIf { it > 0 }?.let { it / 10f },
-				url = json.getString("siteUrl"),
-			)
-		}.filter { t -> include.all { g -> t.genres.any { it.equals(g, ignoreCase = true) } } }
+		return media.mapJSON { json -> metadataOf(json) }
+			.filter { t -> include.all { g -> t.genres.any { it.equals(g, ignoreCase = true) } } }
+	}
+
+	/**
+	 * One exact AniList entry by id. Used when the title is already tracked here, so the cover and info
+	 * come from the entry the user actually linked rather than from whichever same-named title ranks first.
+	 */
+	suspend fun metadataById(id: Long): MetadataTitle? {
+		val response = doRequest(
+			REQUEST_QUERY,
+			"""
+			Media(id: $id) {
+				$META_FIELDS
+			}
+			""",
+		)
+		val json = response.getJSONObject("data").optJSONObject("Media") ?: return null
+		return metadataOf(json)
+	}
+
+	/**
+	 * The full AniList page of one entry: stats, titles, tags with their percentages, relations, characters,
+	 * staff and recommendations. One request, so the details screen can fill every card at once.
+	 */
+	suspend fun infoById(id: Long): MetadataInfo? {
+		val response = doRequest(
+			REQUEST_QUERY,
+			"""
+			Media(id: $id) {
+				id
+				title { userPreferred romaji english native }
+				synonyms
+				description(asHtml: false)
+				status
+				format
+				countryOfOrigin
+				chapters
+				volumes
+				episodes
+				duration
+				season
+				seasonYear
+				startDate { year }
+				source
+				averageScore
+				popularity
+				siteUrl
+				genres
+				tags { name rank isMediaSpoiler }
+				studios(isMain: true) { nodes { name } }
+				nextAiringEpisode { episode airingAt }
+				relations {
+					edges {
+						relationType
+						node { id type format title { userPreferred } coverImage { large } bannerImage }
+					}
+				}
+				characters(sort: [ROLE, FAVOURITES_DESC], perPage: 25) {
+					edges {
+						role
+						node { id name { userPreferred } image { large } favourites }
+					}
+				}
+				staff(sort: RELEVANCE, perPage: 25) {
+					edges {
+						role
+						node { id name { userPreferred } image { large } }
+					}
+				}
+				recommendations(sort: RATING_DESC, perPage: 20) {
+					nodes {
+						mediaRecommendation {
+							id type format averageScore
+							title { userPreferred }
+							coverImage { large }
+						}
+					}
+				}
+			}
+			""",
+		)
+		val json = response.getJSONObject("data").optJSONObject("Media") ?: return null
+		val title = json.getJSONObject("title")
+		fun strings(key: String) = json.optJSONArray(key)?.let { arr ->
+			(0 until arr.length()).map { arr.optString(it) }.filter { it.isNotBlank() }
+		}.orEmpty()
+		fun JSONObject.mediaOf(relation: String?) = InfoMedia(
+			id = getLong("id"),
+			title = optJSONObject("title")?.getStringOrNull("userPreferred").orEmpty(),
+			coverUrl = optJSONObject("coverImage")?.getStringOrNull("large"),
+			bannerUrl = getStringOrNull("bannerImage"),
+			type = getStringOrNull("type"),
+			format = getStringOrNull("format"),
+			relation = relation,
+			score = optInt("averageScore").takeIf { it > 0 }?.let { it / 10f },
+		)
+		fun JSONObject.personOf(role: String?) = InfoPerson(
+			id = getLong("id"),
+			name = optJSONObject("name")?.getStringOrNull("userPreferred").orEmpty(),
+			imageUrl = optJSONObject("image")?.getStringOrNull("large"),
+			role = role,
+			favourites = optInt("favourites").takeIf { it > 0 },
+		)
+		val tags = json.optJSONArray("tags")?.mapJSON { t ->
+			if (t.optBoolean("isMediaSpoiler")) null else t.getStringOrNull("name")?.let { InfoTag(it, t.optInt("rank")) }
+		}?.filterNotNull().orEmpty().sortedByDescending { it.rank }
+		val relations = json.optJSONObject("relations")?.optJSONArray("edges")?.mapJSON { e ->
+			e.optJSONObject("node")?.mediaOf(e.getStringOrNull("relationType"))
+		}?.filterNotNull().orEmpty()
+		val characters = json.optJSONObject("characters")?.optJSONArray("edges")?.mapJSON { e ->
+			e.optJSONObject("node")?.personOf(e.getStringOrNull("role"))
+		}?.filterNotNull().orEmpty()
+		val staff = json.optJSONObject("staff")?.optJSONArray("edges")?.mapJSON { e ->
+			e.optJSONObject("node")?.personOf(e.getStringOrNull("role"))
+		}?.filterNotNull().orEmpty()
+		val recs = json.optJSONObject("recommendations")?.optJSONArray("nodes")?.mapJSON { n ->
+			n.optJSONObject("mediaRecommendation")?.mediaOf(null)
+		}?.filterNotNull().orEmpty()
+		val studios = json.optJSONObject("studios")?.optJSONArray("nodes")?.mapJSON { it.getStringOrNull("name") }
+			?.filterNotNull().orEmpty()
+		val airing = json.optJSONObject("nextAiringEpisode")
+		return MetadataInfo(
+			id = json.getLong("id"),
+			title = title.getStringOrNull("userPreferred").orEmpty(),
+			romaji = title.getStringOrNull("romaji"),
+			english = title.getStringOrNull("english"),
+			native = title.getStringOrNull("native"),
+			synonyms = strings("synonyms"),
+			description = json.getStringOrNull("description"),
+			status = json.getStringOrNull("status"),
+			format = json.getStringOrNull("format"),
+			country = json.getStringOrNull("countryOfOrigin"),
+			chapters = json.optInt("chapters").takeIf { it > 0 },
+			volumes = json.optInt("volumes").takeIf { it > 0 },
+			episodes = json.optInt("episodes").takeIf { it > 0 },
+			duration = json.optInt("duration").takeIf { it > 0 },
+			season = json.getStringOrNull("season"),
+			year = json.optInt("seasonYear").takeIf { it > 0 }
+				?: json.optJSONObject("startDate")?.optInt("year")?.takeIf { it > 0 },
+			source = json.getStringOrNull("source"),
+			score = json.optInt("averageScore").takeIf { it > 0 }?.let { it / 10f },
+			popularity = json.optInt("popularity").takeIf { it > 0 },
+			studios = studios,
+			genres = strings("genres"),
+			tags = tags,
+			relations = relations,
+			characters = characters,
+			staff = staff,
+			recommendations = recs,
+			nextEpisode = airing?.optInt("episode")?.takeIf { it > 0 },
+			nextAiringAt = airing?.optLong("airingAt")?.takeIf { it > 0 },
+			url = json.getString("siteUrl"),
+		)
+	}
+
+	private fun metadataOf(json: JSONObject): MetadataTitle {
+		val genres = json.optJSONArray("genres")?.let { arr -> (0 until arr.length()).map { arr.optString(it) } }.orEmpty()
+		val tags = json.optJSONArray("tags")?.let { arr ->
+			(0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.getStringOrNull("name") }
+		}.orEmpty()
+		val cover = json.optJSONObject("coverImage")
+		return MetadataTitle(
+			id = json.getLong("id"),
+			title = json.getJSONObject("title").getString("userPreferred"),
+			names = namesOf(json),
+			coverUrl = cover?.getStringOrNull("extraLarge") ?: cover?.getStringOrNull("large"),
+			bannerUrl = json.getStringOrNull("bannerImage"),
+			description = json.getStringOrNull("description"),
+			genres = genres,
+			isAdult = json.optBoolean("isAdult"),
+			score = json.optInt("averageScore").takeIf { it > 0 }?.let { it / 10f },
+			url = json.getString("siteUrl"),
+			format = json.getStringOrNull("format"),
+			country = json.getStringOrNull("countryOfOrigin"),
+			tags = tags,
+			year = json.optJSONObject("startDate")?.optInt("year")?.takeIf { it > 0 },
+		)
 	}
 
 	private suspend fun saveRate(json: JSONObject, mangaId: Long): ScrobblingEntity {

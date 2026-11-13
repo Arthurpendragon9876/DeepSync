@@ -17,7 +17,7 @@ import org.koitharu.kotatsu.parsers.model.MangaChapter
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
-/** Entry points for starting playback, plus the "always use VLC" preference. */
+/** Entry points for starting playback (watch page, direct landscape or VLC), plus the "always use VLC" preference. */
 object AnimePlayerLauncher {
 
 	private const val PREFS = "deepsync_anime"
@@ -31,11 +31,43 @@ object AnimePlayerLauncher {
 		context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_VLC, value).apply()
 	}
 
-	/** Opens the stream chooser (outside the player) for [chapterId]; -1 resumes from history. */
-	fun openEpisode(context: Context, manga: Manga, chapterId: Long = -1L) {
-		val intent = Intent(context, AnimeStreamPickerActivity::class.java)
-			.putExtra(AppRouter.KEY_MANGA, ParcelableManga(manga, withDescription = false))
-			.putExtra(AnimeStreamPickerActivity.EXTRA_CHAPTER_ID, chapterId)
+	/**
+	 * Opens [chapterId] (-1 resumes from history). Normally that is the watch page, where the player resolves and
+	 * auto-picks the stream itself; with "Direct landscape" on it goes straight to fullscreen. Only "always open in
+	 * VLC" still needs the stream chosen outside the player first.
+	 */
+	fun openEpisode(context: Context, manga: Manga, chapterId: Long = -1L, incognito: Boolean = false) {
+		// Carried for the whole session: the player and every next episode honour it
+		AnimePlaybackSession.incognito = incognito
+		if (isVlcDefault(context)) {
+			val intent = Intent(context, AnimeStreamPickerActivity::class.java)
+				.putExtra(AppRouter.KEY_MANGA, ParcelableManga(manga, withDescription = false))
+				.putExtra(AnimeStreamPickerActivity.EXTRA_CHAPTER_ID, chapterId)
+			if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+			context.startActivity(intent)
+			return
+		}
+		startPlayer(context, manga, chapterId, waiting = false, fullscreen = AnimePlayerPrefs.isDirectLandscape(context))
+	}
+
+	/**
+	 * The "N episodes" pill: opens the watch page with no episode picked, waiting for the user to choose one.
+	 * Returns false when the watch page is not in use (Direct landscape, or VLC as default) so the caller can
+	 * fall back to its own episode list.
+	 */
+	fun openEpisodeList(context: Context, manga: Manga, incognito: Boolean = false): Boolean {
+		if (isVlcDefault(context) || AnimePlayerPrefs.isDirectLandscape(context)) return false
+		AnimePlaybackSession.incognito = incognito
+		startPlayer(context, manga, -1L, waiting = true, fullscreen = false)
+		return true
+	}
+
+	private fun startPlayer(context: Context, manga: Manga, chapterId: Long, waiting: Boolean, fullscreen: Boolean) {
+		val intent = Intent(context, AnimePlayerActivity::class.java)
+			.putExtra(AppRouter.KEY_MANGA, ParcelableManga(manga, withDescription = true))
+			.putExtra(AnimePlayerActivity.EXTRA_CHAPTER_ID, chapterId)
+			.putExtra(AnimePlayerActivity.EXTRA_WAITING, waiting)
+			.putExtra(AnimePlayerActivity.EXTRA_FULLSCREEN, fullscreen)
 		if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 		context.startActivity(intent)
 	}

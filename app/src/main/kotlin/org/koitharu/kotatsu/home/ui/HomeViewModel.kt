@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -31,6 +32,7 @@ import org.koitharu.kotatsu.explore.domain.ExploreRepository
 import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
 import org.koitharu.kotatsu.history.data.HistoryRepository
 import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isNsfw
 import org.koitharu.kotatsu.core.parser.MangaRepository
 import org.koitharu.kotatsu.home.ui.model.HeroItem
 import org.koitharu.kotatsu.home.ui.model.HomeBannerStyle
@@ -39,6 +41,7 @@ import org.koitharu.kotatsu.home.ui.model.HomeMetadata
 import org.koitharu.kotatsu.home.ui.model.HomeMode
 import org.koitharu.kotatsu.home.ui.model.HomePoster
 import org.koitharu.kotatsu.home.ui.model.HomeRow
+import org.koitharu.kotatsu.home.ui.model.HomeCarousel
 import org.koitharu.kotatsu.home.ui.model.HomeRowKind
 import org.koitharu.kotatsu.home.ui.model.HomeSectionState
 import org.koitharu.kotatsu.home.ui.model.HomeUiState
@@ -46,9 +49,11 @@ import org.koitharu.kotatsu.list.domain.ListFilterOption
 import org.koitharu.kotatsu.list.domain.ListSortOrder
 import org.koitharu.kotatsu.list.domain.MangaListMapper
 import org.koitharu.kotatsu.parsers.model.Manga
+import org.koitharu.kotatsu.parsers.util.runCatchingCancellable
 import org.koitharu.kotatsu.scrobbling.anilist.data.AniListRepository
 import org.koitharu.kotatsu.scrobbling.common.domain.LinkTrackerEntryUseCase
 import org.koitharu.kotatsu.scrobbling.common.domain.Scrobbler
+import org.koitharu.kotatsu.scrobbling.common.domain.TrackerSynchronizer
 import org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerService
 import org.koitharu.kotatsu.scrobbling.common.domain.model.TrackerReadingEntry
 import org.koitharu.kotatsu.suggestions.ui.SuggestionsWorker
@@ -80,6 +85,7 @@ class HomeViewModel @Inject constructor(
 	private val exploreRepository: ExploreRepository,
 	private val sourcesRepository: MangaSourcesRepository,
 	private val aniListRepository: AniListRepository,
+	private val trackerSynchronizer: TrackerSynchronizer,
 	private val linkTrackerEntry: LinkTrackerEntryUseCase,
 	private val favouritesRepository: FavouritesRepository,
 	private val metadataRepository: org.koitharu.kotatsu.metadata.MetadataRepository,
@@ -95,6 +101,10 @@ class HomeViewModel @Inject constructor(
 	val onChooseSource = MutableEventFlow<SourceRequest>()
 
 	data class SourceRequest(val query: String, val mode: HomeMode, val metaKey: String?)
+
+	/** True when covers and info come from the tracker, so a tracker title opens its page before any source is found. */
+	val opensTrackerFirst: Boolean
+		get() = settings.isMetadataFromTracker
 
 	private val config: StateFlow<HomeConfig> = homeConfigFlow()
 		.stateIn(viewModelScope + Dispatchers.Default, SharingStarted.Eagerly, readConfig())
@@ -129,8 +139,12 @@ class HomeViewModel @Inject constructor(
 		@Suppress("UNCHECKED_CAST")
 		val favourites = values[7] as List<HomeRow>
 
-		val hero: HomeSectionState<HeroItem> = when (trending) {
-			is HomeSectionState.Content -> HomeSectionState.Content(trending.items.take(HERO_SIZE))
+		val bannerOn = cfg.shows(HomeCarousel.BANNER)
+		// Remember what the banner shows so the Home layout preview can draw it with the same covers
+		if (trending is HomeSectionState.Content) saveHeroSnapshot(trending.items.take(HERO_SIZE))
+		val hero: HomeSectionState<HeroItem> = when {
+			!bannerOn -> HomeSectionState.Hidden
+			trending is HomeSectionState.Content -> HomeSectionState.Content(trending.items.take(HERO_SIZE))
 			else -> trending
 		}
 		val trendingRow = HomeRow(
@@ -139,7 +153,7 @@ class HomeViewModel @Inject constructor(
 			titleRes = R.string.trending,
 			state = when (trending) {
 				// The hero already shows the first few; the row carries on from there.
-				is HomeSectionState.Content -> trending.items.drop(HERO_SIZE).ifEmpty { trending.items }
+				is HomeSectionState.Content -> trending.items.drop(if (bannerOn) HERO_SIZE else 0).ifEmpty { trending.items }
 					.map { it.toPoster() }
 					.let { HomeSectionState.Content(it) }
 
@@ -159,7 +173,9 @@ class HomeViewModel @Inject constructor(
 				add(recent)
 				add(trendingRow)
 				add(popular)
-			}.filter { it.state !is HomeSectionState.Hidden },
+			}.filter { it.state !is HomeSectionState.Hidden }
+				// Carousels switched off in Yugen preferences > Home layout
+				.filter { row -> HomeCarousel.forRowId(row.id)?.let(cfg::shows) ?: true },
 		)
 	}.stateIn(viewModelScope + Dispatchers.Default, SharingStarted.Eagerly, HomeUiState())
 
@@ -169,6 +185,15 @@ class HomeViewModel @Inject constructor(
 		if (settings.homeMode != mode) settings.homeMode = mode
 	}
 
+	private var lastSnapshotKeys: List<String> = emptyList()
+
+	private fun saveHeroSnapshot(items: List<HeroItem>) {
+		val keys = items.map { it.key }
+		if (keys == lastSnapshotKeys) return
+		lastSnapshotKeys = keys
+		settings.homeHeroSnapshot = org.koitharu.kotatsu.home.ui.model.HeroSnapshot.encode(items)
+	}
+
 	fun setBannerStyle(style: HomeBannerStyle) {
 		settings.homeBannerStyle = style
 	}
@@ -176,6 +201,25 @@ class HomeViewModel @Inject constructor(
 	fun setBannerAutoRotate(enabled: Boolean) {
 		settings.isHomeBannerAutoRotate = enabled
 	}
+
+	fun setCarouselEnabled(carousel: HomeCarousel, enabled: Boolean) {
+		val hidden = settings.homeHiddenCarousels
+		settings.homeHiddenCarousels = if (enabled) hidden - carousel.key else hidden + carousel.key
+	}
+
+	fun isIncognito(): Boolean = settings.isIncognitoModeEnabled
+
+	fun setIncognito(enabled: Boolean) {
+		settings.isIncognitoModeEnabled = enabled
+	}
+
+	fun customCarouselCategories(): Set<Long> = settings.homeFavCategories
+
+	fun setCustomCarouselCategories(ids: Set<Long>) {
+		settings.homeFavCategories = ids
+	}
+
+	suspend fun favouriteCategories() = favouritesRepository.observeCategories().first()
 
 	fun setMetadata(metadata: HomeMetadata) {
 		settings.homeMetadata = metadata
@@ -193,6 +237,13 @@ class HomeViewModel @Inject constructor(
 
 	fun setSourceCatalogue(enabled: Boolean) {
 		settings.isHomeSourceCatalogue = enabled
+	}
+
+	fun isMetadataFromTracker() = settings.isMetadataFromTracker
+
+	/** Covers and info on a title's page: the tracker's (true) or the source's (false). */
+	fun setMetadataFromTracker(enabled: Boolean) {
+		settings.isMetadataFromTracker = enabled
 	}
 
 	/**
@@ -213,6 +264,18 @@ class HomeViewModel @Inject constructor(
 
 	fun setSources(names: Set<String>) {
 		settings.setHomeSources(settings.homeMode, names)
+	}
+
+	/** NSFW mode on shows everything; off hides 18+ sources (mixed sources stay) everywhere in the app. */
+	fun isNsfwMode(): Boolean = !settings.isNsfwContentDisabled
+
+	fun setNsfwMode(enabled: Boolean) {
+		settings.contentFilter = when {
+			enabled -> org.koitharu.kotatsu.core.model.ContentWarning.NSFW
+			settings.contentFilter == org.koitharu.kotatsu.core.model.ContentWarning.NSFW ->
+				org.koitharu.kotatsu.core.model.ContentWarning.MIXED
+			else -> settings.contentFilter
+		}
 	}
 
 	fun setFilters(include: Set<String>, exclude: Set<String>, hideNsfw: Boolean) {
@@ -286,9 +349,11 @@ class HomeViewModel @Inject constructor(
 			sourceNames = settings.getHomeSources(mode),
 			include = settings.homeGenresInclude,
 			exclude = settings.homeGenresExclude,
-			hideNsfw = settings.isHomeHideNsfw,
+			// NSFW mode is global now: off hides 18+ sources and adult titles everywhere, Home included
+			hideNsfw = settings.isNsfwContentDisabled,
 			banner = settings.homeBannerStyle,
 			autoRotate = settings.isHomeBannerAutoRotate,
+			hiddenCarousels = settings.homeHiddenCarousels,
 		)
 	}
 
@@ -307,8 +372,10 @@ class HomeViewModel @Inject constructor(
 				pref(AppSettings.KEY_HOME_GENRES_INCLUDE) { homeGenresInclude },
 				pref(AppSettings.KEY_HOME_GENRES_EXCLUDE) { homeGenresExclude },
 				pref(AppSettings.KEY_HOME_HIDE_NSFW) { isHomeHideNsfw },
+				pref(AppSettings.KEY_CONTENT_FILTER) { contentFilter },
 				pref(AppSettings.KEY_HOME_BANNER_STYLE) { homeBannerStyle },
 				pref(AppSettings.KEY_HOME_BANNER_ROTATE) { isHomeBannerAutoRotate },
+				pref(AppSettings.KEY_HOME_HIDDEN_CAROUSELS) { homeHiddenCarousels },
 			),
 		) { readConfig() }.distinctUntilChanged()
 	}
@@ -346,9 +413,10 @@ class HomeViewModel @Inject constructor(
 						// Re-map when reading progress changes so the counts stay truthful.
 						historyRepository.observeAll(),
 						modeFlow(),
-					) { log, _, mode ->
+						config,
+					) { log, _, mode, cfg ->
 						val items = log.map { mangaListMapper.toFeedItem(it) }
-							.filter { it.isNew && it.manga.source.contentMode == mode }
+							.filter { it.isNew && it.manga.source.contentMode == mode && it.manga.passesFilters(cfg) }
 							.distinctBy { it.manga.id }
 						HomeRow(
 							id = "updates",
@@ -369,15 +437,60 @@ class HomeViewModel @Inject constructor(
 	private fun trackerRows(): Flow<List<HomeRow>> {
 		val ordered = scrobblers.sortedBy { TRACKER_ORDER.indexOf(it.scrobblerService).let { i -> if (i < 0) 99 else i } }
 		if (ordered.isEmpty()) return flowOf(emptyList())
-		return combine(ordered.map(::trackerRow)) { rows -> rows.toList() }
+		// The merged "Sync library" row leads; the per-tracker rows only show while it is not available
+		return combine(listOf(syncRow()) + ordered.map(::trackerRow)) { rows -> rows.toList() }
 	}
+
+	/**
+	 * What the user is reading across every signed-in tracker, one poster per title however many trackers
+	 * have it. Only shown with two or more trackers; "See all" opens the whole Sync Library.
+	 */
+	/** False once "Sync library" is switched off: the per-tracker rows then show even with two or more trackers. */
+	private fun syncShownFlow(): Flow<Boolean> =
+		settings.observeAsFlow(AppSettings.KEY_HOME_HIDDEN_CAROUSELS) { HomeCarousel.SYNC.key !in homeHiddenCarousels }
+			.distinctUntilChanged()
+
+	private fun syncRow(): Flow<HomeRow> =
+		combine(refreshTick, modeFlow(), syncShownFlow()) { _, mode, shown -> mode to shown }.flatMapLatest { (mode, shown) ->
+			flow {
+				if (!shown || !trackerSynchronizer.canSync) {
+					emit(syncRowOf(HomeSectionState.Hidden))
+					return@flow
+				}
+				emit(syncRowOf(HomeSectionState.Loading))
+				val merged = runCatchingCancellable {
+					trackerSynchronizer.loadReading(mode == HomeMode.ANIME, mode == HomeMode.NOVEL, TRACKER_LIST_SIZE)
+				}.getOrNull()
+				if (merged == null || merged.entries.isEmpty()) {
+					emit(syncRowOf(HomeSectionState.Hidden))
+				} else {
+					emit(
+						syncRowOf(
+							HomeSectionState.Content(
+								merged.entries.map { it.asReadingEntry().toPoster(merged.localMangaId(it)) },
+							),
+						),
+					)
+				}
+			}
+		}
+
+	private fun syncRowOf(state: HomeSectionState<HomePoster>) = HomeRow(
+		id = "tracker_sync",
+		kind = HomeRowKind.SYNC,
+		titleRes = R.string.ds_sync_library,
+		state = state,
+	)
 
 	private fun trackerRow(scrobbler: Scrobbler): Flow<HomeRow> {
 		val service = scrobbler.scrobblerService
 		val id = "tracker_${service.id}"
-		return combine(refreshTick, modeFlow()) { _, mode -> mode }.flatMapLatest { mode ->
+		return combine(refreshTick, modeFlow(), syncShownFlow()) { _, mode, shown -> mode to shown }.flatMapLatest { (mode, syncShown) ->
 			flow {
-				if (!scrobbler.isEnabled) {
+				// With two or more trackers the Sync library row already holds every title, so a row per
+				// tracker would only repeat it; Sync library has a tracker filter for telling them apart.
+				// If the user switched Sync library off, the per-tracker rows take its place.
+				if (!scrobbler.isEnabled || (trackerSynchronizer.canSync && syncShown)) {
 					emit(trackerRowOf(id, service, HomeSectionState.Hidden))
 					return@flow
 				}
@@ -416,10 +529,19 @@ class HomeViewModel @Inject constructor(
 
 	// ---- Local history, used when no tracker is signed in ----------------------------------
 
+	/** The Home genre filters and NSFW mode, applied to rows that come from the user's own titles. */
+	private fun Manga.passesFilters(cfg: HomeConfig): Boolean {
+		val names = tags.map { it.title }
+		if (cfg.include.isNotEmpty() && !cfg.include.all { g -> names.any { it.equals(g, ignoreCase = true) } }) return false
+		if (cfg.exclude.any { g -> names.any { it.equals(g, ignoreCase = true) } }) return false
+		return !(cfg.hideNsfw && isNsfw())
+	}
+
 	private fun localContinueRow(): Flow<HomeRow> = combine(
-		historyRepository.observeAll(LOCAL_CONTINUE_SIZE * 2),
+		historyRepository.observeAll(LOCAL_CONTINUE_SIZE * 4),
 		modeFlow(),
-	) { all, mode -> all.filter { it.source.contentMode == mode }.take(LOCAL_CONTINUE_SIZE) }
+		config,
+	) { all, mode, cfg -> all.filter { it.source.contentMode == mode && it.passesFilters(cfg) }.take(LOCAL_CONTINUE_SIZE) }
 		.map { list ->
 			HomeRow(
 				id = "local",
@@ -552,7 +674,9 @@ class HomeViewModel @Inject constructor(
 			val posters = fromMeta.ifEmpty { load().map { it.toPoster() } }
 			emit(
 				HomeRow(
-					id, kind, titleRes,
+					id, kind,
+					// Anime has its own wording: what just aired is "New episodes"
+					if (kind == HomeRowKind.RECENT && cfg.mode == HomeMode.ANIME) R.string.home_new_episodes_row else titleRes,
 					state = if (posters.isEmpty()) HomeSectionState.Hidden else HomeSectionState.Content(posters),
 				),
 			)

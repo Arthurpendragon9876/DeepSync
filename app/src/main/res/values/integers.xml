@@ -5,5 +5,5 @@
 	<integer name="config_shorterAnimTime">150</integer>
 	<integer name="manga_badge_max_character_count">3</integer>
 
-	<integer name="splash_screen_duration">450</integer>
+	<integer name="splash_screen_duration">0</integer>
 </resources>

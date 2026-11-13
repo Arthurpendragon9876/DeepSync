@@ -758,6 +758,14 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		get() = prefs.getEnumValue(KEY_HOME_BANNER_STYLE, HomeBannerStyle.PANELS)
 		set(value) = prefs.edit { putEnumValue(KEY_HOME_BANNER_STYLE, value) }
 
+	/**
+	 * The titles Home's banner showed last (JSON), kept so Settings > Home layout can draw the real banner
+	 * with real covers. Written by the Home screen, read by the layout preview.
+	 */
+	var homeHeroSnapshot: String?
+		get() = prefs.getString(KEY_HOME_HERO_SNAPSHOT, null)
+		set(value) = prefs.edit { putString(KEY_HOME_HERO_SNAPSHOT, value) }
+
 	var isHomeBannerAutoRotate: Boolean
 		get() = prefs.getBoolean(KEY_HOME_BANNER_ROTATE, true)
 		set(value) = prefs.edit { putBoolean(KEY_HOME_BANNER_ROTATE, value) }
@@ -800,6 +808,19 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 			}
 		}
 
+	/**
+	 * Where covers and info on a title's page come from: the tracker (true) or the source (false). A title
+	 * that is tracked uses the tracker it is tracked on; others are matched on the chosen tracker.
+	 * Until the user decides, it follows the old behaviour: the tracker, unless the source catalogue was on.
+	 */
+	var isMetadataFromTracker: Boolean
+		get() = if (prefs.contains(KEY_METADATA_FROM_TRACKER)) {
+			prefs.getBoolean(KEY_METADATA_FROM_TRACKER, true)
+		} else {
+			!isHomeSourceCatalogue
+		}
+		set(value) = prefs.edit { putBoolean(KEY_METADATA_FROM_TRACKER, value) }
+
 	/** Source names Home reads from in [mode]. Empty means every enabled source of that kind. */
 	fun getHomeSources(mode: HomeMode): Set<String> =
 		prefs.getStringSet(homeSourcesKey(mode), emptySet()).orEmpty().toSet()
@@ -826,9 +847,24 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		get() = prefs.getStringSet(KEY_HOME_FAV_CATEGORIES, emptySet()).orEmpty().mapNotNullToSet { it.toLongOrNull() }
 		set(value) = prefs.edit { putStringSet(KEY_HOME_FAV_CATEGORIES, value.mapToSet { it.toString() }) }
 
-	/** Ask "track this title?" when a chapter of an untracked title is opened. */
+	/**
+	 * Home carousels the user switched off, by [org.koitharu.kotatsu.home.ui.model.HomeCarousel.key].
+	 * Empty means every carousel is on, which is also what a fresh install gets.
+	 */
+	var homeHiddenCarousels: Set<String>
+		get() = prefs.getStringSet(KEY_HOME_HIDDEN_CAROUSELS, emptySet()).orEmpty().toSet()
+		set(value) = prefs.edit { putStringSet(KEY_HOME_HIDDEN_CAROUSELS, value) }
+
+	/**
+	 * The three ways an untracked title gets tracked are mutually exclusive: ask, link the closest match
+	 * silently, or link exact titles silently. The settings screen keeps them exclusive when toggled, but
+	 * older installs can have several stored as on, so the getters resolve that: closest match wins over
+	 * ask, and ask wins over exact-title linking.
+	 *
+	 * Ask "track this title?" when a chapter of an untracked title is opened.
+	 */
 	val isScrobblingAskEnabled: Boolean
-		get() = prefs.getBoolean(KEY_SCROBBLING_ASK, true)
+		get() = prefs.getBoolean(KEY_SCROBBLING_ASK, true) && !prefs.getBoolean(KEY_SCROBBLING_AUTO_TRACK_BEST, false)
 
 	/**
 	 * Link every new title to the closest match on the tracker without asking. While on, the "Save progress?"
@@ -1115,6 +1151,10 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 	val isReaderBarEnabled: Boolean
 		get() = prefs.getBoolean(KEY_READER_BAR, true)
 
+	/** Whether long-pressing a tap-grid area runs its long-press action (page save/share/copy etc.). */
+	val isReaderLongPressEnabled: Boolean
+		get() = prefs.getBoolean(KEY_READER_LONG_PRESS, true)
+
 	val isReaderKeepScreenOn: Boolean
 		get() = prefs.getBoolean(KEY_READER_SCREEN_ON, true)
 
@@ -1226,10 +1266,21 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 
 	/** Link every manga that is read to each signed-in tracker automatically (exact title matches only). */
 	val isScrobblingAutoLinkEnabled: Boolean
-		get() = prefs.getBoolean(KEY_SCROBBLING_AUTO_LINK, true)
+		get() = prefs.getBoolean(KEY_SCROBBLING_AUTO_LINK, true) &&
+			!prefs.getBoolean(KEY_SCROBBLING_AUTO_TRACK_BEST, false) &&
+			!prefs.getBoolean(KEY_SCROBBLING_ASK, true)
 
 	val isScrobblingProgressSyncEnabled: Boolean
 		get() = prefs.getBoolean(KEY_SCROBBLING_PROGRESS_SYNC, true)
+
+	/** Keep progress in step between the signed-in trackers on a schedule (the furthest one wins). */
+	val isTrackerAutoSyncEnabled: Boolean
+		get() = prefs.getBoolean(KEY_TRACKER_AUTO_SYNC, true)
+
+	/** Epoch millis of the last finished tracker synchronisation, 0 if there has not been one. */
+	var trackerLastSync: Long
+		get() = prefs.getLong(KEY_TRACKER_LAST_SYNC, 0L)
+		set(value) = prefs.edit { putLong(KEY_TRACKER_LAST_SYNC, value) }
 
 	val isWebtoonZoomEnabled: Boolean
 		get() = prefs.getBoolean(KEY_WEBTOON_ZOOM, true)
@@ -1611,6 +1662,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_CHAPTER_JUMP_DIALOG = "chapter_jump_dialog"
 		const val KEY_READER_BACKGROUND = "reader_background"
 		const val KEY_READER_SCREEN_ON = "reader_screen_on"
+		const val KEY_READER_LONG_PRESS = "reader_long_press_actions"
 		const val KEY_SHORTCUTS = "dynamic_shortcuts"
 		const val KEY_READER_OPTIMIZE = "reader_optimize"
 		const val KEY_READER_UPSCALE = "reader_upscale"
@@ -1692,6 +1744,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_HOME_MODE = "home_mode"
 		const val KEY_HOME_BANNER_STYLE = "home_banner_style"
 		const val KEY_HOME_BANNER_ROTATE = "home_banner_rotate"
+		const val KEY_HOME_HERO_SNAPSHOT = "home_hero_snapshot"
 		const val KEY_HOME_METADATA = "home_metadata"
 		const val KEY_HOME_PROVIDER = "home_metadata_provider"
 		const val KEY_HOME_CATALOGUE = "home_source_catalogue"
@@ -1701,8 +1754,12 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_HOME_GENRES_INCLUDE = "home_genres_include"
 		const val KEY_HOME_GENRES_EXCLUDE = "home_genres_exclude"
 		const val KEY_HOME_HIDE_NSFW = "home_hide_nsfw"
+		const val KEY_METADATA_FROM_TRACKER = "metadata_from_tracker"
 		const val KEY_HOME_FAV_CATEGORIES = "home_fav_categories"
+		const val KEY_HOME_HIDDEN_CAROUSELS = "home_hidden_carousels"
 		const val KEY_SCROBBLING_ASK = "scrobbling_ask"
+		const val KEY_TRACKER_AUTO_SYNC = "tracker_auto_sync"
+		const val KEY_TRACKER_LAST_SYNC = "tracker_last_sync"
 		const val KEY_SCROBBLING_AUTO_TRACK_BEST = "scrobbling_auto_track_best"
 		const val KEY_SCROBBLING_NEVER_ASK = "scrobbling_never_ask"
 
@@ -1771,6 +1828,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 			KEY_DISCORD_TOKEN,
 			KEY_EXTENSION_UPDATES_AVAILABLE,
 			KEY_LAST_EXTENSION_UPDATE_NOTIFICATION_TIME,
+			KEY_TRACKER_LAST_SYNC,
 			KEY_MIHON_REPO_INFOS,
 			KEY_EXTENSION_STORE_REGISTRY, // synced store by store instead (SyncedStores)
 			KEY_EXTENSION_STORE_MIGRATED,

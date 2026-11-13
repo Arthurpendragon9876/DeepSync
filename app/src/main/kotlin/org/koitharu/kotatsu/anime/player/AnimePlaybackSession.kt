@@ -17,6 +17,9 @@ object AnimePlaybackSession {
 	@Volatile var streams: List<AnimeStream> = emptyList()
 	@Volatile var streamIndex: Int = 0
 
+	/** Incognito watching: nothing is saved - no history, no resume position, no tracker update. */
+	@Volatile var incognito: Boolean = false
+
 	fun begin(manga: Manga, chapters: List<MangaChapter>, index: Int, streams: List<AnimeStream>, streamIndex: Int) {
 		this.manga = manga
 		this.chapters = chapters

@@ -15,6 +15,8 @@ import org.koitharu.kotatsu.core.parser.MangaRepository
 import org.koitharu.kotatsu.core.util.ext.findKeyByValue
 import org.koitharu.kotatsu.core.util.ext.printStackTraceDebug
 import org.koitharu.kotatsu.core.util.ext.sanitize
+import org.koitharu.kotatsu.metadata.MetadataMatcher
+import org.koitharu.kotatsu.metadata.SourceProfile
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.util.findById
 import org.koitharu.kotatsu.parsers.util.runCatchingCancellable
@@ -129,6 +131,39 @@ abstract class Scrobbler(
 		updateScrobblingInfo(manga.id, entity.rating, ScrobblingStatus.PLANNED, entity.comment)
 	}
 
+	/**
+	 * Sets how far along the tracker says this title is, from the progress editor. A title still marked
+	 * "planned" becomes "reading" once it has progress; any other status is left as the user set it.
+	 */
+	suspend fun setProgress(mangaId: Long, chapter: Int) {
+		val entity = db.getScrobblingDao().find(scrobblerService.id, mangaId) ?: return
+		val value = chapter.coerceAtLeast(0)
+		repository.updateRate(entity.id, entity.mangaId, value)
+		if (value > 0 && isNotStarted(entity.status)) {
+			updateScrobblingInfo(mangaId, entity.rating, ScrobblingStatus.READING, entity.comment)
+		}
+	}
+
+	/**
+	 * Takes the tracker to "completed": status COMPLETED and progress at the end of the series, which is the
+	 * title's own length when the tracker knows it and the last chapter's number otherwise. Used when a title is
+	 * marked as completed. Does nothing when the title is not tracked here.
+	 */
+	suspend fun markCompleted(manga: Manga, lastChapterId: Long) {
+		val entity = db.getScrobblingDao().find(scrobblerService.id, manga.id) ?: return
+		val chapters = manga.chapters.orEmpty()
+		val last = chapters.findById(lastChapterId)
+		val lastNumber = when {
+			last == null -> 0
+			last.number > 0f -> last.number.toInt()
+			else -> chapters.filter { it.branch == last.branch }.indexOf(last) + 1
+		}
+		val total = runCatchingCancellable { getMangaInfo(entity.targetId).totalChapters }.getOrDefault(0)
+		val progress = if (total > 0) total else lastNumber
+		if (progress > 0) repository.updateRate(entity.id, entity.mangaId, progress)
+		updateScrobblingInfo(manga.id, entity.rating, ScrobblingStatus.COMPLETED, entity.comment)
+	}
+
 	/** What this account is reading right now, straight from the tracker. Empty on any failure. */
 	suspend fun getReadingList(limit: Int, anime: Boolean = false): List<TrackerReadingEntry> {
 		if (!isEnabled) return emptyList()
@@ -140,13 +175,47 @@ abstract class Scrobbler(
 	}
 
 	/** The whole account, every status. Empty on any failure. */
-	suspend fun getLibrary(anime: Boolean = false): List<TrackerReadingEntry> {
-		if (!isEnabled) return emptyList()
+	suspend fun getLibrary(anime: Boolean = false): List<TrackerReadingEntry> =
+		fetchLibrary(anime).getOrDefault(emptyList())
+
+	/**
+	 * Like [getLibrary] but says whether the tracker could be reached, so a merged library can tell
+	 * "this tracker does not have the title" from "this tracker did not answer".
+	 */
+	suspend fun fetchLibrary(anime: Boolean = false): Result<List<TrackerReadingEntry>> {
+		if (!isEnabled) return Result.success(emptyList())
 		return runCatchingCancellable {
 			repository.getLibrary(anime)
 		}.onFailure {
 			it.printStackTraceDebug()
-		}.getOrDefault(emptyList())
+		}
+	}
+
+	/** Whether this service has an anime catalogue at all (MangaBaka does not). */
+	val supportsAnime: Boolean
+		get() = repository.supportsAnime
+
+	/**
+	 * Moves [entry] (as listed by the tracker itself) to [chapter]. Used by tracker-to-tracker
+	 * synchronisation, where there may be no local manga behind the entry.
+	 *
+	 * @return `false` if this service cannot write progress that way.
+	 */
+	suspend fun pushProgress(entry: TrackerReadingEntry, chapter: Int): Boolean {
+		if (!isEnabled) return false
+		return repository.setProgress(entry, chapter)
+	}
+
+	/**
+	 * Sets the progress of an already linked [mangaId] to [chapter] (a chapter or episode number, not a
+	 * chapter id). Same rules as [scrobble]: a "planned" entry that gets progress becomes "reading".
+	 */
+	suspend fun setProgressOf(mangaId: Long, chapter: Int) {
+		val entity = db.getScrobblingDao().find(scrobblerService.id, mangaId) ?: return
+		repository.updateRate(entity.id, entity.mangaId, chapter)
+		if (chapter > 0 && isNotStarted(entity.status)) {
+			updateScrobblingInfo(mangaId, entity.rating, ScrobblingStatus.READING, entity.comment)
+		}
 	}
 
 	/**
@@ -154,7 +223,7 @@ abstract class Scrobbler(
 	 * results, best match first. A series only has to be found under one of its names, and it is
 	 * scored against all of them, so a library entry named in Japanese still finds its English page.
 	 */
-	suspend fun searchSmart(names: List<String>, type: ScrobblerMangaType): List<TrackerCandidate> {
+	suspend fun searchSmart(names: List<String>, type: ScrobblerMangaType, manga: Manga? = null): List<TrackerCandidate> {
 		val queries = names.map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { TitleMatcher.normalize(it) }
 			.take(MAX_SEARCH_NAMES)
 		val merged = LinkedHashMap<Long, TrackerCandidate>()
@@ -174,8 +243,40 @@ abstract class Scrobbler(
 			// An exact hit is as good as it gets, no need to spend more requests on other names.
 			if (merged.values.any { it.score >= 1f }) break
 		}
-		return merged.values.sortedByDescending { it.score }
+		if (manga == null) return merged.values.sortedByDescending { it.score }
+		// With the source title known, a namesake of the wrong kind (a BL manga for a manhwa) goes last and
+		// the entry that also knows the title's other names comes first.
+		val profile = SourceProfile.of(manga)
+		return merged.values.sortedWith(
+			compareByDescending<TrackerCandidate> { !it.conflictsWith(profile) }
+				.thenByDescending { it.score }
+				.thenByDescending { it.coverage(profile) },
+		)
 	}
+
+	/** True when [this] cannot be the source title: another country of origin, or Boys'/Girls' Love against not. */
+	fun TrackerCandidate.conflictsWith(profile: SourceProfile): Boolean =
+		MetadataMatcher.conflicts(profile, asMetadata())
+
+	private fun TrackerCandidate.coverage(profile: SourceProfile): Float {
+		val wanted = profile.names.take(8)
+		if (wanted.isEmpty()) return 0f
+		return wanted.count { n -> names.any { TitleMatcher.score(n, it) >= 0.95f } }.toFloat() / wanted.size
+	}
+
+	private fun TrackerCandidate.asMetadata() = org.koitharu.kotatsu.scrobbling.anilist.data.MetadataTitle(
+		id = manga.id,
+		title = manga.name,
+		names = names,
+		coverUrl = manga.cover,
+		bannerUrl = null,
+		genres = labels,
+		isAdult = false,
+		score = null,
+		url = manga.url,
+		format = format,
+		country = country,
+	)
 
 	/**
 	 * Tracks [manga] on this service without the user opening the link sheet: searches by title (and
@@ -194,7 +295,9 @@ abstract class Scrobbler(
 		val type = manga.source.scrobblerType
 		val titles = (listOf(manga.title) + manga.altTitles).filter { it.isNotBlank() }
 		// Only an exact match on some name is trusted, so a wrong series is never written to the account.
-		val match: ScrobblerManga? = searchSmart(titles, type).firstOrNull { it.score >= 1f }?.manga
+		val profile = SourceProfile.of(manga)
+		val match: ScrobblerManga? = searchSmart(titles, type, manga)
+			.firstOrNull { it.score >= 1f && !it.conflictsWith(profile) }?.manga
 		if (match == null) {
 			misses[missKey] = System.currentTimeMillis()
 			return AutoLinkResult.NO_MATCH

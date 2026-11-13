@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.plus
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.parser.MangaDataRepository
+import org.koitharu.kotatsu.core.model.contentMode
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.observeAsFlow
 import org.koitharu.kotatsu.core.util.ext.onFirst
@@ -43,7 +44,13 @@ class SuggestionsViewModel @Inject constructor(
 		.stateIn(viewModelScope + Dispatchers.Default, SharingStarted.Eagerly, settings.suggestionsListMode)
 
 	override val content = combine(
-		quickFilter.appliedOptions.combineWithSettings().flatMapLatest { repository.observeAll(0, it) },
+		combine(
+			quickFilter.appliedOptions.combineWithSettings().flatMapLatest { repository.observeAll(0, it) },
+			settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
+		) { all, homeMode ->
+			// Suggestions are kept apart per mode: manga, novels and anime each see only their own
+			all.filter { it.source.contentMode == homeMode }
+		},
 		observeListModeWithTriggers(),
 	) { list, mode ->
 		// Read here rather than combined in: the query above already re-runs on every filter change, and

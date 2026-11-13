@@ -61,6 +61,7 @@ import org.koitharu.kotatsu.core.util.ext.mangaCoverDiskCacheKey
 import org.koitharu.kotatsu.core.util.ext.mangaSourceExtra
 import org.koitharu.kotatsu.core.util.ext.stableMangaCoverKey
 import org.koitharu.kotatsu.details.data.MangaDetails
+import org.koitharu.kotatsu.details.ui.scrobbling.iconResId
 import org.koitharu.kotatsu.parsers.model.ContentRating
 import org.koitharu.kotatsu.parsers.model.Manga
 
@@ -84,6 +85,8 @@ internal fun HeroSection(
 	onFavouriteClick: () -> Unit,
 	/** Opens the alternatives screen to migrate this title to another source; null hides the button. */
 	onMigrateClick: (() -> Unit)? = null,
+	/** The tracker status button, drawn between Favourite and Migrate; null hides it. */
+	trackerButton: (@Composable () -> Unit)? = null,
 	actions: DetailsExpressiveActions,
 ) {
 	val nsfwLabel = when (manga.contentRating) {
@@ -203,6 +206,7 @@ internal fun HeroSection(
 						onMigrateClick = onMigrateClick,
 						horizontalPadding = 0.dp,
 						compact = true,
+						trackerButton = trackerButton,
 					)
 				},
 			) { measurables, constraints ->
@@ -588,6 +592,7 @@ internal fun FavouriteMigrateRow(
 	horizontalPadding: Dp = SCREEN_PADDING,
 	/** Narrow layouts show Migrate as an icon only. */
 	compact: Boolean = false,
+	trackerButton: (@Composable () -> Unit)? = null,
 ) {
 	Row(
 		modifier = Modifier
@@ -603,6 +608,7 @@ internal fun FavouriteMigrateRow(
 			horizontalPadding = 0.dp,
 			modifier = Modifier.weight(1f),
 		)
+		trackerButton?.invoke()
 		if (onMigrateClick != null) {
 			MigrateButton(accent = accent, showLabel = !compact, onClick = onMigrateClick)
 		}
@@ -652,6 +658,39 @@ internal fun MigrateButton(
 					maxLines = 1,
 				)
 			}
+		}
+	}
+}
+
+/**
+ * A translucent squircle that shows where this title stands on the tracker (one of the six status icons, or a plus when it
+ * is not tracked yet) and opens the tracking sheet. Translucent, so the blurred cover shows through it.
+ */
+@Composable
+internal fun TrackerStatusButton(
+	info: org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblingInfo?,
+	onClick: () -> Unit,
+	size: Dp = 46.dp,
+) {
+	val label = stringResource(R.string.tracking)
+	val icon = info?.status?.iconResId ?: R.drawable.ic_add
+	val scheme = MaterialTheme.colorScheme
+	Surface(
+		onClick = onClick,
+		shape = RoundedCornerShape(20.dp),
+		// No outline: a soft tonal fill blends into the card instead of sitting on it.
+		color = scheme.onSurface.copy(alpha = 0.10f),
+		modifier = Modifier
+			.size(size)
+			.semantics { contentDescription = label },
+	) {
+		Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+			Icon(
+				painter = painterResource(icon),
+				contentDescription = null,
+				tint = scheme.onSurfaceVariant,
+				modifier = Modifier.size(22.dp),
+			)
 		}
 	}
 }

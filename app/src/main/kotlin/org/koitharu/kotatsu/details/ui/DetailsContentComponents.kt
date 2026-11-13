@@ -94,6 +94,7 @@ import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerService
 import org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblingInfo
+import org.koitharu.kotatsu.details.ui.scrobbling.animeLabelResId
 import org.koitharu.kotatsu.details.ui.scrobbling.labelResId
 import java.util.Locale
 
@@ -352,6 +353,7 @@ internal fun ScrobblingSection(
 	accent: Color,
 	onMore: () -> Unit,
 	onCardClick: (Int) -> Unit,
+	anime: Boolean = false,
 ) {
 	SectionHeader(title = stringResource(R.string.tracking), action = stringResource(R.string.manage), accent = accent, onAction = onMore)
 	Column(
@@ -419,7 +421,7 @@ internal fun ScrobblingSection(
 								}
 								info.status?.let { status ->
 									Text(
-										text = stringResource(status.labelResId),
+										text = stringResource(if (anime) status.animeLabelResId else status.labelResId),
 										style = MaterialTheme.typography.labelMedium,
 										color = accent,
 									)

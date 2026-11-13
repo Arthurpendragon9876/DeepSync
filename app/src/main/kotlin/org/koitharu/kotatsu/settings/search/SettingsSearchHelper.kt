@@ -141,6 +141,16 @@ class SettingsSearchHelper @Inject constructor(
 			}
 		}
 
+		section(R.string.ds_player_settings, org.koitharu.kotatsu.anime.settings.AnimePlayerSettingsFragment::class.java) { sectionCrumbs ->
+			val player = org.koitharu.kotatsu.anime.settings.AnimePlayerSettingsFragment::class.java
+			group(sectionCrumbs, "Player") { crumbs ->
+				addItem(org.koitharu.kotatsu.anime.player.AnimePlayerPrefs.KEY_DIRECT_LANDSCAPE, R.string.ds_player_direct_landscape, R.string.ds_player_direct_landscape_summary, crumbs, player)
+				addItem(org.koitharu.kotatsu.anime.player.AnimePlayerPrefs.KEY_AUTO_PICK, R.string.ds_player_auto_pick, R.string.ds_player_auto_pick_summary, crumbs, player)
+				addItem(org.koitharu.kotatsu.anime.player.AnimePlayerPrefs.KEY_PREFERRED_QUALITY, R.string.ds_player_quality, breadcrumbs = crumbs, fragmentClass = player)
+				addItem(org.koitharu.kotatsu.anime.player.AnimePlayerPrefs.KEY_AUTOPLAY_NEXT, R.string.ds_player_autoplay_next, R.string.ds_player_autoplay_next_summary, crumbs, player)
+				addItem(org.koitharu.kotatsu.anime.player.AnimePlayerPrefs.KEY_SKIP_SECONDS, R.string.ds_player_skip_length, breadcrumbs = crumbs, fragmentClass = player)
+			}
+		}
 		section(R.string.reader_settings, ReaderSettingsFragment::class.java) { sectionCrumbs ->
 			group(sectionCrumbs, "Mode") { crumbs ->
 				addItem(AppSettings.KEY_READER_MODE, R.string.default_mode, breadcrumbs = crumbs, fragmentClass = ReaderSettingsFragment::class.java, keywordArrayRes = intArrayOf(R.array.reader_modes))

@@ -193,7 +193,11 @@ class SearchViewModel @Inject constructor(
 				// Source requests start right away instead of after the local phase (a full storage
 				// scan with many downloads); their results still land below the local sections.
 				val localDone = CompletableDeferred<Unit>()
-				val remoteJobs = if (localOnly.value) {
+				// A tracker chip (AniList, MyAnimeList...) scopes the search to that tracker alone: no
+				// sources, favourites, history or local results next to it.
+				val activeTrackers = trackerScope.value.filter { metadataRepository.supports(it, mode) }
+				val trackersOnly = activeTrackers.isNotEmpty()
+				val remoteJobs = if (localOnly.value || trackersOnly) {
 					emptyList()
 				} else {
 					val sources = if (pinnedOnly.value) {
@@ -210,21 +214,18 @@ class SearchViewModel @Inject constructor(
 						}
 					}
 				}
-				// Tracker catalogues the user switched on, searched in parallel with the sources
-				val trackerJobs = if (localOnly.value) {
-					emptyList()
-				} else {
-					trackerScope.value.filter { metadataRepository.supports(it, mode) }.map { provider ->
-						launch {
-							val result = searchTracker(provider)
-							localDone.await()
-							appendResult(result)
-						}
+				val trackerJobs = activeTrackers.map { provider ->
+					launch {
+						val result = searchTracker(provider)
+						localDone.await()
+						appendResult(result)
 					}
 				}
-				appendResult(searchFavorites())
-				appendResult(searchHistory())
-				appendResult(searchLocal())
+				if (!trackersOnly) {
+					appendResult(searchFavorites())
+					appendResult(searchHistory())
+					appendResult(searchLocal())
+				}
 				localDone.complete(Unit)
 				remoteJobs.joinAll()
 				trackerJobs.joinAll()

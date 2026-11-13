@@ -183,12 +183,14 @@ interface AppModule {
 			acraScreenLogger: AcraScreenLogger,
 			screenshotPolicyHelper: ScreenshotPolicyHelper,
 			foregroundActivityHolder: ForegroundActivityHolder,
+			pulseTouchCallbacks: org.koitharu.kotatsu.core.ui.pulse.PulseTouchCallbacks,
 		): Set<@JvmSuppressWildcards Application.ActivityLifecycleCallbacks> = arraySetOf(
 			appProtectHelper,
 			activityRecreationHandle,
 			acraScreenLogger,
 			screenshotPolicyHelper,
 			foregroundActivityHolder,
+			pulseTouchCallbacks,
 		)
 
 		@Provides

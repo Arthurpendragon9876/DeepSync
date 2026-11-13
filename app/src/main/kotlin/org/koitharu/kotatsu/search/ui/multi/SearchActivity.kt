@@ -220,7 +220,12 @@ class SearchActivity :
 			if (meta == null) {
 				router.openDetails(manga)
 			} else {
-				// A tracker result: open the source title behind it, or let the user choose one.
+				// A tracker result: when info comes from the tracker its page opens at once and the source is found there.
+				if (settings.isMetadataFromTracker) {
+					router.openMetaDetails(meta, manga.title, manga.coverUrl, manga.largeCoverUrl)
+					return
+				}
+				// Otherwise open the source title behind it, or let the user choose one.
 				lifecycleScope.launch {
 					val names = listOf(manga.title) + manga.altTitles
 					when (val result = metadataOpener.resolve(meta, names, manga.title)) {

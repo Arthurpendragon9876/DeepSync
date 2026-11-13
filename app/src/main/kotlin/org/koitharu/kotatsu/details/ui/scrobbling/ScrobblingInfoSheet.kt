@@ -70,6 +70,9 @@ class ScrobblingInfoSheet : BaseAdaptiveSheet<SheetScrobblingBinding>() {
 						onStatusChange = { status ->
 							viewModel.updateScrobbling(scrobblerIndex, info.rating, status)
 						},
+						onProgressChange = { chapter ->
+							viewModel.updateScrobblingProgress(scrobblerIndex, chapter)
+						},
 						onCoverClick = { router.openImage(url = info.coverUrl, source = null) },
 						onOpenInBrowser = { openInBrowser(info) },
 						onEdit = { editBinding(info) },

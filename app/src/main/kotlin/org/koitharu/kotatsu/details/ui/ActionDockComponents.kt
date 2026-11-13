@@ -50,6 +50,9 @@ internal fun ActionDock(
 	actions: DetailsExpressiveActions,
 	modifier: Modifier = Modifier,
 	isAnime: Boolean = false,
+	/** Anime: how many episodes the "N episodes" pill opens a sheet for. */
+	episodeCount: Int = 0,
+	onEpisodesClick: () -> Unit = {},
 ) {
 	Column(
 		modifier = modifier,
@@ -57,8 +60,10 @@ internal fun ActionDock(
 		verticalArrangement = Arrangement.spacedBy(12.dp),
 	) {
 		val chapterCount = historyInfo.totalChapters
-		// Anime lists its episodes inline on the page, so the chapters pill/sheet is not needed.
-		if (chapterCount > 0 && !isAnime) {
+		// Anime keeps its episodes in a sheet of their own (the player-aware list), opened from this pill.
+		if (isAnime) {
+			if (episodeCount > 0) ChaptersPill(count = episodeCount, onClick = onEpisodesClick, anime = true)
+		} else if (chapterCount > 0) {
 			ChaptersPill(count = chapterCount, onClick = actions.onChaptersClick)
 		}
 		ReadFab(historyInfo = historyInfo, isLoading = isLoading, accent = accent, actions = actions, isAnime = isAnime)
@@ -66,7 +71,7 @@ internal fun ActionDock(
 }
 
 @Composable
-internal fun ChaptersPill(count: Int, onClick: () -> Unit) {
+internal fun ChaptersPill(count: Int, onClick: () -> Unit, anime: Boolean = false) {
 	Surface(
 		onClick = onClick,
 		shape = RoundedCornerShape(50),
@@ -86,7 +91,7 @@ internal fun ChaptersPill(count: Int, onClick: () -> Unit) {
 				modifier = Modifier.size(18.dp),
 			)
 			Text(
-				text = pluralStringResource(R.plurals.chapters, count, count),
+				text = pluralStringResource(if (anime) R.plurals.episodes_count else R.plurals.chapters, count, count),
 				style = MaterialTheme.typography.labelLarge,
 				fontWeight = FontWeight.Medium,
 				color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<string name="ds_mode_open_details">Open details</string>
+	<string name="ds_mode_fan_hint">Release to switch · Hold the button for details</string>
+	<string name="ds_mode_cycle">Switch mode: %1$s</string>
+</resources>

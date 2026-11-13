@@ -38,6 +38,7 @@ class ReaderControlDelegate(
 	}
 
 	fun onGridLongTouch(area: TapGridArea): Boolean {
+		if (!settings.isReaderLongPressEnabled) return false
 		val action = tapGridSettings.getTapAction(
 			area = area,
 			isLongTap = true,

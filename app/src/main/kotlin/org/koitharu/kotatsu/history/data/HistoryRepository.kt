@@ -155,6 +155,8 @@ class HistoryRepository @Inject constructor(
 		percent: Float,
 		force: Boolean,
 		notify: Boolean = true,
+		/** `false` still refreshes the new-chapters state but neither pushes progress to trackers nor asks to track. */
+		trackers: Boolean = true,
 	) {
 		if (!force && shouldSkip(manga)) {
 			return
@@ -175,7 +177,7 @@ class HistoryRepository @Inject constructor(
 		}
 		if (notify) {
 			// trackers only store the chapter, so re-sending an unchanged one is a wasted network round trip
-			onHistoryChanged(manga, chapterId, updateScrobblers = isChapterChanged, chapterOpened = true)
+			onHistoryChanged(manga, chapterId, updateScrobblers = trackers && isChapterChanged, chapterOpened = trackers)
 		}
 	}
 
@@ -283,8 +285,11 @@ class HistoryRepository @Inject constructor(
 	) {
 		newChaptersUseCaseProvider.get()(manga, chapterId)
 		// Novels are never asked about: most of them are not on AniList and the question is just noise
-		val ask = chapterOpened && settings.isScrobblingAskEnabled && !manga.isLocal && !manga.source.isNovelSource
-		if (!updateScrobblers && !ask) return
+		val canPrompt = chapterOpened && !manga.isLocal && !manga.source.isNovelSource
+		val ask = canPrompt && settings.isScrobblingAskEnabled
+		// Closest-match linking no longer depends on the Ask switch: the two are exclusive settings
+		val autoBest = canPrompt && settings.isScrobblingAutoTrackBestEnabled
+		if (!updateScrobblers && !ask && !autoBest) return
 		// Fire and forget: opening the reader used to wait on every tracker's network write.
 		// UNDISPATCHED queues on the mutex in call order, so an older chapter never lands last.
 		processLifecycleScope.launch(Dispatchers.Default, CoroutineStart.UNDISPATCHED) {
@@ -294,9 +299,9 @@ class HistoryRepository @Inject constructor(
 				val anyLinked = active.any { db.getScrobblingDao().find(it.scrobblerService.id, manga.id) != null }
 				// Every tap on a chapter of a title no tracker knows asks "track this?". Titles that
 				// are already linked just sync, and the user can opt a title out for good.
-				if (ask && !anyLinked) {
+				if ((ask || autoBest) && !anyLinked) {
 					if (manga.id !in settings.scrobblingNeverAsk) {
-						if (settings.isScrobblingAutoTrackBestEnabled) {
+						if (autoBest) {
 							autoTrackBestMatch(active, manga, chapterId)
 						} else {
 							trackPrompt.request(manga, chapterId)
@@ -305,8 +310,8 @@ class HistoryRepository @Inject constructor(
 					return@withLock
 				}
 				if (!updateScrobblers) return@withLock
-				// Silent exact-title linking only when the user turned the question off
-				val autoLink = settings.isScrobblingAutoLinkEnabled && !settings.isScrobblingAskEnabled
+				// Silent exact-title linking: the setting already excludes Ask and closest-match
+				val autoLink = settings.isScrobblingAutoLinkEnabled
 				active.forEach { scrobbler ->
 					// If the tracker already had a further-along entry, leave its count alone: progress
 					// sync pulls it down instead of local history dragging it back.
@@ -329,9 +334,9 @@ class HistoryRepository @Inject constructor(
 		val type = manga.source.scrobblerType
 		for (scrobbler in active) {
 			runCatchingCancellable {
-				val best = scrobbler.searchSmart(names, type)
-					.maxByOrNull { it.score }
-					?.takeIf { it.score >= AUTO_TRACK_MIN_SCORE }
+				val profile = org.koitharu.kotatsu.metadata.SourceProfile.of(manga)
+				val best = scrobbler.searchSmart(names, type, manga)
+					.firstOrNull { it.score >= AUTO_TRACK_MIN_SCORE && !with(scrobbler) { it.conflictsWith(profile) } }
 					?: return@runCatchingCancellable
 				if (scrobbler.linkManga(manga.id, best.manga.id, ScrobblingStatus.READING)) {
 					scrobbler.tryScrobble(manga, chapterId)

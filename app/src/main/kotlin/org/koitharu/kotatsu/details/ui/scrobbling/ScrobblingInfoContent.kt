@@ -88,6 +88,7 @@ fun ScrobblingInfoContent(
 	bottomInset: Dp,
 	onRatingChange: (Float) -> Unit,
 	onStatusChange: (ScrobblingStatus) -> Unit,
+	onProgressChange: (Int) -> Unit = {},
 	onCoverClick: () -> Unit,
 	onOpenInBrowser: () -> Unit,
 	onEdit: () -> Unit,
@@ -137,6 +138,14 @@ fun ScrobblingInfoContent(
 				anime = anime,
 				current = info.status,
 				onSelect = onStatusChange,
+				modifier = Modifier.padding(horizontal = SheetContentPadding),
+			)
+		}
+		SheetSection(title = stringResource(if (anime) R.string.ds_info_progress_watching else R.string.ds_info_progress_reading)) {
+			ProgressEditor(
+				current = info.chapter,
+				total = info.totalChapters,
+				onChange = onProgressChange,
 				modifier = Modifier.padding(horizontal = SheetContentPadding),
 			)
 		}
@@ -468,4 +477,71 @@ private fun formatRating(stars: Float): String = if (stars <= 0f) {
 	"–"
 } else {
 	"%.1f".format(stars)
+}
+
+/** Chapters read / episodes watched: minus and plus, or type the number; sent to the tracker when committed. */
+@Composable
+private fun ProgressEditor(
+	current: Int,
+	total: Int,
+	onChange: (Int) -> Unit,
+	modifier: Modifier = Modifier,
+) {
+	var text by remember(current) { mutableStateOf(current.toString()) }
+	val max = if (total > 0) total else Int.MAX_VALUE
+	fun commit(value: Int) {
+		val v = value.coerceIn(0, max)
+		text = v.toString()
+		if (v != current) onChange(v)
+	}
+	Row(
+		modifier = modifier.fillMaxWidth(),
+		verticalAlignment = Alignment.CenterVertically,
+		horizontalArrangement = Arrangement.spacedBy(10.dp),
+	) {
+		StepButton(iconRes = R.drawable.ic_minus, enabled = current > 0) { commit(current - 1) }
+		androidx.compose.material3.OutlinedTextField(
+			value = text,
+			onValueChange = { new -> text = new.filter { it.isDigit() }.take(5) },
+			singleLine = true,
+			keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+				keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+				imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+			),
+			keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+				onDone = { commit(text.toIntOrNull() ?: current) },
+			),
+			textStyle = MaterialTheme.typography.titleMedium.copy(textAlign = TextAlign.Center),
+			shape = RoundedCornerShape(16.dp),
+			modifier = Modifier.width(96.dp),
+		)
+		if (total > 0) {
+			Text(
+				text = "/ $total",
+				style = MaterialTheme.typography.titleMedium,
+				color = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		Spacer(Modifier.weight(1f))
+		StepButton(iconRes = R.drawable.ic_add, enabled = current < max) { commit(current + 1) }
+	}
+}
+
+@Composable
+private fun StepButton(iconRes: Int, enabled: Boolean, onClick: () -> Unit) {
+	Box(
+		modifier = Modifier
+			.size(48.dp)
+			.clip(RoundedCornerShape(16.dp))
+			.background(MaterialTheme.colorScheme.surfaceContainerHigh)
+			.clickable(enabled = enabled, onClick = onClick),
+		contentAlignment = Alignment.Center,
+	) {
+		Icon(
+			painter = painterResource(iconRes),
+			contentDescription = null,
+			tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f),
+			modifier = Modifier.size(22.dp),
+		)
+	}
 }

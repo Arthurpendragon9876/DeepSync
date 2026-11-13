@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The YUGEN wordmark: cat ears on the Y, whiskers on the U, a torii roof on the G, a torii gate with a cat for the E, and a katana-stroke N. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+	android:width="118dp"
+	android:height="22dp"
+	android:viewportWidth="380"
+	android:viewportHeight="70">
+
+	<group android:translateY="5">
+		<path
+			android:fillColor="#FFFFFFFF"
+			android:pathData="M5,2 C12,10 22,24 28,35 L28,60 C28,63 34,63 34,60 L34,35 C40,24 50,10 57,2 C54,2 45,15 31,30 C17,15 8,2 5,2 Z" />
+		<path
+			android:fillColor="#E6FFFFFF"
+			android:pathData="M4,2 L11,0 L13,8 Z" />
+		<path
+			android:fillColor="#E6FFFFFF"
+			android:pathData="M58,2 L51,0 L49,8 Z" />
+	</group>
+
+	<group android:translateX="68" android:translateY="5">
+		<path
+			android:fillColor="#FFFFFFFF"
+			android:pathData="M6,2 L6,40 C6,58 46,58 46,40 L46,2 L40,2 L40,40 C40,52 12,52 12,40 L12,2 Z" />
+		<path
+			android:strokeColor="#FFFFFFFF"
+			android:strokeWidth="2.5"
+			android:strokeLineCap="round"
+			android:pathData="M17,44 Q26,49 35,44" />
+	</group>
+
+	<group android:translateX="132" android:translateY="5">
+		<path
+			android:fillColor="#FFFFFFFF"
+			android:pathData="M0,0 C18,-4 44,-4 60,0 C62,3 56,6 48,5 L12,5 C9,12 6,26 6,36 C6,54 48,54 48,36 L28,36 L28,30 L54,30 L54,38 C54,60 0,60 0,34 C0,20 4,8 0,0 Z" />
+	</group>
+
+	<group android:translateX="204" android:translateY="5">
+		<path
+			android:fillColor="#FFFFFFFF"
+			android:pathData="M0,0 C16,-5 42,-5 58,0 C60,2 56,5 48,4 C36,3 20,3 8,4 C2,5 -1,2 0,0 Z" />
+		<path
+			android:fillColor="#FFFFFFFF"
+			android:pathData="M6,24 L50,24 L50,29 L6,29 Z" />
+		<path
+			android:fillColor="#FFFFFFFF"
+			android:pathData="M10,4 L16,4 L16,58 L10,58 Z" />
+		<path
+			android:fillColor="#FFFFFFFF"
+			android:pathData="M40,4 L46,4 L46,58 L10,58 L10,53 L40,53 Z" />
+		<path
+			android:fillColor="#E6FFFFFF"
+			android:pathData="M22,42 Q18,34 24,34 Q30,34 26,42 Q31,46 31,53 L17,53 Q17,46 22,42 Z" />
+		<path
+			android:fillColor="#FFFFFFFF"
+			android:pathData="M19,35 L17,29 L22,32 Z" />
+		<path
+			android:fillColor="#FFFFFFFF"
+			android:pathData="M29,35 L31,29 L26,32 Z" />
+	</group>
+
+	<group android:translateX="276" android:translateY="5">
+		<path
+			android:fillColor="#FFFFFFFF"
+			android:pathData="M6,58 L6,2 L13,2 L43,48 L43,2 L49,2 L49,58 L42,58 L12,12 L12,58 Z" />
+	</group>
+</vector>

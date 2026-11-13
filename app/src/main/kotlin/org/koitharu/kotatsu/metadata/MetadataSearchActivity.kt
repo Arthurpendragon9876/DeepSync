@@ -210,6 +210,12 @@ class MetadataSearchActivity : AppCompatActivity() {
 	private fun open(title: MetadataTitle) {
 		val p = provider ?: return
 		val ref = MetaRef(p, title.id, mode)
+		// Info comes from the tracker: show its page now and let that page find the source.
+		if (settings.isMetadataFromTracker) {
+			AppRouter(this).openMetaDetails(ref, title.title, title.coverUrl, title.bannerUrl)
+			dialog.dismiss()
+			return
+		}
 		lifecycleScope.launch {
 			when (val result = opener.resolve(ref, title.names, title.title)) {
 				is MetaOpenResult.Open -> AppRouter(this@MetadataSearchActivity).openDetails(result.manga)

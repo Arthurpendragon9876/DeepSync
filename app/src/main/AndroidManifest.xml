@@ -105,6 +105,9 @@
 			</intent-filter>
 		</activity>
 		<activity
+			android:name="org.koitharu.kotatsu.details.ui.MetaDetailsActivity"
+			android:exported="false" />
+		<activity
 			android:name="org.koitharu.kotatsu.reader.ui.ReaderActivity"
 			android:exported="true">
 			<intent-filter>

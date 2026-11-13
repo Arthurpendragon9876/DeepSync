@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Save progress?" in landscape (also used above the player): two columns, so nothing scrolls. The matches
+     sit on the left (smaller when there are more than two), the question and answers on the right.
+     Same ids as the portrait sheet. -->
+<LinearLayout
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto"
+	android:layout_width="match_parent"
+	android:layout_height="wrap_content"
+	android:orientation="horizontal">
+
+	<FrameLayout
+		android:layout_width="224dp"
+		android:layout_height="match_parent"
+		android:padding="10dp">
+
+		<androidx.recyclerview.widget.RecyclerView
+			android:id="@+id/list_matches"
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:clipToPadding="false"
+			android:orientation="horizontal"
+			android:visibility="gone"
+			app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+
+		<com.google.android.material.progressindicator.CircularProgressIndicator
+			android:id="@+id/progress"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_gravity="center"
+			android:indeterminate="true"
+			app:indicatorSize="24dp" />
+
+		<TextView
+			android:id="@+id/text_none"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_gravity="center"
+			android:gravity="center"
+			android:textColor="?attr/colorOnSurfaceVariant"
+			android:textSize="11sp"
+			android:visibility="gone" />
+
+	</FrameLayout>
+
+	<View
+		android:layout_width="1dp"
+		android:layout_height="match_parent"
+		android:background="?attr/colorOutlineVariant" />
+
+	<LinearLayout
+		android:layout_width="0dp"
+		android:layout_height="match_parent"
+		android:layout_weight="1"
+		android:orientation="vertical"
+		android:padding="12dp">
+
+		<LinearLayout
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:gravity="top"
+			android:orientation="horizontal">
+
+			<ImageView
+				android:layout_width="28dp"
+				android:layout_height="28dp"
+				android:layout_marginTop="2dp"
+				android:background="@drawable/bg_track_prompt_icon"
+				android:importantForAccessibility="no"
+				android:padding="7dp"
+				android:src="@drawable/ic_bookmark_checked"
+				app:tint="?attr/colorOnSecondaryContainer" />
+
+			<LinearLayout
+				android:layout_width="0dp"
+				android:layout_height="wrap_content"
+				android:layout_marginStart="8dp"
+				android:layout_weight="1"
+				android:orientation="vertical">
+
+				<TextView
+					android:id="@+id/text_title"
+					android:layout_width="match_parent"
+					android:layout_height="wrap_content"
+					android:text="@string/ds_track_sheet_title"
+					android:textColor="?attr/colorOnSurface"
+					android:textSize="15sp"
+					android:textStyle="bold" />
+
+				<TextView
+					android:id="@+id/text_message"
+					android:layout_width="match_parent"
+					android:layout_height="wrap_content"
+					android:layout_marginTop="1dp"
+					android:ellipsize="end"
+					android:maxLines="2"
+					android:textColor="?attr/colorOnSurfaceVariant"
+					android:textSize="10.5sp" />
+
+			</LinearLayout>
+
+		</LinearLayout>
+
+		<Space
+			android:layout_width="match_parent"
+			android:layout_height="0dp"
+			android:layout_weight="1" />
+
+		<LinearLayout
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="6dp"
+			android:gravity="center_vertical"
+			android:orientation="horizontal"
+			android:paddingHorizontal="2dp">
+
+			<TextView
+				android:layout_width="0dp"
+				android:layout_height="wrap_content"
+				android:layout_weight="1"
+				android:ellipsize="end"
+				android:maxLines="1"
+				android:text="@string/ds_track_remember"
+				android:textColor="?attr/colorOnSurface"
+				android:textSize="12sp"
+				android:textStyle="bold" />
+
+			<com.google.android.material.materialswitch.MaterialSwitch
+				android:id="@+id/switch_remember"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:scaleX="0.75"
+				android:scaleY="0.75" />
+
+		</LinearLayout>
+
+		<LinearLayout
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="4dp"
+			android:orientation="horizontal">
+
+			<com.google.android.material.button.MaterialButton
+				android:id="@+id/button_search"
+				style="@style/Widget.Material3.Button.OutlinedButton"
+				android:layout_width="0dp"
+				android:layout_height="38dp"
+				android:layout_weight="1"
+				android:insetTop="0dp"
+				android:insetBottom="0dp"
+				android:paddingHorizontal="8dp"
+				android:paddingVertical="0dp"
+				android:text="@string/ds_track_search_other"
+				android:textSize="12sp"
+				app:cornerRadius="19dp"
+				app:icon="@drawable/ic_search"
+				app:iconGravity="textStart"
+				app:iconPadding="6dp"
+				app:iconSize="16dp" />
+
+			<com.google.android.material.button.MaterialButton
+				android:id="@+id/button_no"
+				style="@style/Widget.Material3.Button.OutlinedButton"
+				android:layout_width="wrap_content"
+				android:layout_height="38dp"
+				android:layout_marginStart="8dp"
+				android:insetTop="0dp"
+				android:insetBottom="0dp"
+				android:minWidth="64dp"
+				android:paddingHorizontal="14dp"
+				android:paddingVertical="0dp"
+				android:text="@string/ds_track_no"
+				android:textSize="12sp"
+				app:cornerRadius="19dp" />
+
+		</LinearLayout>
+
+		<LinearLayout
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_marginTop="6dp"
+			android:orientation="horizontal">
+
+			<com.google.android.material.button.MaterialButton
+				android:id="@+id/button_device"
+				style="@style/Widget.Material3.Button.TonalButton"
+				android:layout_width="0dp"
+				android:layout_height="40dp"
+				android:layout_weight="1"
+				android:insetTop="0dp"
+				android:insetBottom="0dp"
+				android:paddingHorizontal="8dp"
+				android:paddingVertical="0dp"
+				android:text="@string/ds_track_device_only"
+				android:textSize="12sp"
+				app:cornerRadius="20dp" />
+
+			<com.google.android.material.button.MaterialButton
+				android:id="@+id/button_save"
+				android:layout_width="0dp"
+				android:layout_height="40dp"
+				android:layout_marginStart="8dp"
+				android:layout_weight="1"
+				android:enabled="false"
+				android:insetTop="0dp"
+				android:insetBottom="0dp"
+				android:paddingHorizontal="8dp"
+				android:paddingVertical="0dp"
+				android:text="@string/ds_track_sheet_save"
+				android:textSize="12sp"
+				app:cornerRadius="20dp" />
+
+		</LinearLayout>
+
+	</LinearLayout>
+</LinearLayout>

@@ -54,6 +54,9 @@ import org.koitharu.kotatsu.settings.compose.SwitchSettingsItem
 import org.koitharu.kotatsu.settings.compose.rememberBooleanPref
 import org.koitharu.kotatsu.settings.compose.rememberIntPref
 import org.koitharu.kotatsu.settings.discord.DiscordSettingsFragment
+import android.text.format.DateUtils
+import android.widget.Toast
+import org.koitharu.kotatsu.scrobbling.common.domain.TrackerSynchronizer
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -65,7 +68,11 @@ class ServicesSettingsFragment : BaseComposeSettingsFragment(R.string.services) 
 	@Inject
 	lateinit var scrobblerAuthHelper: ScrobblerAuthHelper
 
+	@Inject
+	lateinit var trackerSynchronizer: TrackerSynchronizer
+
 	private val scrobblerSummary = MutableStateFlow<Map<ScrobblerService, String?>>(emptyMap())
+	private val syncSummary = MutableStateFlow("")
 
 	override fun onCreateView(
 		inflater: LayoutInflater,
@@ -76,8 +83,11 @@ class ServicesSettingsFragment : BaseComposeSettingsFragment(R.string.services) 
 		setContent {
 			DropSauceTheme {
 				val summaries by scrobblerSummary.asStateFlow().collectAsState()
+				val syncText by syncSummary.asStateFlow().collectAsState()
 				ServicesScreen(
 					scrobblerSummaries = summaries,
+					syncSummary = syncText,
+					onSyncTrackers = ::synchronizeTrackers,
 					onOpenSuggestions = {
 						(activity as? SettingsActivity)?.openFragment(
 							SuggestionsSettingsFragment::class.java,
@@ -102,6 +112,45 @@ class ServicesSettingsFragment : BaseComposeSettingsFragment(R.string.services) 
 	override fun onResume() {
 		super.onResume()
 		refreshScrobblers()
+		refreshSyncSummary()
+	}
+
+	private fun refreshSyncSummary() {
+		val last = settings.trackerLastSync
+		val whenText = if (last <= 0L) {
+			getString(R.string.ds_sync_never)
+		} else {
+			DateUtils.getRelativeTimeSpanString(last, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS).toString()
+		}
+		syncSummary.value = getString(R.string.ds_sync_trackers_summary, whenText)
+	}
+
+	/** Manual synchronisation of every title that is on two or more trackers. */
+	private fun synchronizeTrackers() {
+		val ctx = context ?: return
+		if (!trackerSynchronizer.canSync) {
+			Toast.makeText(ctx, R.string.ds_sync_need_two, Toast.LENGTH_LONG).show()
+			return
+		}
+		if (trackerSynchronizer.isRunning.value) {
+			Toast.makeText(ctx, R.string.ds_sync_running, Toast.LENGTH_SHORT).show()
+			return
+		}
+		Toast.makeText(ctx, R.string.ds_sync_running, Toast.LENGTH_SHORT).show()
+		viewLifecycleOwner.lifecycleScope.launch {
+			val report = withContext(Dispatchers.Default) {
+				runCatching { trackerSynchronizer.synchronize() }.getOrNull()
+			}
+			val c = context ?: return@launch
+			val message = when {
+				report == null -> getString(R.string.ds_track_failed)
+				report.failed > 0 -> getString(R.string.ds_sync_done_failed, report.failed)
+				report.updated > 0 -> getString(R.string.ds_sync_done, report.updated)
+				else -> getString(R.string.ds_sync_done_none)
+			}
+			Toast.makeText(c, message, Toast.LENGTH_LONG).show()
+			refreshSyncSummary()
+		}
 	}
 
 	private fun refreshScrobblers() {
@@ -167,6 +216,8 @@ class ServicesSettingsFragment : BaseComposeSettingsFragment(R.string.services) 
 @Composable
 private fun ServicesScreen(
 	scrobblerSummaries: Map<ScrobblerService, String?>,
+	syncSummary: String,
+	onSyncTrackers: () -> Unit,
 	onOpenSuggestions: () -> Unit,
 	onOpenStatistics: () -> Unit,
 	onScrobblerClick: (ScrobblerService) -> Unit,
@@ -180,6 +231,12 @@ private fun ServicesScreen(
 	var autoLinkTracking by rememberBooleanPref(AppSettings.KEY_SCROBBLING_AUTO_LINK, true)
 	var askTracking by rememberBooleanPref(AppSettings.KEY_SCROBBLING_ASK, true)
 	var autoTrackBest by rememberBooleanPref(AppSettings.KEY_SCROBBLING_AUTO_TRACK_BEST, false)
+	var autoSyncTrackers by rememberBooleanPref(AppSettings.KEY_TRACKER_AUTO_SYNC, true)
+
+	// Ask / closest match / exact match are one choice: turning one on turns the others off. Older installs
+	// can have several stored as on, so what the switches show is resolved the same way AppSettings does.
+	val askShown = askTracking && !autoTrackBest
+	val exactShown = autoLinkTracking && !autoTrackBest && !askTracking
 
 	var eyeReminder by rememberBooleanPref(AppSettings.KEY_EYE_REMINDER, false)
 	var eyeReminderInterval by rememberIntPref(
@@ -296,8 +353,14 @@ private fun ServicesScreen(
 						SwitchSettingsItem(
 							title = stringResource(R.string.ds_ask_track),
 							subtitle = stringResource(R.string.ds_ask_track_summary),
-							checked = askTracking,
-							onCheckedChange = { askTracking = it },
+							checked = askShown,
+							onCheckedChange = {
+								askTracking = it
+								if (it) {
+									autoTrackBest = false
+									autoLinkTracking = false
+								}
+							},
 							icon = R.drawable.ic_sync_alt,
 							shape = pos.shape,
 						)
@@ -307,7 +370,13 @@ private fun ServicesScreen(
 							title = stringResource(R.string.ds_auto_track_best),
 							subtitle = stringResource(R.string.ds_auto_track_best_summary),
 							checked = autoTrackBest,
-							onCheckedChange = { autoTrackBest = it },
+							onCheckedChange = {
+								autoTrackBest = it
+								if (it) {
+									askTracking = false
+									autoLinkTracking = false
+								}
+							},
 							icon = R.drawable.ic_sync_alt,
 							shape = pos.shape,
 						)
@@ -316,8 +385,14 @@ private fun ServicesScreen(
 						SwitchSettingsItem(
 							title = stringResource(R.string.auto_track_manga),
 							subtitle = stringResource(R.string.auto_track_manga_summary),
-							checked = autoLinkTracking,
-							onCheckedChange = { autoLinkTracking = it },
+							checked = exactShown,
+							onCheckedChange = {
+								autoLinkTracking = it
+								if (it) {
+									askTracking = false
+									autoTrackBest = false
+								}
+							},
 							icon = R.drawable.ic_sync_alt,
 							shape = pos.shape,
 						)
@@ -330,6 +405,25 @@ private fun ServicesScreen(
 							onCheckedChange = { syncTrackingProgress = it },
 							icon = R.drawable.ic_sync_alt,
 							shape = pos.shape,
+						)
+					}
+					item { pos ->
+						SwitchSettingsItem(
+							title = stringResource(R.string.ds_sync_auto),
+							subtitle = stringResource(R.string.ds_sync_auto_summary),
+							checked = autoSyncTrackers,
+							onCheckedChange = { autoSyncTrackers = it },
+							icon = R.drawable.ic_sync_alt,
+							shape = pos.shape,
+						)
+					}
+					item { pos ->
+						ActionSettingsItem(
+							title = stringResource(R.string.ds_sync_trackers),
+							subtitle = syncSummary,
+							icon = R.drawable.ic_sync_alt,
+							shape = pos.shape,
+							onClick = onSyncTrackers,
 						)
 					}
 				}

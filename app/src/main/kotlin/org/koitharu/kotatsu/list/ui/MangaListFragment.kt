@@ -378,6 +378,20 @@ abstract class MangaListFragment :
 
 	override fun onActionItemClicked(controller: ListSelectionController, mode: ActionMode?, item: MenuItem): Boolean {
 		return when (item.itemId) {
+			R.id.action_mark_as -> {
+				// A plain list instead of a popup submenu: pick Completed or Not read / Not watched
+				val menu = mode?.menu ?: return false
+				val options = listOfNotNull(menu.findItem(R.id.action_mark_current), menu.findItem(R.id.action_mark_unread))
+				com.google.android.material.dialog.MaterialAlertDialogBuilder(context ?: return false)
+					.setTitle(item.title)
+					.setItems(options.map { it.title }.toTypedArray()) { _, which ->
+						onActionItemClicked(controller, mode, options[which])
+					}
+					.setNegativeButton(android.R.string.cancel, null)
+					.show()
+				true
+			}
+
 			R.id.action_select_all -> {
 				val ids = listAdapter?.items?.mapNotNull {
 					(it as? MangaListModel)?.id

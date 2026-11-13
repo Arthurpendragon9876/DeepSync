@@ -40,7 +40,7 @@ data class HomePoster(
 	val meta: org.koitharu.kotatsu.metadata.MetaRef? = null,
 )
 
-enum class HomeRowKind { UPDATES, TRACKER, LOCAL, FAVOURITES, RECENT, TRENDING, POPULAR }
+enum class HomeRowKind { UPDATES, TRACKER, SYNC, LOCAL, FAVOURITES, RECENT, TRENDING, POPULAR }
 
 data class HomeRow(
 	val id: String,
@@ -82,7 +82,11 @@ data class HomeConfig(
 	val hideNsfw: Boolean = false,
 	val banner: HomeBannerStyle = HomeBannerStyle.PANELS,
 	val autoRotate: Boolean = true,
+	/** [HomeCarousel.key]s the user switched off. */
+	val hiddenCarousels: Set<String> = emptySet(),
 ) {
+
+	fun shows(carousel: HomeCarousel): Boolean = carousel.key !in hiddenCarousels
 
 	val isNovel: Boolean get() = mode == HomeMode.NOVEL
 

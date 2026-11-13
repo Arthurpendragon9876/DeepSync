@@ -13,6 +13,8 @@ class ReaderMenuProvider(
 	private val isEpub: () -> Boolean,
 	private val isUpscaleActive: () -> Boolean,
 	private val isLandscape: Boolean,
+	private val canOpenWeb: () -> Boolean = { false },
+	private val onOpenWeb: () -> Unit = {},
 ) : MenuProvider {
 
 	override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
@@ -23,6 +25,8 @@ class ReaderMenuProvider(
 	override fun onPrepareMenu(menu: Menu) {
 		menu.findItem(R.id.action_epub_search)?.isVisible = isEpub()
 		menu.findItem(R.id.action_upscale_preview)?.isVisible = isUpscaleActive()
+		// Novels have their own web button in the reader bar, beside the highlighter
+		menu.findItem(R.id.action_webview)?.isVisible = !isEpub() && canOpenWeb()
 	}
 
 	override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
@@ -39,6 +43,11 @@ class ReaderMenuProvider(
 
 			R.id.action_upscale_preview -> {
 				onShowUpscalePreview()
+				true
+			}
+
+			R.id.action_webview -> {
+				onOpenWeb()
 				true
 			}
 

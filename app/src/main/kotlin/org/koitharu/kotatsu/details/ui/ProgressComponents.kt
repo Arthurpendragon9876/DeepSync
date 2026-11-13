@@ -34,6 +34,8 @@ internal fun ProgressCard(
 	/** Anime: all episodes and the one in history, so the card says "Episode 2 of 5" with no reading time. */
 	animeTotal: Int = -1,
 	animeCurrent: Int = -1,
+	/** Drawn at the end of the top row, after the percentage (the tracker status button). */
+	trailing: (@Composable () -> Unit)? = null,
 ) {
 	val ctx = LocalContext.current
 	val res = ctx.resources
@@ -82,6 +84,10 @@ internal fun ProgressCard(
 					fontWeight = FontWeight.Bold,
 					color = accent,
 				)
+			}
+			if (trailing != null) {
+				Spacer(Modifier.width(12.dp))
+				trailing()
 			}
 		}
 		if (showProgress) {

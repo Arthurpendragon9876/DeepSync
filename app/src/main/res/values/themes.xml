@@ -44,10 +44,16 @@
 		<item name="colorTopBarIcon">?attr/colorOnSecondaryContainer</item>
 		<item name="colorControlNormal">?attr/colorOnSurface</item>
 		<item name="colorControlActivated">?attr/colorPrimary</item>
-		<item name="colorControlHighlight">@color/selector_overlay</item>
+		<item name="colorControlHighlight">@android:color/transparent</item>
 		<item name="android:colorControlNormal">?attr/colorOnSurface</item>
 		<item name="android:colorControlActivated">?attr/colorPrimary</item>
-		<item name="android:colorControlHighlight">@color/selector_overlay</item>
+		<item name="android:colorControlHighlight">@android:color/transparent</item>
+		<!-- No ripple: presses pulse the control instead (PulseTouchCallbacks / PulseIndication) -->
+		<item name="selectableItemBackground">@drawable/bg_pulse_none</item>
+		<item name="selectableItemBackgroundBorderless">@drawable/bg_pulse_none</item>
+		<item name="android:selectableItemBackground">@drawable/bg_pulse_none</item>
+		<item name="android:selectableItemBackgroundBorderless">@drawable/bg_pulse_none</item>
+		<item name="actionBarItemBackground">@drawable/bg_pulse_none</item>
 		<item name="android:textColorPrimary">?attr/colorOnSurface</item>
 		<item name="android:textColorSecondary">?attr/colorOnSurfaceVariant</item>
 
@@ -136,17 +142,17 @@
 		<item name="extendedFloatingActionButtonMediumStyle">@style/Widget.Material3Expressive.ExtendedFloatingActionButton.Medium</item>
 		<item name="extendedFloatingActionButtonLargeStyle">@style/Widget.Material3Expressive.ExtendedFloatingActionButton.Large</item>
 
-		<item name="materialButtonStyle">@style/Widget.Material3Expressive.Button</item>
-		<item name="materialButtonTonalStyle">@style/Widget.Material3Expressive.Button.TonalButton</item>
-		<item name="materialButtonOutlinedStyle">@style/Widget.Material3Expressive.Button.OutlinedButton</item>
-		<item name="materialButtonElevatedStyle">@style/Widget.Material3Expressive.Button.ElevatedButton</item>
-		<item name="borderlessButtonStyle">@style/Widget.Material3Expressive.Button.TextButton</item>
-		<item name="buttonBarButtonStyle">@style/Widget.Material3Expressive.Button.TextButton.Dialog</item>
-		<item name="snackbarButtonStyle">@style/Widget.Material3Expressive.Button.TextButton.Snackbar</item>
-		<item name="materialIconButtonStyle">@style/Widget.Material3Expressive.Button.IconButton.Standard</item>
-		<item name="materialIconButtonOutlinedStyle">@style/Widget.Material3Expressive.Button.IconButton.Outlined</item>
-		<item name="materialIconButtonFilledStyle">@style/Widget.Material3Expressive.Button.IconButton.Filled</item>
-		<item name="materialIconButtonFilledTonalStyle">@style/Widget.Material3Expressive.Button.IconButton.Tonal</item>
+		<item name="materialButtonStyle">@style/Widget.Yugen.Button</item>
+		<item name="materialButtonTonalStyle">@style/Widget.Yugen.Button.TonalButton</item>
+		<item name="materialButtonOutlinedStyle">@style/Widget.Yugen.Button.OutlinedButton</item>
+		<item name="materialButtonElevatedStyle">@style/Widget.Yugen.Button.ElevatedButton</item>
+		<item name="borderlessButtonStyle">@style/Widget.Yugen.Button.TextButton</item>
+		<item name="buttonBarButtonStyle">@style/Widget.Yugen.Button.TextButton.Dialog</item>
+		<item name="snackbarButtonStyle">@style/Widget.Yugen.Button.TextButton.Snackbar</item>
+		<item name="materialIconButtonStyle">@style/Widget.Yugen.Button.IconButton.Standard</item>
+		<item name="materialIconButtonOutlinedStyle">@style/Widget.Yugen.Button.IconButton.Outlined</item>
+		<item name="materialIconButtonFilledStyle">@style/Widget.Yugen.Button.IconButton.Filled</item>
+		<item name="materialIconButtonFilledTonalStyle">@style/Widget.Yugen.Button.IconButton.Tonal</item>
 
 		<item name="materialButtonGroupStyle">@style/Widget.Material3Expressive.MaterialButtonGroup</item>
 		<item name="materialButtonToggleGroupStyle">@style/Widget.Material3Expressive.MaterialButtonToggleGroup</item>

@@ -1,6 +1,8 @@
 package org.koitharu.kotatsu.anime.player
 
 import android.app.PictureInPictureParams
+import android.os.Handler
+import android.os.Looper
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
@@ -8,12 +10,25 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Rational
 import android.view.WindowManager
-import android.widget.FrameLayout
+import androidx.activity.SystemBarStyle
+import androidx.activity.addCallback
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.IntentCompat
+import coil3.ImageLoader
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -32,7 +47,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -93,6 +107,9 @@ import androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import dagger.hilt.android.AndroidEntryPoint
+import android.os.Build
+import dagger.hilt.android.EntryPointAccessors
+import org.koitharu.kotatsu.core.ui.BaseActivityEntryPoint
 import eu.kanade.tachiyomi.network.NetworkHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -104,6 +121,11 @@ import okhttp3.OkHttpClient
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.anime.AnimeMangaRepository
 import org.koitharu.kotatsu.anime.AnimeStream
+import org.koitharu.kotatsu.core.model.parcelable.ParcelableManga
+import org.koitharu.kotatsu.core.nav.AppRouter
+import org.koitharu.kotatsu.mihon.compat.KotoInjektBridge
+import org.koitharu.kotatsu.parsers.model.Manga
+import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.core.parser.MangaRepository
 import org.koitharu.kotatsu.history.data.HistoryRepository
 import org.koitharu.kotatsu.settings.compose.DropSauceTheme
@@ -116,7 +138,13 @@ private enum class PlayerDialog { NONE, SETTINGS, SPEED, SUBTITLES, AUDIO, QUALI
 private class TrackOption(val label: String, val selected: Boolean, val onSelect: () -> Unit)
 
 /**
- * Built-in anime player. Streams are chosen BEFORE this screen (see AnimeStreamPickerActivity).
+ * Built-in anime player, in two layouts of one activity so playback never restarts when switching:
+ *  - the YouTube-style watch page (portrait): a 16:9 video on top, details, notes and the episode list below.
+ *    Opening it from the "N episodes" pill waits for an episode to be picked; Continue plays one straight away.
+ *    Streams are resolved and auto-picked here (Settings > Player), falling back to the next server on failure.
+ *  - fullscreen landscape: the controls as before. With Settings > Player > Direct landscape the watch page is
+ *    skipped and episodes open here directly.
+ * The VLC / "always open in VLC" hand-off still chooses its stream first (AnimeStreamPickerActivity).
  * Playback follows CloudStream's approach: media3 ExoPlayer fed by an OkHttp data source using the
  * extension's own client and headers, separate audio tracks merged in, external subtitles, decoder
  * fallback, generous retries. If the direct request fails it retries once through [AnimeStreamProxy]
@@ -127,6 +155,8 @@ class AnimePlayerActivity : AppCompatActivity() {
 
 	@Inject lateinit var repositoryFactory: MangaRepository.Factory
 	@Inject lateinit var history: HistoryRepository
+	@Inject lateinit var coil: ImageLoader
+	@Inject lateinit var injektBridge: dagger.Lazy<KotoInjektBridge>
 
 	private var player: ExoPlayer? = null
 	private lateinit var playerView: PlayerView
@@ -150,7 +180,8 @@ class AnimePlayerActivity : AppCompatActivity() {
 	private var tracks by mutableStateOf(Tracks.EMPTY)
 	private var audioNote by mutableStateOf<String?>(null)
 
-	private var index = 0
+	/** Episode loaded or playing; -1 while the watch page waits for the user to pick one. */
+	private var index by mutableIntStateOf(-1)
 	private var streamIndex = 0
 	private var triedProxy = false
 	private var presetApplied = false
@@ -161,17 +192,86 @@ class AnimePlayerActivity : AppCompatActivity() {
 	private var activeProxy = false
 	private var resumeKey = ""
 
+	// --- watch page state ---
+	private var fullscreen by mutableStateOf(true)
+	/** True when the portrait watch page exists for this launch; false for Direct landscape and the VLC hand-off. */
+	private var watchEnabled = false
+	private var waitingMode = false
+	private var loadingEpisodes by mutableStateOf(false)
+	private var pageError by mutableStateOf<String?>(null)
+	private var pageManga by mutableStateOf<Manga?>(null)
+	private var pageChapters by mutableStateOf<List<MangaChapter>>(emptyList())
+	private var historyChapterId by mutableStateOf<Long?>(null)
+	private var historyPercent by mutableFloatStateOf(0f)
+	private var notes by mutableStateOf<List<AnimeNote>>(emptyList())
+	private var audioPreset by mutableStateOf("sub")
+	private var skipSeconds = 85
+
+	/** Streams are resolved but auto-pick is off: waiting for the user to choose a server. */
+	private var chooseServer by mutableStateOf(false)
+	private var rememberPick by mutableStateOf(false)
+	private var lastServerTitle: String? = null
+
+	// auto-pick bookkeeping, per episode
+	private var autoPicked = false
+	private var autoOrder: List<Int> = emptyList()
+	private val autoTried = mutableSetOf<Int>()
+	private var pickJob: Job? = null
+	private val handler = Handler(Looper.getMainLooper())
+
 	override fun onCreate(savedInstanceState: Bundle?) {
+		// Apply the user's chosen colour scheme (Dynamic / Monet / AMOLED / ...) like BaseActivity does. This
+		// activity extends AppCompatActivity directly, so without this the Compose theme (and with it the
+		// HQ chip, "+85 s" pill, seek bar and watch page accents) fell back to the stock blue palette.
+		EntryPointAccessors.fromApplication<BaseActivityEntryPoint>(applicationContext).settings.let { settings ->
+			setTheme(settings.colorScheme.styleResId)
+			if (settings.isAmoledTheme) setTheme(R.style.ThemeOverlay_Kotatsu_Amoled)
+		}
+		// Edge-to-edge: the video sits under a black status bar on the watch page, bars are hidden in fullscreen.
+		enableEdgeToEdge(
+			statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+			navigationBarStyle = SystemBarStyle.auto(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+		)
 		super.onCreate(savedInstanceState)
-		if (!AnimePlaybackSession.isActive) {
+		// Let the window extend into the camera cut-out. By default Android letterboxes landscape windows around
+		// the notch, which left a black bar down one side and pushed the controls inwards.
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+			window.attributes = window.attributes.apply {
+				layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+					WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+				} else {
+					WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+				}
+			}
+		}
+		val parcel = IntentCompat.getParcelableExtra(intent, AppRouter.KEY_MANGA, ParcelableManga::class.java)
+		val resolveHere = parcel != null
+		if (!resolveHere && !AnimePlaybackSession.isActive) {
 			finish()
 			return
 		}
-		requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
 		window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-		WindowCompat.setDecorFitsSystemWindows(window, false)
-		index = AnimePlaybackSession.index
-		streamIndex = AnimePlaybackSession.streamIndex
+		waitingMode = resolveHere && intent.getBooleanExtra(EXTRA_WAITING, false)
+		watchEnabled = resolveHere && !intent.getBooleanExtra(EXTRA_FULLSCREEN, false)
+		fullscreen = !watchEnabled
+		audioPreset = AnimePlaybackSession.audioPreset(this)
+		skipSeconds = AnimePlayerPrefs.skipSeconds(this)
+		if (parcel != null) {
+			// Opened with just a title: this screen loads the episodes and resolves the stream itself.
+			val seed = parcel.manga
+			AnimePlaybackSession.begin(seed, seed.chapters.orEmpty(), -1, emptyList(), 0)
+			pageManga = seed
+			pageChapters = seed.chapters.orEmpty()
+			// Waiting for a pick: nothing is loading, so no spinner on top of the prompt.
+			isBuffering = !waitingMode
+		} else {
+			// Hand-off from the stream chooser (VLC fallback): streams are already resolved, play straight away.
+			index = AnimePlaybackSession.index
+			streamIndex = AnimePlaybackSession.streamIndex
+			pageManga = AnimePlaybackSession.manga
+			pageChapters = AnimePlaybackSession.chapters
+		}
+		pageManga?.let { notes = AnimeNotes.load(this, it.id) }
 
 		playerView = PlayerView(this).apply {
 			useController = false
@@ -193,19 +293,21 @@ class AnimePlayerActivity : AppCompatActivity() {
 				setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * 1.15f)
 				setBottomPaddingFraction(0.07f)
 			}
-			layoutParams = FrameLayout.LayoutParams(-1, -1)
+			layoutParams = android.view.ViewGroup.LayoutParams(-1, -1)
 		}
-		val overlay = ComposeView(this).apply {
-			layoutParams = FrameLayout.LayoutParams(-1, -1)
-			setContent { DropSauceTheme { Overlay() } }
+		setContent { DropSauceTheme { Root() } }
+		onBackPressedDispatcher.addCallback(this) { handleBack() }
+
+		if (fullscreen) {
+			requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+			hideSystemBars()
+		} else {
+			requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER
+			showSystemBars()
+			// Launched while the phone is already held sideways: go straight to fullscreen like YouTube does.
+			if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) setFullscreen(true, viaRotation = true)
 		}
-		setContentView(FrameLayout(this).apply {
-			setBackgroundColor(android.graphics.Color.BLACK)
-			addView(playerView)
-			addView(overlay)
-		})
-		hideSystemBars()
-		startEpisode(resolveStreams = false)
+		if (resolveHere) loadEpisodes() else startEpisode(resolveStreams = false)
 
 		lifecycleScope.launch {
 			repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -227,7 +329,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 	private val chapters get() = AnimePlaybackSession.chapters
 
 	private fun updateLabels() {
-		val chapter = chapters[index]
+		val chapter = chapters.getOrNull(index) ?: return
 		val label = AnimePlaybackSession.episodeLabel(chapter)
 		animeTitle = manga.title
 		episodeChip = label
@@ -237,59 +339,136 @@ class AnimePlayerActivity : AppCompatActivity() {
 			?: title
 	}
 
-	/** Loads [index] — re-resolving streams if we moved to another episode — and starts playback. */
+	/**
+	 * Loads the episode list (and the full details for the watch page), then either waits for a pick or starts
+	 * the requested / resume episode. getDetails is cached by the repository, so this is quick when the details
+	 * page has just loaded the same title.
+	 */
+	private fun loadEpisodes() {
+		val seed = pageManga ?: return
+		loadingEpisodes = true
+		pageError = null
+		lifecycleScope.launch {
+			runCatching {
+				injektBridge.get().initialize()
+				val repo = repositoryFactory.create(seed.source) as? AnimeMangaRepository ?: error("Not an anime source")
+				val full = runCatching { repo.getDetails(seed) }.getOrNull() ?: seed
+				val list = (full.chapters ?: seed.chapters).orEmpty()
+				check(list.isNotEmpty()) { "This title has no episodes" }
+				full to list
+			}.onSuccess { (full, list) ->
+				val snapshot = full.copy(chapters = list)
+				AnimePlaybackSession.begin(snapshot, list, -1, emptyList(), 0)
+				pageManga = snapshot
+				pageChapters = list
+				notes = AnimeNotes.load(this@AnimePlayerActivity, snapshot.id)
+				val last = runCatching { history.getOne(snapshot) }.getOrNull()
+				historyChapterId = last?.chapterId
+				historyPercent = last?.percent ?: 0f
+				loadingEpisodes = false
+				if (waitingMode) return@onSuccess
+				val wanted = intent.getLongExtra(EXTRA_CHAPTER_ID, -1L).takeIf { it != -1L } ?: last?.chapterId
+				index = list.indexOfFirst { it.id == wanted }.takeIf { it >= 0 } ?: 0
+				startEpisode(resolveStreams = true)
+			}.onFailure {
+				loadingEpisodes = false
+				isBuffering = false
+				pageError = it.message ?: it::class.java.simpleName
+			}
+		}
+	}
+
+	/** Loads [index] — re-resolving its streams when [resolveStreams] — and starts playback. */
 	private fun startEpisode(resolveStreams: Boolean) {
 		errorText = null
 		triedProxy = false
 		isBuffering = true
+		chooseServer = false
+		rememberPick = AnimePlaybackSession.rememberedServer(this, manga) != null
 		updateLabels()
 		if (!resolveStreams) {
 			play()
 			return
 		}
-		val previousTitle = AnimePlaybackSession.streams.getOrNull(streamIndex)?.video?.videoTitle
-		lifecycleScope.launch {
+		pickJob?.cancel()
+		pickJob = lifecycleScope.launch {
 			runCatching {
+				injektBridge.get().initialize()
 				val repo = repositoryFactory.create(manga.source) as AnimeMangaRepository
 				repo.getStreams(chapters[index])
 			}.onSuccess { list ->
-				if (list.isEmpty()) {
-					errorText = "No playable streams for this episode."
-					return@onSuccess
-				}
-				// Keep the remembered server (else the previous episode's) when this episode has it; if a
-				// server was remembered but this episode does not offer it, let the user choose again.
-				val saved = AnimePlaybackSession.rememberedServer(this@AnimePlayerActivity, manga)
-				val found = list.indexOfFirst { it.video.videoTitle == (saved ?: previousTitle) }
-				if (saved != null && found < 0) {
-					openStreamChooser(index)
-					return@onSuccess
-				}
-				streamIndex = found.takeIf { it >= 0 } ?: 0
-				AnimePlaybackSession.begin(manga, chapters, index, list, streamIndex)
-				updateLabels()
-				play()
-			}.onFailure { errorText = "Could not load streams:\n${it.message ?: it::class.java.simpleName}" }
+				onStreamsResolved(list)
+			}.onFailure {
+				isBuffering = false
+				errorText = "Could not load streams:\n${it.message ?: it::class.java.simpleName}"
+			}
 		}
 	}
 
-	private fun go(newIndex: Int) {
-		if (newIndex !in chapters.indices) return
-		saveProgress()
-		releasePlayer()
-		if (AnimePlaybackSession.rememberedServer(this, manga) == null) {
-			// No remembered server: choose one for this episode exactly as for the first one.
-			openStreamChooser(newIndex)
+	/**
+	 * Picks the stream for the episode just resolved. A remembered server wins, then (with auto-pick on, the
+	 * default) the best match for the quality set in Settings > Player; with auto-pick off the server list opens.
+	 * The server the previous episode used is preferred, so a whole season keeps the same one.
+	 */
+	private fun onStreamsResolved(list: List<AnimeStream>) {
+		if (list.isEmpty()) {
+			isBuffering = false
+			errorText = "No playable streams for this episode."
 			return
 		}
-		index = newIndex
-		startEpisode(resolveStreams = true)
+		val saved = AnimePlaybackSession.rememberedServer(this, manga)
+		val order = AnimeStreamAutoPicker.order(this, list, saved ?: lastServerTitle)
+		val rememberedHere = saved != null && list.any { it.video.videoTitle == saved }
+		val automatic = rememberedHere || list.size == 1 || AnimePlayerPrefs.isAutoPick(this)
+		streamIndex = order.first()
+		AnimePlaybackSession.begin(manga, chapters, index, list, streamIndex)
+		if (automatic) {
+			autoPicked = true
+			autoOrder = order
+			autoTried.clear()
+			autoTried += streamIndex
+			lastServerTitle = list[streamIndex].video.videoTitle
+			updateLabels()
+			play()
+		} else {
+			autoPicked = false
+			updateLabels()
+			isBuffering = false
+			chooseServer = true
+			dialog = PlayerDialog.QUALITY
+		}
 	}
 
-	/** Hands over to the stream chooser for [episodeIndex]; playback restarts from there. */
-	private fun openStreamChooser(episodeIndex: Int) {
-		AnimePlayerLauncher.openEpisode(this, manga.copy(chapters = chapters), chapters[episodeIndex].id)
-		finish()
+	/** The picked server is dead: quietly move on to the next best one. False once every candidate was tried. */
+	private fun tryNextAutoStream(): Boolean {
+		if (!autoPicked) return false
+		val next = autoOrder.firstOrNull { it !in autoTried } ?: return false
+		autoTried += next
+		streamIndex = next
+		AnimePlaybackSession.streamIndex = next
+		lastServerTitle = AnimePlaybackSession.streams.getOrNull(next)?.video?.videoTitle
+		attempts.clear()
+		triedProxy = false
+		errorText = null
+		isBuffering = true
+		updateLabels()
+		play()
+		return true
+	}
+
+	/** Switches to episode [newIndex] (the episode list, previous / next, auto-play): saves progress, resolves again. */
+	private fun go(newIndex: Int) {
+		if (newIndex !in chapters.indices) return
+		if (newIndex == index && errorText == null) return
+		saveProgress()
+		playJob?.cancel()
+		pickJob?.cancel()
+		releasePlayer()
+		index = newIndex
+		autoPicked = false
+		// Streams belong to one episode: drop them so nothing can replay the previous episode's by mistake.
+		AnimePlaybackSession.begin(manga, chapters, newIndex, emptyList(), 0)
+		startEpisode(resolveStreams = true)
 	}
 
 	// --- playback -------------------------------------------------------------------------------
@@ -311,8 +490,9 @@ class AnimePlayerActivity : AppCompatActivity() {
 			// Work out what the URL really is (HLS / DASH / file / web page) before ExoPlayer guesses.
 			val base = stream.probe ?: AnimeStreamProbe.probe(stream).also { stream.probe = it }
 			if (base.kind == StreamKind.ERROR && forceKind == null) {
+				if (tryNextAutoStream()) return@launch
 				isBuffering = false
-				errorText = (base.note ?: "This stream can't be played") + "\nGo back and pick another server."
+				errorText = (base.note ?: "This stream can't be played") + "\nPick another server from HQ or the ⋮ menu."
 				return@launch
 			}
 			val probe = if (forceKind != null) StreamProbe(forceKind, base.separateAudio) else base
@@ -433,7 +613,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 		exo.addListener(object : Player.Listener {
 			override fun onPlaybackStateChanged(state: Int) {
 				isBuffering = state == Player.STATE_BUFFERING
-				if (state == Player.STATE_ENDED && index + 1 in chapters.indices) go(index + 1)
+				if (state == Player.STATE_ENDED && index + 1 in chapters.indices && AnimePlayerPrefs.isAutoPlayNext(this@AnimePlayerActivity)) go(index + 1)
 			}
 
 			override fun onTracksChanged(t: Tracks) {
@@ -471,6 +651,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 					play(useProxy = true)
 					return
 				}
+				if (tryNextAutoStream()) return
 				val cause = generateSequence<Throwable>(error) { it.cause }.last()
 				val server = stream.probe?.detail?.let { "\nServer replied: $it" }.orEmpty()
 				errorText = if (parseError) {
@@ -549,13 +730,16 @@ class AnimePlayerActivity : AppCompatActivity() {
 	}
 
 	private fun saveProgress() {
+		if (AnimePlaybackSession.incognito) return
 		val exo = player ?: return
 		val pos = exo.currentPosition
 		val dur = exo.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: 0L
 		val finished = dur > 0 && pos > dur - 15_000
 		getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putLong(resumeKey, if (finished) 0L else pos).apply()
 		val percent = if (dur > 0) (pos.toFloat() / dur).coerceIn(0f, 1f) else 0f
-		val chapter = chapters[index]
+		val chapter = chapters.getOrNull(index) ?: return
+		historyChapterId = chapter.id
+		historyPercent = percent
 		val snapshot = manga.copy(chapters = chapters)
 		CoroutineScope(Dispatchers.IO + NonCancellable).launch {
 			runCatching { history.addOrUpdate(snapshot, chapter.id, 0, 0, percent, force = false) }
@@ -566,7 +750,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 		presetApplied = false
 		player?.release()
 		player = null
-		playerView.player = null
+		if (::playerView.isInitialized) playerView.player = null
 		tracks = Tracks.EMPTY
 		audioNote = null
 	}
@@ -601,8 +785,79 @@ class AnimePlayerActivity : AppCompatActivity() {
 
 	// --- compose overlay ------------------------------------------------------------------------
 
+	/**
+	 * One tree for both layouts so the PlayerView (and the playback) survive switching: the video box is
+	 * 16:9 under the status bar on the watch page and fills the screen in fullscreen / PiP; the episode page
+	 * only exists in the first case.
+	 */
 	@Composable
-	private fun Overlay() {
+	private fun Root() {
+		val page = !fullscreen && !inPip
+		val videoModifier = if (page) {
+			Modifier.fillMaxWidth().statusBarsPadding().aspectRatio(16f / 9f)
+		} else {
+			Modifier.fillMaxSize()
+		}
+		val actions = remember {
+			WatchPageActions(
+				onSelectEpisode = { go(it) },
+				onRetry = { loadEpisodes() },
+				onAddNote = { addNote(it) },
+				onDeleteNote = { deleteNote(it) },
+				onAudioPreset = { changeAudioPreset(it) },
+				onNoteClick = { jumpToNote(it) },
+				onSpeed = { dialog = PlayerDialog.SPEED },
+				onSubtitles = { dialog = PlayerDialog.SUBTITLES },
+				onAudio = { dialog = PlayerDialog.AUDIO },
+			)
+		}
+		Box(Modifier.fillMaxSize().background(Color.Black)) {
+			Column(Modifier.fillMaxSize()) {
+				Box(videoModifier) {
+					AndroidView(factory = { playerView }, modifier = Modifier.fillMaxSize())
+					if (index < 0 && waitingMode) {
+						pageManga?.let { WaitingOverlay(it, coil, Modifier.fillMaxSize()) }
+					}
+					Overlay(compact = page)
+				}
+				val shownManga = pageManga
+				if (page && shownManga != null) {
+					WatchPage(
+						data = WatchPageData(
+							manga = shownManga,
+							chapters = pageChapters,
+							selectedIndex = index,
+							isPlaying = isPlaying,
+							historyChapterId = historyChapterId,
+							historyPercent = historyPercent,
+							loading = loadingEpisodes,
+							error = pageError,
+							noteTag = { if (index >= 0 && player != null) "${formatClock(position)} · $episodeChip" else "General anime note" },
+							notes = notes,
+							audioPreset = audioPreset,
+						),
+						actions = actions,
+						imageLoader = coil,
+						modifier = Modifier.weight(1f),
+					)
+				}
+			}
+			// Dialogs sit above everything (not inside the small video box) so they are never clipped.
+			if (dialog != PlayerDialog.NONE) DialogHost()
+		}
+	}
+
+	@Composable
+	private fun Overlay(compact: Boolean) {
+		// Watch page, no episode yet: nothing to control, just a way back.
+		if (compact && index < 0) {
+			Box(Modifier.fillMaxSize()) {
+				Box(Modifier.align(Alignment.TopStart).padding(4.dp)) {
+					PlainIcon(R.drawable.ic_ap_back, "Back") { handleBack() }
+				}
+			}
+			return
+		}
 		val shown = controlsVisible && !inPip
 		LaunchedEffect(shown, isPlaying, dialog, locked, position / 4000) {
 			if (shown && isPlaying && dialog == PlayerDialog.NONE) {
@@ -624,10 +879,20 @@ class AnimePlayerActivity : AppCompatActivity() {
 			},
 		) {
 			if (isBuffering && errorText == null) {
-				CircularProgressIndicator(Modifier.align(Alignment.Center).size(48.dp), color = Color.White)
+				CircularProgressIndicator(Modifier.align(Alignment.Center).size(if (compact) 36.dp else 48.dp), color = Color.White)
 			}
-			AnimatedVisibility(shown && !locked, enter = fadeIn(), exit = fadeOut()) { Controls() }
-			AnimatedVisibility(shown && locked, enter = fadeIn(), exit = fadeOut()) {
+			AnimatedVisibility(
+				shown && !locked,
+				enter = fadeIn(spring(stiffness = 700f)) + scaleIn(spring(dampingRatio = 0.7f, stiffness = 500f), initialScale = 0.96f),
+				exit = fadeOut(spring(stiffness = 900f)) + scaleOut(spring(stiffness = 900f), targetScale = 0.98f),
+			) {
+				if (compact) CompactControls() else Controls()
+			}
+			AnimatedVisibility(
+				shown && locked,
+				enter = fadeIn(spring(stiffness = 700f)) + scaleIn(spring(dampingRatio = 0.6f, stiffness = 500f), initialScale = 0.8f),
+				exit = fadeOut(spring(stiffness = 900f)) + scaleOut(spring(stiffness = 900f), targetScale = 0.8f),
+			) {
 				Box(Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp)) {
 					RoundIcon(R.drawable.ic_ap_lock, "Unlock", Modifier.align(Alignment.CenterStart)) { locked = false }
 				}
@@ -636,13 +901,62 @@ class AnimePlayerActivity : AppCompatActivity() {
 				Text(
 					it,
 					color = Color.White,
-					fontSize = 13.sp,
-					modifier = Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 8.dp)
+					fontSize = if (compact) 11.sp else 13.sp,
+					modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
 						.clip(RoundedCornerShape(12.dp)).background(Color(0xCCB3261E)).padding(horizontal = 14.dp, vertical = 8.dp),
 				)
 			}
-			errorText?.let { ErrorCard(it, Modifier.align(Alignment.Center)) }
-			if (dialog != PlayerDialog.NONE) DialogHost()
+			if (chooseServer && dialog == PlayerDialog.NONE && errorText == null) {
+				TextButton(
+					onClick = { dialog = PlayerDialog.QUALITY },
+					modifier = Modifier.align(Alignment.Center),
+				) { Text("Choose a server", color = Color.White, fontSize = 16.sp) }
+			}
+			errorText?.let { ErrorCard(it, compact, Modifier.align(Alignment.Center)) }
+		}
+	}
+
+	/** Controls of the 16:9 video on the watch page: close, subtitles, more; transport; seek bar and fullscreen. */
+	@Composable
+	private fun CompactControls() {
+		Box(
+			Modifier.fillMaxSize().background(
+				Brush.verticalGradient(
+					0f to Color(0x99000000), 0.3f to Color(0x22000000), 0.7f to Color(0x22000000), 1f to Color(0xAA000000),
+				),
+			),
+		) {
+			Row(Modifier.align(Alignment.TopStart).fillMaxWidth().padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+				PlainIcon(R.drawable.ic_ap_back, "Back") { handleBack() }
+				Spacer(Modifier.weight(1f))
+				if (qualityChip.isNotBlank()) Chip(qualityChip)
+				PlainIcon(R.drawable.ic_ap_subtitles, "Subtitles") { dialog = PlayerDialog.SUBTITLES }
+				PlainIcon(R.drawable.ic_ap_more, "More") { dialog = PlayerDialog.SETTINGS }
+			}
+			Row(
+				Modifier.align(Alignment.Center),
+				horizontalArrangement = Arrangement.spacedBy(28.dp),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				PlainIcon(R.drawable.ic_ap_prev, "Previous episode", size = 48.dp, iconSize = 30.dp, enabled = index > 0) { go(index - 1) }
+				PlainIcon(
+					if (isPlaying) R.drawable.ic_ap_pause else R.drawable.ic_ap_play,
+					if (isPlaying) "Pause" else "Play",
+					size = 60.dp, iconSize = 42.dp,
+				) { togglePlay() }
+				PlainIcon(
+					R.drawable.ic_ap_next, "Next episode", size = 48.dp, iconSize = 30.dp, enabled = index + 1 < chapters.size,
+				) { go(index + 1) }
+			}
+			Row(
+				Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 8.dp, end = 0.dp),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Text(formatTime(position), color = Color.White, fontSize = 12.sp)
+				SeekBar(Modifier.weight(1f).padding(horizontal = 6.dp))
+				Text(formatTime(duration), color = Color.White, fontSize = 12.sp)
+				PlainIcon(R.drawable.ic_ap_fullscreen, "Fullscreen", size = 44.dp, iconSize = 22.dp) { setFullscreen(true, viaRotation = false) }
+			}
 		}
 	}
 
@@ -658,7 +972,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 			Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp, vertical = 4.dp)) {
 				// top bar: back, title + episode, then subtitles / audio / quality / more
 				Row(verticalAlignment = Alignment.CenterVertically) {
-					PlainIcon(R.drawable.ic_ap_back, "Back") { finish() }
+					PlainIcon(R.drawable.ic_ap_back, "Back") { handleBack() }
 					Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
 						Text(
 							animeTitle,
@@ -680,14 +994,14 @@ class AnimePlayerActivity : AppCompatActivity() {
 					PlainIcon(R.drawable.ic_ap_audio, "Audio") { dialog = PlayerDialog.AUDIO }
 					if (AnimePlaybackSession.streams.size > 1) {
 						// "HQ": pick another server / quality
-						Box(Modifier.size(48.dp).clickable { dialog = PlayerDialog.QUALITY }, contentAlignment = Alignment.Center) {
+						Box(Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).clickable { dialog = PlayerDialog.QUALITY }, contentAlignment = Alignment.Center) {
 							Text(
 								"HQ",
-								color = Color.Black,
+								color = MaterialTheme.colorScheme.onPrimary,
 								fontSize = 11.sp,
 								fontWeight = FontWeight.Bold,
-								modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(Color.White)
-									.padding(horizontal = 4.dp, vertical = 1.dp),
+								modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primary)
+									.padding(horizontal = 8.dp, vertical = 3.dp),
 							)
 						}
 					}
@@ -697,10 +1011,10 @@ class AnimePlayerActivity : AppCompatActivity() {
 				// skip +85 s (typical opening length), tonal blue pill
 				Row(Modifier.fillMaxWidth().padding(end = 8.dp), horizontalArrangement = Arrangement.End) {
 					Surface(
-						shape = RoundedCornerShape(24.dp),
-						color = Color(0xFFB4C5F8),
-						modifier = Modifier.clickable { seekBy(85_000L) },
-					) { Text("+85 s", color = Color(0xFF1B2B5E), fontSize = 15.sp, modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp)) }
+						shape = RoundedCornerShape(16.dp),
+						color = MaterialTheme.colorScheme.primaryContainer,
+						modifier = Modifier.clip(RoundedCornerShape(16.dp)).clickable { seekBy(skipSeconds * 1000L) },
+					) { Text("+$skipSeconds s", color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = 15.sp, modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp)) }
 				}
 				Spacer(Modifier.height(4.dp))
 				// time - seek bar - time on one row
@@ -717,12 +1031,15 @@ class AnimePlayerActivity : AppCompatActivity() {
 						"%.2fx".format(speed),
 						color = Color(0xFFE0E0E6),
 						fontSize = 15.sp,
-						modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { dialog = PlayerDialog.SPEED }
+						modifier = Modifier.clip(RoundedCornerShape(14.dp)).clickable { dialog = PlayerDialog.SPEED }
 							.padding(horizontal = 14.dp, vertical = 12.dp),
 					)
 					Spacer(Modifier.weight(1f))
 					PlainIcon(R.drawable.ic_ap_pip, "Picture in picture") { enterPip() }
 					PlainIcon(R.drawable.ic_ap_aspect, "Aspect ratio") { cycleResize() }
+					if (watchEnabled) {
+						PlainIcon(R.drawable.ic_ap_fullscreen_exit, "Exit fullscreen") { setFullscreen(false, viaRotation = false) }
+					}
 				}
 			}
 			// Centre transport sits directly in the full-screen box: the column above is padded by the
@@ -758,41 +1075,53 @@ class AnimePlayerActivity : AppCompatActivity() {
 				dragging = false
 			},
 			colors = SliderDefaults.colors(
-				thumbColor = Color(0xFFAEC6FF),
-				activeTrackColor = Color(0xFF2F6BE8),
-				inactiveTrackColor = Color(0xFF1B2433),
+				thumbColor = MaterialTheme.colorScheme.primary,
+				activeTrackColor = MaterialTheme.colorScheme.primary,
+				inactiveTrackColor = Color(0x40FFFFFF),
 			),
 			modifier = modifier.height(28.dp),
 		)
 	}
 
+	@OptIn(ExperimentalLayoutApi::class)
 	@Composable
-	private fun ErrorCard(message: String, modifier: Modifier) {
-		Surface(shape = RoundedCornerShape(20.dp), color = Color(0xE6101010), modifier = modifier.padding(32.dp)) {
-			Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-				Text(message, color = Color.White, fontSize = 15.sp)
-				Spacer(Modifier.height(12.dp))
-				Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+	private fun ErrorCard(message: String, compact: Boolean, modifier: Modifier) {
+		Surface(
+			shape = RoundedCornerShape(if (compact) 14.dp else 20.dp),
+			color = Color(0xE6101010),
+			modifier = modifier.padding(if (compact) 8.dp else 32.dp),
+		) {
+			Column(Modifier.padding(if (compact) 12.dp else 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+				Text(message, color = Color.White, fontSize = if (compact) 12.sp else 15.sp, maxLines = if (compact) 5 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
+				Spacer(Modifier.height(if (compact) 6.dp else 12.dp))
+				FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)) {
 					TextButton(onClick = {
-						AnimePlaybackSession.streams.getOrNull(streamIndex)?.probe = null
-						attempts.clear()
-						errorText = null; triedProxy = false; isBuffering = true; play()
-					}) { Text("Retry") }
-					TextButton(onClick = {
-						attempts.clear()
-						errorText = null; triedProxy = true; isBuffering = true; play(useProxy = true)
-					}) {
-						Text("Use proxy")
-					}
-					TextButton(onClick = {
-						val s = AnimePlaybackSession.streams.getOrNull(streamIndex)
-						if (s == null || !AnimePlayerLauncher.launchVlc(this@AnimePlayerActivity, s, "$animeTitle — $episodeChip")) {
-							Toast.makeText(this@AnimePlayerActivity, "VLC is not installed", Toast.LENGTH_SHORT).show()
+						if (AnimePlaybackSession.streams.isEmpty()) {
+							// the streams never resolved: ask the source again instead of replaying nothing
+							startEpisode(resolveStreams = true)
 						} else {
-							finish()
+							AnimePlaybackSession.streams.getOrNull(streamIndex)?.probe = null
+							attempts.clear()
+							errorText = null; triedProxy = false; isBuffering = true; play()
 						}
-					}) { Text("Open in VLC") }
-					TextButton(onClick = { finish() }) { Text("Close") }
+					}) { Text("Retry") }
+					if (AnimePlaybackSession.streams.isNotEmpty()) {
+						TextButton(onClick = {
+							attempts.clear()
+							errorText = null; triedProxy = true; isBuffering = true; play(useProxy = true)
+						}) {
+							Text("Use proxy")
+						}
+						TextButton(onClick = {
+							val st = AnimePlaybackSession.streams.getOrNull(streamIndex)
+							if (st == null || !AnimePlayerLauncher.launchVlc(this@AnimePlayerActivity, st, "$animeTitle — $episodeChip")) {
+								Toast.makeText(this@AnimePlayerActivity, "VLC is not installed", Toast.LENGTH_SHORT).show()
+							} else {
+								finish()
+							}
+						}) { Text("Open in VLC") }
+					}
+					if (!compact) TextButton(onClick = { finish() }) { Text("Close") }
 				}
 			}
 		}
@@ -816,7 +1145,11 @@ class AnimePlayerActivity : AppCompatActivity() {
 							DialogRow("Playback speed  ·  ${speedLabel(speed)}", false) { dialog = PlayerDialog.SPEED }
 							DialogRow("Subtitles", false) { dialog = PlayerDialog.SUBTITLES }
 							DialogRow("Audio track", false) { dialog = PlayerDialog.AUDIO }
+							if (AnimePlaybackSession.streams.size > 1) {
+								DialogRow("Server / quality", false) { dialog = PlayerDialog.QUALITY }
+							}
 							DialogRow("Aspect ratio  ·  ${RESIZE_LABELS[resizeIdx]}", false) { cycleResize() }
+							DialogRow("Picture in picture", false) { dialog = PlayerDialog.NONE; enterPip() }
 						}
 						PlayerDialog.SPEED -> {
 							DialogTitle("Playback speed")
@@ -830,9 +1163,10 @@ class AnimePlayerActivity : AppCompatActivity() {
 						}
 						PlayerDialog.QUALITY -> {
 							DialogTitle("Server / quality")
+							DialogRow("Remember for this anime", rememberPick) { rememberPick = !rememberPick }
 							LazyColumn(Modifier.height((minOf(AnimePlaybackSession.streams.size, 7) * 52).dp)) {
 								itemsIndexed(AnimePlaybackSession.streams) { i, st ->
-									DialogRow(st.video.videoTitle.ifBlank { "Stream ${i + 1}" }, i == streamIndex) { switchStream(i) }
+									DialogRow(st.video.videoTitle.ifBlank { "Stream ${i + 1}" }, i == streamIndex && !chooseServer) { switchStream(i) }
 								}
 							}
 						}
@@ -885,7 +1219,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 		onClick: () -> Unit,
 	) {
 		Box(
-			modifier.size(size).clip(RoundedCornerShape(14.dp)).background(Color(0x66000000))
+			modifier.size(size).clip(RoundedCornerShape(size * 0.3f)).background(Color(0x66000000))
 				.clickable(enabled = enabled, onClick = onClick),
 			contentAlignment = Alignment.Center,
 		) {
@@ -907,7 +1241,10 @@ class AnimePlayerActivity : AppCompatActivity() {
 		enabled: Boolean = true,
 		onClick: () -> Unit,
 	) {
-		Box(Modifier.size(size).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
+		Box(
+			Modifier.size(size).clip(RoundedCornerShape(size * 0.3f)).background(Color(0x33000000)).clickable(enabled = enabled, onClick = onClick),
+			contentAlignment = Alignment.Center,
+		) {
 			Icon(
 				painterResource(icon), description,
 				tint = if (enabled) Color.White else Color(0x55FFFFFF),
@@ -920,8 +1257,8 @@ class AnimePlayerActivity : AppCompatActivity() {
 	private fun Chip(text: String, modifier: Modifier = Modifier) {
 		Text(
 			text,
-			modifier = modifier.clip(RoundedCornerShape(10.dp)).background(Color(0x33FFFFFF)).padding(horizontal = 10.dp, vertical = 4.dp),
-			color = Color(0xFFD9DCFF),
+			modifier = modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 12.dp, vertical = 5.dp),
+			color = MaterialTheme.colorScheme.onPrimaryContainer,
 			fontSize = 13.sp,
 			maxLines = 1,
 			overflow = TextOverflow.Ellipsis,
@@ -934,7 +1271,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 			text,
 			color = Color.White,
 			fontSize = 16.sp,
-			modifier = Modifier.clip(RoundedCornerShape(18.dp)).background(Color(0x66000000)).padding(horizontal = 18.dp, vertical = 12.dp),
+			modifier = Modifier.clip(RoundedCornerShape(16.dp)).background(Color(0x66000000)).padding(horizontal = 18.dp, vertical = 12.dp),
 		)
 	}
 
@@ -948,7 +1285,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 
 	@Composable
 	private fun PillIcon(icon: Int, description: String, onClick: () -> Unit) {
-		Box(Modifier.size(46.dp).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+		Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
 			Icon(painterResource(icon), description, tint = Color.White, modifier = Modifier.size(22.dp))
 		}
 	}
@@ -968,16 +1305,109 @@ class AnimePlayerActivity : AppCompatActivity() {
 	/** Switches to another server / quality of the same episode; the position is saved first and restored on start. */
 	private fun switchStream(i: Int) {
 		dialog = PlayerDialog.NONE
-		if (i == streamIndex) return
+		val choosing = chooseServer
+		if (i == streamIndex && !choosing) return
 		saveProgress()
+		chooseServer = false
+		// The user took control: no more quiet server fallbacks for this episode.
+		autoPicked = false
 		streamIndex = i
 		AnimePlaybackSession.streamIndex = i
+		val title = AnimePlaybackSession.streams.getOrNull(i)?.video?.videoTitle
+		lastServerTitle = title
+		if (rememberPick) {
+			AnimePlaybackSession.setRememberedServer(this, manga, title)
+		} else if (choosing) {
+			AnimePlaybackSession.setRememberedServer(this, manga, null)
+		}
 		attempts.clear()
 		triedProxy = false
 		errorText = null
 		updateLabels()
 		isBuffering = true
 		play()
+	}
+
+	// --- watch page actions ---------------------------------------------------------------------
+
+	private fun addNote(text: String) {
+		val m = pageManga ?: return
+		val now = System.currentTimeMillis()
+		val onEpisode = index >= 0 && player != null
+		val note = AnimeNote(
+			id = now,
+			positionMs = if (onEpisode) position else -1L,
+			episode = if (index >= 0) episodeChip else "Anime note",
+			createdAt = now,
+			text = text,
+		)
+		notes = listOf(note) + notes
+		AnimeNotes.save(this, m.id, notes)
+	}
+
+	private fun deleteNote(note: AnimeNote) {
+		val m = pageManga ?: return
+		notes = notes.filter { it.id != note.id }
+		AnimeNotes.save(this, m.id, notes)
+	}
+
+	/** Tapping a timestamped note jumps there, when its episode is the one playing. */
+	private fun jumpToNote(note: AnimeNote) {
+		val p = player ?: return
+		if (note.positionMs >= 0 && note.episode == episodeChip) p.seekTo(note.positionMs)
+	}
+
+	private fun changeAudioPreset(preset: String) {
+		audioPreset = preset
+		AnimePlaybackSession.setAudioPreset(this, preset)
+		// Apply to what is playing right now as well, not only to the next episode.
+		if (player != null) {
+			presetApplied = false
+			applyAudioPreset(tracks)
+		}
+	}
+
+	// --- fullscreen / orientation ---------------------------------------------------------------
+
+	/** Back leaves fullscreen first when there is a watch page to return to, else closes the player. */
+	private fun handleBack() {
+		if (fullscreen && watchEnabled) setFullscreen(false, viaRotation = false) else finish()
+	}
+
+	/**
+	 * Moves between the watch page and fullscreen without touching the player. The fullscreen button locks
+	 * landscape; turning the phone sideways enters fullscreen too and turning it back leaves it again.
+	 */
+	private fun setFullscreen(on: Boolean, viaRotation: Boolean) {
+		if (!watchEnabled) return
+		fullscreen = on
+		controlsVisible = true
+		handler.removeCallbacksAndMessages(null)
+		if (on) {
+			requestedOrientation = if (viaRotation) {
+				ActivityInfo.SCREEN_ORIENTATION_USER
+			} else {
+				ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+			}
+			hideSystemBars()
+		} else {
+			showSystemBars()
+			if (viaRotation) {
+				requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER
+			} else {
+				// Force portrait once, then hand rotation back to the user so the phone is not stuck upright.
+				requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+				handler.postDelayed({ if (!fullscreen) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER }, 1500)
+			}
+		}
+	}
+
+	override fun onConfigurationChanged(newConfig: Configuration) {
+		super.onConfigurationChanged(newConfig)
+		if (!watchEnabled || inPip) return
+		val landscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
+		if (landscape && !fullscreen) setFullscreen(true, viaRotation = true)
+		else if (!landscape && fullscreen) setFullscreen(false, viaRotation = true)
 	}
 
 	private fun toggleOrientation() {
@@ -1009,6 +1439,13 @@ class AnimePlayerActivity : AppCompatActivity() {
 		return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%02d:%02d".format(m, s)
 	}
 
+	private fun showSystemBars() {
+		WindowInsetsControllerCompat(window, window.decorView).apply {
+			show(WindowInsetsCompat.Type.systemBars())
+			isAppearanceLightStatusBars = false
+		}
+	}
+
 	private fun hideSystemBars() {
 		WindowInsetsControllerCompat(window, window.decorView).apply {
 			systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -1018,7 +1455,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 
 	override fun onWindowFocusChanged(hasFocus: Boolean) {
 		super.onWindowFocusChanged(hasFocus)
-		if (hasFocus) hideSystemBars()
+		if (hasFocus && fullscreen) hideSystemBars()
 	}
 
 	override fun onUserLeaveHint() {
@@ -1039,11 +1476,21 @@ class AnimePlayerActivity : AppCompatActivity() {
 
 	override fun onDestroy() {
 		super.onDestroy()
+		handler.removeCallbacksAndMessages(null)
 		releasePlayer()
 	}
 
-	private companion object {
-		const val PREFS = "deepsync_anime_player"
+	companion object {
+		/** Chapter to open; -1 resumes from history. */
+		const val EXTRA_CHAPTER_ID = "chapter_id"
+
+		/** Open the watch page with no episode picked, waiting for the user to choose. */
+		const val EXTRA_WAITING = "waiting"
+
+		/** Skip the watch page and start in fullscreen landscape (Settings > Player > Direct landscape). */
+		const val EXTRA_FULLSCREEN = "fullscreen"
+
+		private const val PREFS = "deepsync_anime_player"
 		val SPEEDS = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
 		val RESIZE_MODES = listOf(
 			AspectRatioFrameLayout.RESIZE_MODE_FIT,

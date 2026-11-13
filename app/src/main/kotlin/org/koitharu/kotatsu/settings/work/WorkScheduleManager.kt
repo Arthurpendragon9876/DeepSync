@@ -10,6 +10,7 @@ import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.util.ext.processLifecycleScope
 import org.koitharu.kotatsu.extensions.install.ExtensionUpdateWorker
 import org.koitharu.kotatsu.lnreader.LnPluginManager
+import org.koitharu.kotatsu.scrobbling.common.work.TrackerSyncWorker
 import org.koitharu.kotatsu.suggestions.ui.SuggestionsWorker
 import org.koitharu.kotatsu.sync.data.SyncSettings
 import org.koitharu.kotatsu.sync.work.SyncTrigger
@@ -28,6 +29,7 @@ class WorkScheduleManager @Inject constructor(
 	private val syncScheduler: SyncWorker.Scheduler,
 	private val syncTrigger: SyncTrigger,
 	private val extensionUpdateScheduler: ExtensionUpdateWorker.Scheduler,
+	private val trackerSyncScheduler: TrackerSyncWorker.Scheduler,
 	@ApplicationContext private val context: Context,
 ) : SharedPreferences.OnSharedPreferenceChangeListener {
 
@@ -55,6 +57,16 @@ class WorkScheduleManager @Inject constructor(
 				isEnabled = settings.isPeriodicalBackupEnabled && settings.periodicalBackupDirectory != null,
 				force = key != AppSettings.KEY_BACKUP_PERIODICAL_ENABLED,
 			)
+
+			AppSettings.KEY_TRACKER_AUTO_SYNC -> {
+				val enabled = settings.isTrackerAutoSyncEnabled
+				updateWorker(trackerSyncScheduler, enabled, force = false)
+				if (enabled) {
+					processLifecycleScope.launch(Dispatchers.Default) {
+						trackerSyncScheduler.startNow()
+					}
+				}
+			}
 
 			AppSettings.KEY_AUTO_UPDATE_EXTENSIONS,
 			AppSettings.KEY_SHIZUKU_INSTALLER,
@@ -89,6 +101,7 @@ class WorkScheduleManager @Inject constructor(
 				isEnabled = syncSettings.isSignedIn && syncSettings.intervalMinutes > 0,
 				force = false,
 			)
+			updateWorkerImpl(trackerSyncScheduler, settings.isTrackerAutoSyncEnabled, force = false)
 			val extensionUpdatesEnabled = isExtensionUpdateWorkerNeeded()
 			updateWorkerImpl(extensionUpdateScheduler, extensionUpdatesEnabled, force = false)
 			if (extensionUpdatesEnabled) {

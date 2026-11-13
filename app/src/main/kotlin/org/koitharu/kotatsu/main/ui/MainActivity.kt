@@ -131,6 +131,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), AppBarOwner, BottomNav
 			return
 		}
 		setContentView(ActivityMainBinding.inflate(layoutInflater))
+		if (savedInstanceState == null) {
+			YugenSplashOverlay.show(this)
+		}
 		setSupportActionBar(viewBinding.searchBar)
 		// Place the search icon inline, right before the hint, and centre the whole group.
 		viewBinding.searchBar.textView.apply {

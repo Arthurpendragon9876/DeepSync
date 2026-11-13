@@ -196,6 +196,30 @@ class MangaBakaRepository @Inject constructor(
 		)
 	}
 
+	// MangaBaka has no anime
+	override val supportsAnime: Boolean = false
+
+	override suspend fun setProgress(entry: TrackerReadingEntry, chapter: Int): Boolean {
+		// Only the two keys we own are sent: MangaBaka nulls out any key present in the PUT body, so
+		// rating, dates and privacy stay as the user set them. "rereading" is reported as READING by
+		// the library list and is written back as plain "reading".
+		val state = when (entry.status) {
+			"COMPLETED" -> "completed"
+			"PAUSED" -> "paused"
+			"DROPPED" -> "dropped"
+			else -> "reading"
+		}
+		val json = JSONObject()
+			.put("state", state)
+			.put("progress_chapter", chapter)
+		val request = Request.Builder()
+			.url("$BASE_API_URL/my/library/${entry.targetId}")
+			.put(json.toString().toJsonBody())
+			.build()
+		okHttp.newCall(request).await().parseJson()
+		return true
+	}
+
 	private suspend fun requireEntity(mangaId: Long) = requireNotNull(
 		db.getScrobblingDao().find(ScrobblerService.MANGABAKA.id, mangaId),
 	) { "Scrobbling info for manga $mangaId not found" }
@@ -345,28 +369,55 @@ class MangaBakaRepository @Inject constructor(
 		val response = okHttp.newCall(Request.Builder().url(url).get().build()).await().parseJson()
 		check(response.has("data")) { "Invalid response: \"$response\"" }
 		return response.getJSONArray("data").mapJSONNotNull { json ->
-			val id = json.getLong("id")
-			val title = json.title()
-			val rating = json.getStringOrNull("content_rating").orEmpty()
-			val adult = rating == "pornographic" || rating == "erotica"
-			if (hideAdult && adult) return@mapJSONNotNull null
-			MetadataTitle(
-				id = id,
-				title = title,
-				names = listOfNotNull(title, json.getStringOrNull("romanized_title"), json.getStringOrNull("native_title")).distinct(),
-				coverUrl = json.coverUrl(),
-				bannerUrl = null,
-				genres = json.optJSONArray("genres")?.let { g ->
-					(0 until g.length()).mapNotNull { i ->
-						g.optString(i).takeIf { it.isNotBlank() && !it.startsWith("{") } ?: g.optJSONObject(i)?.getStringOrNull("name")
-					}
-				}.orEmpty(),
-				isAdult = adult,
-				score = json.optDouble("rating").takeIf { !it.isNaN() && it > 0 }?.let { (it / 10.0).toFloat() },
-				url = "$BASE_WEB_URL/$id",
-				description = json.getStringOrNull("description"),
-			)
+			metadataOf(json).takeUnless { hideAdult && it.isAdult }
 		}
+	}
+
+	/** One exact MangaBaka series by id, for titles already tracked there. */
+	suspend fun metadataById(id: Long): MetadataTitle? {
+		val response = okHttp.newCall(Request.Builder().url("$BASE_API_URL/series/$id").get().build()).await().parseJson()
+		// the single-series endpoint wraps the series in "data"; tolerate a bare object too
+		val json = response.optJSONObject("data") ?: response.takeIf { it.has("id") } ?: return null
+		return metadataOf(json)
+	}
+
+	private fun metadataOf(json: JSONObject): MetadataTitle {
+		val id = json.getLong("id")
+		val title = json.title()
+		val rating = json.getStringOrNull("content_rating").orEmpty()
+		val adult = rating == "pornographic" || rating == "erotica"
+		fun labels(key: String) = json.optJSONArray(key)?.let { g ->
+			(0 until g.length()).mapNotNull { i ->
+				g.optString(i).takeIf { it.isNotBlank() && !it.startsWith("{") } ?: g.optJSONObject(i)?.getStringOrNull("name")
+			}
+		}.orEmpty()
+		val secondary = json.optJSONArray("secondary_titles")?.let { arr ->
+			(0 until arr.length()).mapNotNull { i ->
+				val item = arr.opt(i)
+				when (item) {
+					is String -> item
+					is JSONObject -> item.getStringOrNull("title")
+					else -> null
+				}
+			}
+		}.orEmpty()
+		return MetadataTitle(
+			id = id,
+			title = title,
+			names = (listOfNotNull(title, json.getStringOrNull("romanized_title"), json.getStringOrNull("native_title")) + secondary)
+				.filter { it.isNotBlank() }.distinct(),
+			coverUrl = json.coverUrl(),
+			bannerUrl = null,
+			genres = labels("genres"),
+			isAdult = adult,
+			score = json.optDouble("rating").takeIf { !it.isNaN() && it > 0 }?.let { (it / 10.0).toFloat() },
+			url = "$BASE_WEB_URL/$id",
+			description = json.getStringOrNull("description"),
+			// MangaBaka types: manga, manhwa, manhua, novel, oel, other
+			format = json.getStringOrNull("type"),
+			tags = labels("tags"),
+			year = json.optInt("year").takeIf { it > 0 },
+		)
 	}
 
 	private fun jsonToManga(json: JSONObject, sourceTitle: String): ScrobblerManga {

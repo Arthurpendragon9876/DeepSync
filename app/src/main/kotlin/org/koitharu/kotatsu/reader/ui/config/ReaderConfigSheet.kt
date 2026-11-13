@@ -110,6 +110,8 @@ import org.koitharu.kotatsu.reader.ui.epub.EpubBundledFonts
 import org.koitharu.kotatsu.reader.ui.ReaderViewModel
 import org.koitharu.kotatsu.reader.ui.ScreenOrientationHelper
 import org.koitharu.kotatsu.settings.compose.DropSauceTheme
+import org.koitharu.kotatsu.settings.compose.rememberBooleanPref
+import org.koitharu.kotatsu.settings.compose.rememberStringSetPref
 import javax.inject.Inject
 import java.io.File
 import kotlin.math.roundToInt
@@ -279,20 +281,28 @@ class ReaderConfigSheet : BaseAdaptiveSheet<SheetReaderConfigBinding>() {
         val context = LocalContext.current
         var currentMode by remember { mutableStateOf(mode) }
 
-        // 0: Reading, 1: More
-        val pagerState = rememberPagerState(pageCount = { 2 })
+        // 0: Reading, 1: More, 2: Extra
+        val pagerState = rememberPagerState(pageCount = { 3 })
         val scope = rememberCoroutineScope()
 
-        // Settings states
         var isDoubleOnLandscape by remember { mutableStateOf(settings.isReaderDoubleOnLandscape) }
         var isDoubleOnFoldable by remember { mutableStateOf(settings.isReaderDoubleOnFoldable) }
         var sensitivity by remember { mutableFloatStateOf(settings.readerDoublePagesSensitivity * 100f) }
 
+        // Preference-backed switches. The same keys as the full reader settings, so both stay in sync.
+        var readerCrop by rememberStringSetPref(AppSettings.KEY_READER_CROP, emptySet())
+        var webtoonGaps by rememberBooleanPref(AppSettings.KEY_WEBTOON_GAPS, false)
+        var keepScreenOn by rememberBooleanPref(AppSettings.KEY_READER_SCREEN_ON, true)
+        var pullGesture by rememberBooleanPref(AppSettings.KEY_WEBTOON_PULL_GESTURE, false)
+        var longPress by rememberBooleanPref(AppSettings.KEY_READER_LONG_PRESS, true)
+        var enhancedColors by rememberBooleanPref(AppSettings.KEY_32BIT_COLOR, false)
+        var upscale by rememberBooleanPref(AppSettings.KEY_READER_UPSCALE, false)
+        var optimize by rememberBooleanPref(AppSettings.KEY_READER_OPTIMIZE, false)
+        var rotateWide by rememberBooleanPref(AppSettings.KEY_READER_ROTATE_WIDE, false)
+
         // StateFlow observations from ViewModel and OrientationHelper flow
         val isBookmarkAdded by viewModel.isBookmarkAdded.collectAsState()
         val isAutoRotationEnabled by orientationHelper.observeAutoOrientation().collectAsState(initial = false)
-        val uiState by viewModel.uiState.collectAsState()
-        val manga = remember(uiState) { viewModel.getMangaOrNull() }
 
         val callback = remember { findParentCallback(Callback::class.java) }
 
@@ -315,11 +325,8 @@ class ReaderConfigSheet : BaseAdaptiveSheet<SheetReaderConfigBinding>() {
                     .padding(top = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // 1. Swipeable Pager Content
-                // No animateContentSize here: the sheet is fit-to-contents, so animating the body
-                // height re-settles the whole sheet while it is opening.
-                // The pager is pinned to the Read Mode page's height so swiping to the (otherwise
-                // shorter) Tools page never resizes the sheet; the tools grid stretches to fill it.
+                // The pager is pinned to the height of the Reading page so swiping between tabs never
+                // resizes the sheet; the other two pages scroll inside it.
                 val density = LocalDensity.current
                 var pagerHeightPx by remember { mutableIntStateOf(0) }
                 Box(
@@ -339,127 +346,231 @@ class ReaderConfigSheet : BaseAdaptiveSheet<SheetReaderConfigBinding>() {
                         verticalAlignment = Alignment.Top,
                     ) { page ->
                         when (page) {
-                            0 -> { // Reading page
+                            0 -> Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .verticalScroll(rememberScrollState())
+                                    .onSizeChanged { pagerHeightPx = it.height },
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                ReadModeSection(
+                                    selectedMode = currentMode,
+                                    onModeSelected = { newMode ->
+                                        if (newMode != currentMode) {
+                                            callback?.onReaderModeChanged(newMode)
+                                            currentMode = newMode
+                                        }
+                                    },
+                                )
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .verticalScroll(rememberScrollState())
-                                        .onSizeChanged { pagerHeightPx = it.height },
-                                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                                        .padding(horizontal = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
                                 ) {
-                                    ReadModeSection(
-                                        selectedMode = currentMode,
-                                        onModeSelected = { newMode ->
-                                            if (newMode != currentMode) {
-                                                callback?.onReaderModeChanged(newMode)
-                                                currentMode = newMode
-                                            }
-                                        },
-                                    )
-
-                                    // An invisible copy of the two-page card sizes this page, so the sheet
-                                    // keeps the height it had when that card lived here.
-                                    Box {
-                                        Box(
-                                            Modifier
-                                                .alpha(0f)
-                                                .clearAndSetSemantics {},
-                                        ) {
-                                            DoublePageConfigSection(
-                                                isModeStandardOrReversed = false,
-                                                isDoubleOnLandscape = isDoubleOnLandscape,
-                                                onDoubleOnLandscapeChange = {},
-                                                isDoubleOnFoldable = isDoubleOnFoldable,
-                                                onDoubleOnFoldableChange = {},
-                                                sensitivity = sensitivity,
-                                                onSensitivityChange = {},
-                                            )
-                                        }
-                                        ReadingToolsSection(
-                                            modifier = Modifier
-                                                .matchParentSize()
-                                                .padding(horizontal = 16.dp),
-                                            isBookmarkAdded = isBookmarkAdded,
-                                            onScrollTimerClick = {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        QsActionCard(
+                                            icon = R.drawable.ic_timer,
+                                            title = stringResource(R.string.automatic_scroll),
+                                            subtitle = stringResource(R.string.qs_automatic_scroll_sub),
+                                            onClick = {
                                                 callback?.onScrollTimerClick(false)
                                                 dismissAllowingStateLoss()
                                             },
-                                            onSaveClick = {
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        QsActionCard(
+                                            icon = R.drawable.ic_save,
+                                            title = stringResource(R.string.save_page),
+                                            subtitle = stringResource(R.string.qs_save_page_sub),
+                                            onClick = {
                                                 callback?.onSavePageClick()
                                                 dismissAllowingStateLoss()
                                             },
-                                            onBookmarkClick = {
-                                                viewModel.toggleBookmark()
-                                            },
-                                            onSettingsClick = {
-                                                router.openReaderSettings()
-                                                dismissAllowingStateLoss()
-                                            },
+                                            trailingIcon = R.drawable.ic_save_alt,
+                                            modifier = Modifier.weight(1f),
                                         )
                                     }
-
-                                    Spacer(modifier = Modifier.height(70.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        QsActionCard(
+                                            icon = if (isAutoRotationEnabled) R.drawable.ic_screen_rotation else R.drawable.ic_screen_rotation_lock,
+                                            title = stringResource(R.string.rotate_screen),
+                                            subtitle = stringResource(
+                                                if (isAutoRotationEnabled) R.string.qs_rotation_auto_sub else R.string.qs_rotation_locked_sub,
+                                            ),
+                                            onClick = { orientationHelper.toggleScreenOrientation() },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        QsActionCard(
+                                            icon = R.drawable.ic_appearance,
+                                            title = stringResource(R.string.color_correction),
+                                            subtitle = stringResource(R.string.qs_color_sub),
+                                            onClick = {
+                                                val pageModel = viewModel.getCurrentPage()
+                                                val manga = viewModel.getMangaOrNull()
+                                                if (pageModel != null && manga != null) {
+                                                    router.openColorFilterConfig(manga, pageModel)
+                                                }
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                    }
+                                    QsBannerCard(
+                                        icon = R.drawable.ic_settings,
+                                        title = stringResource(R.string.qs_advanced_title),
+                                        subtitle = stringResource(R.string.qs_advanced_sub),
+                                        onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                                    )
                                 }
+                                Spacer(modifier = Modifier.height(70.dp))
                             }
 
-                            1 -> { // More page
-                                // The tool row takes whatever the two-page card leaves of the pinned
-                                // height, so this page ends flush with the Reading page.
-                                var cardHeightPx by remember { mutableIntStateOf(0) }
-                                val toolsHeight = with(density) { (pagerHeightPx - cardHeightPx).toDp() - 102.dp }
-                                    .coerceAtLeast(TOOL_ROW_MIN_HEIGHT)
+                            1 -> Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                QsSectionLabel(stringResource(R.string.qs_section_general))
                                 Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .verticalScroll(rememberScrollState()),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                                        .padding(horizontal = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    MoreToolsRow(
-                                        modifier = Modifier
-                                            .height(toolsHeight)
-                                            .padding(horizontal = 16.dp),
-                                        isAutoRotationEnabled = isAutoRotationEnabled,
-                                        onShareClick = {
+                                    QsToggleRow(
+                                        icon = R.drawable.ic_crop,
+                                        title = stringResource(R.string.qs_crop_borders),
+                                        subtitle = stringResource(R.string.qs_crop_borders_sub),
+                                        checked = readerCrop.isNotEmpty(),
+                                        onCheckedChange = { readerCrop = if (it) setOf("1", "2") else emptySet() },
+                                    )
+                                    QsToggleRow(
+                                        icon = R.drawable.ic_gesture_vertical,
+                                        title = stringResource(R.string.qs_spaced_pages),
+                                        subtitle = stringResource(R.string.qs_spaced_pages_sub),
+                                        checked = webtoonGaps,
+                                        onCheckedChange = { webtoonGaps = it },
+                                        enabled = currentMode == ReaderMode.WEBTOON,
+                                    )
+                                    QsToggleRow(
+                                        icon = R.drawable.ic_tune,
+                                        title = stringResource(R.string.keep_screen_on),
+                                        subtitle = stringResource(R.string.qs_keep_screen_on_sub),
+                                        checked = keepScreenOn,
+                                        onCheckedChange = { keepScreenOn = it },
+                                    )
+                                    QsToggleRow(
+                                        icon = R.drawable.ic_swap,
+                                        title = stringResource(R.string.qs_overscroll),
+                                        subtitle = stringResource(R.string.qs_overscroll_sub),
+                                        checked = pullGesture,
+                                        onCheckedChange = { pullGesture = it },
+                                        enabled = currentMode == ReaderMode.WEBTOON,
+                                    )
+                                    QsToggleRow(
+                                        icon = R.drawable.ic_tap,
+                                        title = stringResource(R.string.qs_long_press),
+                                        subtitle = stringResource(R.string.qs_long_press_sub),
+                                        checked = longPress,
+                                        onCheckedChange = { longPress = it },
+                                    )
+                                }
+                                DoublePageConfigSection(
+                                    isModeStandardOrReversed = currentMode == ReaderMode.STANDARD || currentMode == ReaderMode.REVERSED,
+                                    isDoubleOnLandscape = isDoubleOnLandscape,
+                                    onDoubleOnLandscapeChange = { enabled ->
+                                        settings.isReaderDoubleOnLandscape = enabled
+                                        isDoubleOnLandscape = enabled
+                                        callback?.onDoubleModeChanged(enabled)
+                                    },
+                                    isDoubleOnFoldable = isDoubleOnFoldable,
+                                    onDoubleOnFoldableChange = { enabled ->
+                                        settings.isReaderDoubleOnFoldable = enabled
+                                        isDoubleOnFoldable = enabled
+                                        callback?.onDoubleModeChanged(settings.isReaderDoubleOnLandscape)
+                                    },
+                                    sensitivity = sensitivity,
+                                    onSensitivityChange = { value ->
+                                        settings.readerDoublePagesSensitivity = value / 100f
+                                        sensitivity = value
+                                    },
+                                )
+                                QsSectionLabel(stringResource(R.string.qs_section_actions))
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    QsActionRow(
+                                        icon = if (isBookmarkAdded) R.drawable.ic_bookmark_checked else R.drawable.ic_bookmark,
+                                        title = stringResource(if (isBookmarkAdded) R.string.bookmark_remove else R.string.bookmark_add),
+                                        onClick = { viewModel.toggleBookmark() },
+                                    )
+                                    QsActionRow(
+                                        icon = R.drawable.ic_share,
+                                        title = stringResource(R.string.share_page),
+                                        onClick = {
                                             callback?.onSharePageClick()
                                             dismissAllowingStateLoss()
                                         },
-                                        onOrientationClick = {
-                                            orientationHelper.toggleScreenOrientation()
-                                        },
-                                        onColorFilterClick = {
-                                            val page = viewModel.getCurrentPage()
-                                            val manga = viewModel.getMangaOrNull()
-                                            if (page != null && manga != null) {
-                                                router.openColorFilterConfig(manga, page)
-                                            }
+                                    )
+                                    QsActionRow(
+                                        icon = R.drawable.ic_settings,
+                                        title = stringResource(R.string.qs_all_settings),
+                                        onClick = {
+                                            router.openReaderSettings()
+                                            dismissAllowingStateLoss()
                                         },
                                     )
-
-                                    Box(Modifier.onSizeChanged { cardHeightPx = it.height }) {
-                                        DoublePageConfigSection(
-                                            isModeStandardOrReversed = currentMode == ReaderMode.STANDARD || currentMode == ReaderMode.REVERSED,
-                                            isDoubleOnLandscape = isDoubleOnLandscape,
-                                            onDoubleOnLandscapeChange = { enabled ->
-                                                settings.isReaderDoubleOnLandscape = enabled
-                                                isDoubleOnLandscape = enabled
-                                                callback?.onDoubleModeChanged(enabled)
-                                            },
-                                            isDoubleOnFoldable = isDoubleOnFoldable,
-                                            onDoubleOnFoldableChange = { enabled ->
-                                                settings.isReaderDoubleOnFoldable = enabled
-                                                isDoubleOnFoldable = enabled
-                                                callback?.onDoubleModeChanged(settings.isReaderDoubleOnLandscape)
-                                            },
-                                            sensitivity = sensitivity,
-                                            onSensitivityChange = { value ->
-                                                settings.readerDoublePagesSensitivity = value / 100f
-                                                sensitivity = value
-                                            },
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(70.dp))
                                 }
+                                Spacer(modifier = Modifier.height(70.dp))
+                            }
+
+                            else -> Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .verticalScroll(rememberScrollState()),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                QsSectionLabel(stringResource(R.string.qs_section_image))
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    QsToggleRow(
+                                        icon = R.drawable.ic_appearance,
+                                        title = stringResource(R.string.enhanced_colors),
+                                        subtitle = stringResource(R.string.qs_32bit_sub),
+                                        checked = enhancedColors,
+                                        onCheckedChange = { enhancedColors = it },
+                                    )
+                                    QsToggleRow(
+                                        icon = R.drawable.ic_bolt,
+                                        title = stringResource(R.string.qs_upscale),
+                                        subtitle = stringResource(R.string.qs_upscale_sub),
+                                        checked = upscale,
+                                        onCheckedChange = { upscale = it },
+                                    )
+                                    QsToggleRow(
+                                        icon = R.drawable.ic_data_saver,
+                                        title = stringResource(R.string.reader_optimize),
+                                        subtitle = stringResource(R.string.qs_memory_sub),
+                                        checked = optimize,
+                                        onCheckedChange = { optimize = it },
+                                    )
+                                    QsToggleRow(
+                                        icon = R.drawable.ic_rotate_90_degrees_cw,
+                                        title = stringResource(R.string.qs_rotate_wide),
+                                        subtitle = stringResource(R.string.qs_rotate_wide_sub),
+                                        checked = rotateWide,
+                                        onCheckedChange = { rotateWide = it },
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(70.dp))
                             }
                         }
                     }
@@ -491,6 +602,7 @@ class ReaderConfigSheet : BaseAdaptiveSheet<SheetReaderConfigBinding>() {
         tabs: List<Triple<String, Int, Int>> = listOf(
             Triple(stringResource(R.string.epub_reading_tab), R.drawable.ic_book_page, 0),
             Triple(stringResource(R.string.more), R.drawable.ic_grid, 1),
+            Triple(stringResource(R.string.qs_extra_tab), R.drawable.ic_tune, 2),
         ),
         modifier: Modifier = Modifier,
     ) {

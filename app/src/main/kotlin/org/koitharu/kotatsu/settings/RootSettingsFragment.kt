@@ -124,6 +124,11 @@ private enum class SettingsSection(
 		intArrayOf(R.string.theme, R.string.list_mode, R.string.language),
 		AppearanceSettingsFragment::class.java,
 	),
+	HOME_LAYOUT(
+		R.string.ds_prefs_layout, R.drawable.ic_home_rounded, "services",
+		intArrayOf(R.string.ds_layout_banner_section, R.string.ds_manage_carousels, R.string.ds_custom_carousel),
+		org.koitharu.kotatsu.home.settings.HomeLayoutSettingsFragment::class.java,
+	),
 	EXTENSIONS(
 		R.string.extensions, R.drawable.ic_manga_source, "extensions",
 		intArrayOf(R.string.manage_extensions, R.string.nsfw_filter, R.string.sort_order),
@@ -133,6 +138,11 @@ private enum class SettingsSection(
 		R.string.reader_settings, R.drawable.ic_book_page, "reader",
 		intArrayOf(R.string.read_mode, R.string.scale_mode, R.string.switch_pages),
 		ReaderSettingsFragment::class.java,
+	),
+	PLAYER(
+		R.string.ds_player_settings, R.drawable.ic_ap_play, "reader",
+		intArrayOf(R.string.ds_player_direct_landscape, R.string.ds_player_auto_pick, R.string.ds_player_quality),
+		org.koitharu.kotatsu.anime.settings.AnimePlayerSettingsFragment::class.java,
 	),
 	NOVEL_READER(
 		R.string.novel_reader_settings, R.drawable.ic_book_page, "reader",

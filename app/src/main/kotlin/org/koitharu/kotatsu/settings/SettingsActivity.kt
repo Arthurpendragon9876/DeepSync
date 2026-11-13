@@ -178,6 +178,7 @@ class SettingsActivity :
 	private fun openDefaultFragment() {
 		val fragment = when (intent?.action) {
 			AppRouter.ACTION_READER -> ReaderSettingsFragment()
+			AppRouter.ACTION_HOME_LAYOUT -> org.koitharu.kotatsu.home.settings.HomeLayoutSettingsFragment()
 			AppRouter.ACTION_SUGGESTIONS -> SuggestionsSettingsFragment()
 			AppRouter.ACTION_TRACKER -> TrackerSettingsFragment()
 			AppRouter.ACTION_SYNC -> SyncSettingsFragment()

@@ -281,6 +281,14 @@ class DetailsViewModel @Inject constructor(
 		}
 	}
 
+	/** Chapters read (episodes watched) as the tracker should have them. */
+	fun updateScrobblingProgress(index: Int, chapter: Int) {
+		val scrobbler = getScrobbler(index) ?: return
+		launchJob(Dispatchers.Default) {
+			scrobbler.setProgress(mangaId, chapter)
+		}
+	}
+
 	fun unregisterScrobbling(index: Int) {
 		val scrobbler = getScrobbler(index) ?: return
 		launchJob(Dispatchers.Default) {
@@ -303,13 +311,29 @@ class DetailsViewModel @Inject constructor(
 	/** The tracker's entry for this title when a tracker is the metadata source; shown over the source's details. */
 	private val metaTitle = kotlinx.coroutines.flow.MutableStateFlow<org.koitharu.kotatsu.scrobbling.anilist.data.MetadataTitle?>(null)
 
+	/**
+	 * The tracker's own page for this title (AniList-style stats, titles, tags, relations, cast, staff and
+	 * recommendations), shown under the synopsis. [TrackerInfoState.Hidden] when covers and info come from the
+	 * source, or the tracker does not know the title.
+	 */
+	val trackerInfo = MutableStateFlow<TrackerInfoState>(TrackerInfoState.Hidden)
+
 	init {
 		launchJob(Dispatchers.Default + SkipErrors) {
 			val manga = mangaDetails.filterNotNull().first().toManga()
-			if (manga.isLocal) return@launchJob
-			val match = metadataRepository.matchFor(manga) ?: return@launchJob
+			if (manga.isLocal || !settings.isMetadataFromTracker) return@launchJob
+			trackerInfo.value = TrackerInfoState.Loading
+			val match = metadataRepository.matchFor(manga)
+			if (match == null) {
+				trackerInfo.value = TrackerInfoState.Hidden
+				return@launchJob
+			}
 			metaTitle.value = match
 			mangaDetails.value = mangaDetails.value?.withMetadata(match)
+			// The cards come from a second request, so the cover and synopsis above do not wait for it.
+			trackerInfo.value = metadataRepository.infoFor(manga)
+				?.let { TrackerInfoState.Loaded(it) }
+				?: TrackerInfoState.Hidden
 		}
 	}
 

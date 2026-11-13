@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -70,9 +71,18 @@ class DetailsExpressiveActions(
 	val onForgetHistoryClick: () -> Unit,
 	val onChaptersClick: () -> Unit,
 	val onEpisodeClick: (org.koitharu.kotatsu.parsers.model.MangaChapter) -> Unit = {},
+	/** The "N episodes" pill: true when the watch page took over, false to fall back to the episodes sheet. */
+	val onEpisodesPageClick: () -> Boolean = { false },
+	/** A genre or tag chip of the tracker info cards. */
+	/** The tracker status button; the index of the tracked entry, or -1 when the title is not tracked yet. */
+	val onTrackerClick: (Int) -> Unit = {},
+	val onInfoGenreClick: (String) -> Unit = {},
+	/** A relation or recommendation of the tracker info cards. */
+	val onInfoMediaClick: (org.koitharu.kotatsu.scrobbling.anilist.data.InfoMedia) -> Unit = {},
 )
 
 @Composable
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 fun DetailsExpressiveScreen(
 	details: MangaDetails?,
 	tags: List<ChipsView.ChipModel>,
@@ -95,9 +105,34 @@ fun DetailsExpressiveScreen(
 	bottomContentPadding: Dp,
 	onScroll: (Int) -> Unit,
 	actions: DetailsExpressiveActions,
+	trackerInfo: TrackerInfoState = TrackerInfoState.Hidden,
+	/** The tracker whose status the squircle button shows (the home metadata provider's). */
+	trackerService: org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerService? = null,
+	/** False on the preview page, which has no title of its own to track yet. */
+	allowTracking: Boolean = true,
+	/** Text for the read button while the source is still being found (tracker title opened first). */
+	dockOverride: (@Composable () -> Unit)? = null,
 ) {
 	val manga = details?.toManga()
 	val isAnime = manga?.source?.isAnimeSource == true
+	// With info from the tracker the status button replaces the separate Tracking card.
+	var showEpisodes by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+	val trackerMode = allowTracking && trackerInfo !is TrackerInfoState.Hidden
+	val tracked = if (trackerMode) {
+		scrobblings.firstOrNull { it.scrobbler == trackerService } ?: scrobblings.firstOrNull()
+	} else {
+		null
+	}
+	val trackerButton: (@Composable () -> Unit)? = if (trackerMode) {
+		{
+			TrackerStatusButton(
+				info = tracked,
+				onClick = { actions.onTrackerClick(if (tracked == null) -1 else scrobblings.indexOf(tracked)) },
+			)
+		}
+	} else {
+		null
+	}
 
 	val scheme = MaterialTheme.colorScheme
 	val accentColor = scheme.primary
@@ -177,6 +212,7 @@ fun DetailsExpressiveScreen(
 				} else {
 					-1
 				},
+				trailing = trackerButton,
 			)
 
 			DescriptionCard(
@@ -186,26 +222,27 @@ fun DetailsExpressiveScreen(
 				accent = accentColor,
 			)
 
-			TagsSection(tags = tags, accent = accentColor, onTagClick = actions.onTagClick)
-
-			if (isAnime && details != null) {
-				EpisodesSection(
-					details = details,
-					manga = manga,
-					historyInfo = historyInfo,
-					imageLoader = imageLoader,
+			// With tracker info the Genres and Tags cards below replace the source's chips.
+			if (trackerInfo is TrackerInfoState.Hidden) {
+				TagsSection(tags = tags, accent = accentColor, onTagClick = actions.onTagClick)
+			} else {
+				TrackerInfoSections(
+					state = trackerInfo,
+					isAnime = isAnime,
 					accent = accentColor,
-					onEpisodeClick = actions.onEpisodeClick,
+					imageLoader = imageLoader,
+					actions = actions,
 				)
 			}
 
-			if (scrobblings.isNotEmpty()) {
+			if (scrobblings.isNotEmpty() && !trackerMode) {
 				ScrobblingSection(
 					items = scrobblings,
 					imageLoader = imageLoader,
 					accent = accentColor,
 					onMore = actions.onScrobblingMore,
 					onCardClick = actions.onScrobblingCardClick,
+					anime = isAnime,
 				)
 			}
 
@@ -229,18 +266,55 @@ fun DetailsExpressiveScreen(
 			// Floating action dock: a "N chapters" pill stacked above the read FAB. Both pin to the
 			// bottom-end and stay clear of the navigation bar; the modal chapters sheet draws its own
 			// scrim over them, so they read as "behind" the sheet without any extra hide/show logic.
-			ActionDock(
-				historyInfo = historyInfo,
-				isLoading = isLoading,
-				accent = accentColor,
-				actions = actions,
-				isAnime = isAnime,
-				modifier = Modifier
-					.align(Alignment.BottomEnd)
-					.padding(end = SCREEN_PADDING, bottom = bottomContentPadding + 16.dp)
-					.dockGlow(scheme.surface),
-			)
+			if (dockOverride != null) {
+				Box(
+					modifier = Modifier
+						.align(Alignment.BottomEnd)
+						.padding(end = SCREEN_PADDING, bottom = bottomContentPadding + 16.dp)
+						.dockGlow(scheme.surface),
+				) { dockOverride() }
+			} else {
+				ActionDock(
+					historyInfo = historyInfo,
+					isLoading = isLoading,
+					accent = accentColor,
+					actions = actions,
+					isAnime = isAnime,
+					episodeCount = if (isAnime) details?.allChapters?.size ?: 0 else 0,
+					onEpisodesClick = { if (!actions.onEpisodesPageClick()) showEpisodes = true },
+					modifier = Modifier
+						.align(Alignment.BottomEnd)
+						.padding(end = SCREEN_PADDING, bottom = bottomContentPadding + 16.dp)
+						.dockGlow(scheme.surface),
+				)
+			}
 
+		// The episodes live in a sheet of their own, like the chapters of a manga, so they are not buried under the
+		// info cards. Picking one closes the sheet and starts playback.
+		if (showEpisodes && isAnime && manga != null && details != null) {
+			androidx.compose.material3.ModalBottomSheet(
+				onDismissRequest = { showEpisodes = false },
+				containerColor = scheme.surface,
+			) {
+				Column(
+					modifier = Modifier
+						.verticalScroll(rememberScrollState())
+						.padding(bottom = bottomContentPadding + 24.dp),
+				) {
+					EpisodesSection(
+						details = details,
+						manga = manga,
+						historyInfo = historyInfo,
+						imageLoader = imageLoader,
+						accent = accentColor,
+						onEpisodeClick = { episode ->
+							showEpisodes = false
+							actions.onEpisodeClick(episode)
+						},
+					)
+				}
+			}
+		}
 	}
 }
 

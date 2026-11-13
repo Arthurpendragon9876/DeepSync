@@ -15,6 +15,10 @@ interface ScrobblerRepository {
 
 	val cachedUser: ScrobblerUser?
 
+	/** `false` for services that only know manga and novels (MangaBaka), so anime is never searched or synced there. */
+	val supportsAnime: Boolean
+		get() = true
+
 	suspend fun authorize(code: String?)
 
 	suspend fun loadUser(): ScrobblerUser
@@ -71,4 +75,14 @@ interface ScrobblerRepository {
 	 */
 	suspend fun findCandidates(query: String, type: ScrobblerMangaType): List<TrackerCandidate> =
 		findManga(query, 0, type).map { TrackerCandidate(it, listOfNotNull(it.name, it.altName)) }
+
+	/**
+	 * Moves the progress of one title on the account to [chapter], by the tracker's own id, so no local
+	 * manga is needed. This is what tracker-to-tracker synchronisation uses: the entry comes straight
+	 * from [getLibrary]. Only the progress is written; rating, notes and dates stay as they are, and an
+	 * entry that is merely "planned" is moved to "reading" because it now has progress.
+	 *
+	 * @return `false` when this service cannot do it (it is then simply skipped by synchronisation).
+	 */
+	suspend fun setProgress(entry: TrackerReadingEntry, chapter: Int): Boolean = false
 }

@@ -267,6 +267,8 @@ class ReaderActivity :
                 isEpub = { readerManager.isEpub },
                 isUpscaleActive = { UpscaleEffect.activePages.value.isNotEmpty() },
                 isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE,
+                canOpenWeb = { viewModel.getSourceMangaOrNull()?.isLocal == false },
+                onOpenWeb = { viewModel.getCurrentState()?.chapterId?.let(viewModel::openChapterInBrowser) },
             ),
         )
         UpscaleEffect.activePages.map { it.isNotEmpty() }.distinctUntilChanged()
@@ -295,6 +297,10 @@ class ReaderActivity :
     private fun setupNovelChrome() {
         novelChrome.onBack = { onBackPressedDispatcher.onBackPressed() }
         novelChrome.onHighlightClick = ::onBookmarkClick
+        novelChrome.canOpenWeb = { viewModel.getSourceMangaOrNull()?.isLocal == false }
+        novelChrome.onWebClick = {
+            viewModel.getCurrentState()?.chapterId?.let(viewModel::openChapterInBrowser)
+        }
         novelChrome.onChaptersClick = { router.showChapterPagesSheet() }
         novelChrome.onListenClick = ::onTextToSpeechClick
         novelChrome.onSearchClick = ::openEpubSearch

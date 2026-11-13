@@ -121,29 +121,44 @@ jobs:
 
         echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-    - name: Generate Changelog
+    - name: Prepare changelog from repo files
       id: changelog
+      env:
+        VERSION_NAME: ${{ inputs.version_name }}
+        COMMIT_SHA: ${{ steps.version_commit.outputs.commit_sha }}
       run: |
-        CURRENT_SHA="${{ steps.version_commit.outputs.commit_sha }}"
+        set -euo pipefail
+        OUT="release_changelog.md"
+        : > "$OUT"
 
-        # The new tag does not exist yet, so this resolves to the previous release tag
-        PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match 'v*' "$CURRENT_SHA" 2>/dev/null || true)
-
-        if [ -n "$PREVIOUS_TAG" ]; then
-          RANGE="$PREVIOUS_TAG..$CURRENT_SHA"
-        else
-          RANGE="$CURRENT_SHA"
+        # 1) changelogs/v<version>.md: a hand-written file for exactly this release.
+        #    Its own title line ("## Yugen v...") is dropped; the release page already has a title.
+        PER_RELEASE="changelogs/v${VERSION_NAME}.md"
+        if [ -f "$PER_RELEASE" ]; then
+          echo "Using $PER_RELEASE"
+          sed '1{/^## /d}' "$PER_RELEASE" > "$OUT"
         fi
 
-        CHANGELOG=$(git log --pretty=format:"- %s" --no-merges -n 50 --invert-grep --grep='^chore(release): set versionName ' $RANGE)
-
-        if [ -z "$CHANGELOG" ]; then
-          CHANGELOG="- No changes since ${PREVIOUS_TAG:-the last release}"
+        # 2) The "## [<version>]" section of CHANGELOG.md.
+        if [ ! -s "$OUT" ] && [ -f CHANGELOG.md ]; then
+          awk -v v="[${VERSION_NAME}]" '
+            /^## / { if (found) exit; if (index($0, v) > 0) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > "$OUT"
+          if [ -s "$OUT" ]; then echo "Using the [${VERSION_NAME}] section of CHANGELOG.md"; fi
         fi
 
-        echo "changelog<<EOF" >> $GITHUB_OUTPUT
-        echo "$CHANGELOG" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        # 3) Last resort: git log since the previous release tag.
+        if [ ! -s "$OUT" ]; then
+          echo "::warning::No changelog file found for ${VERSION_NAME} (looked for ${PER_RELEASE} and a '## [${VERSION_NAME}]' section in CHANGELOG.md). Falling back to git log."
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match 'v*' "$COMMIT_SHA" 2>/dev/null || true)
+          if [ -n "$PREVIOUS_TAG" ]; then RANGE="$PREVIOUS_TAG..$COMMIT_SHA"; else RANGE="$COMMIT_SHA"; fi
+          git log --pretty=format:"- %s" --no-merges -n 50 --invert-grep --grep='^chore(release): set versionName ' $RANGE > "$OUT" || true
+          if [ ! -s "$OUT" ]; then echo "- No changes since ${PREVIOUS_TAG:-the last release}" > "$OUT"; fi
+        fi
+
+        echo "--- release changelog ---"
+        cat "$OUT"
 
     - name: Collect Release APKs
       run: |
@@ -157,10 +172,10 @@ jobs:
 
         for apk in "${APK_FILES[@]}"; do
           if [ ${#APK_FILES[@]} -eq 1 ]; then
-            target="release/DeepSync-v${{ inputs.version_name }}.apk"
+            target="release/Yugen-v${{ inputs.version_name }}.apk"
           else
             original_apk_name=$(basename "$apk" .apk)
-            target="release/DeepSync-v${{ inputs.version_name }}-${original_apk_name}.apk"
+            target="release/Yugen-v${{ inputs.version_name }}-${original_apk_name}.apk"
           fi
           cp "$apk" "$target"
         done
@@ -168,23 +183,30 @@ jobs:
     - name: Create Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        VERSION_NAME: ${{ inputs.version_name }}
+        TARGET_SHA: ${{ steps.version_commit.outputs.commit_sha }}
       run: |
-        TAG="v${{ inputs.version_name }}"
+        TAG="v${VERSION_NAME}"
         NOTES_FILE="release_notes.md"
 
-        cat > "$NOTES_FILE" <<'EOF'
-        ### Changelog
-        ${{ steps.changelog.outputs.changelog }}
-
+        {
+          echo "### Changelog"
+          echo
+          cat release_changelog.md
+          echo
+          cat <<'EOF'
         ### Installation Instructions
-        1. Download and install the apk file first
+        1. Download and install the Yugen apk file first
         2. Go to the Explore menu > Manage and click the pen icon to add an extension repo
         3. Install and use the extensions, read, add items to the favorites and ENJOY!
 
         If this is your first time using the app, I recommend uninstalling any extension you find when opening the app for the first time and then installing latest extensions from your preferred repository.
+
+        Yugen is the Android app of the DeepSync project. Shinkai (Linux) and Yomi (Windows) are coming soon.
         EOF
+        } > "$NOTES_FILE"
 
         gh release create "$TAG" release/*.apk \
-          --title "$TAG" \
-          --target "${{ steps.version_commit.outputs.commit_sha }}" \
+          --title "Yugen $TAG" \
+          --target "$TARGET_SHA" \
           --notes-file "$NOTES_FILE"

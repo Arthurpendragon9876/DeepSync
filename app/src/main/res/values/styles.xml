@@ -757,4 +757,39 @@
 		<item name="cornerSize">12dp</item>
 	</style>
 
+
+	<!-- Ripple-free twins of the Expressive button styles; the press pulse replaces the ripple. -->
+	<style name="Widget.Yugen.Button" parent="Widget.Material3Expressive.Button">
+		<item name="rippleColor">@android:color/transparent</item>
+	</style>
+	<style name="Widget.Yugen.Button.TonalButton" parent="Widget.Material3Expressive.Button.TonalButton">
+		<item name="rippleColor">@android:color/transparent</item>
+	</style>
+	<style name="Widget.Yugen.Button.OutlinedButton" parent="Widget.Material3Expressive.Button.OutlinedButton">
+		<item name="rippleColor">@android:color/transparent</item>
+	</style>
+	<style name="Widget.Yugen.Button.ElevatedButton" parent="Widget.Material3Expressive.Button.ElevatedButton">
+		<item name="rippleColor">@android:color/transparent</item>
+	</style>
+	<style name="Widget.Yugen.Button.TextButton" parent="Widget.Material3Expressive.Button.TextButton">
+		<item name="rippleColor">@android:color/transparent</item>
+	</style>
+	<style name="Widget.Yugen.Button.TextButton.Dialog" parent="Widget.Material3Expressive.Button.TextButton.Dialog">
+		<item name="rippleColor">@android:color/transparent</item>
+	</style>
+	<style name="Widget.Yugen.Button.TextButton.Snackbar" parent="Widget.Material3Expressive.Button.TextButton.Snackbar">
+		<item name="rippleColor">@android:color/transparent</item>
+	</style>
+	<style name="Widget.Yugen.Button.IconButton.Standard" parent="Widget.Material3Expressive.Button.IconButton.Standard">
+		<item name="rippleColor">@android:color/transparent</item>
+	</style>
+	<style name="Widget.Yugen.Button.IconButton.Outlined" parent="Widget.Material3Expressive.Button.IconButton.Outlined">
+		<item name="rippleColor">@android:color/transparent</item>
+	</style>
+	<style name="Widget.Yugen.Button.IconButton.Filled" parent="Widget.Material3Expressive.Button.IconButton.Filled">
+		<item name="rippleColor">@android:color/transparent</item>
+	</style>
+	<style name="Widget.Yugen.Button.IconButton.Tonal" parent="Widget.Material3Expressive.Button.IconButton.Tonal">
+		<item name="rippleColor">@android:color/transparent</item>
+	</style>
 </resources>

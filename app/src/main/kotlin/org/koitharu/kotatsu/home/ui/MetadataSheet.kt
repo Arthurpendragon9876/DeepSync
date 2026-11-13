@@ -35,6 +35,8 @@ object MetadataSheet {
 		val provider: HomeMetadata,
 		val catalogue: Boolean,
 		val catalogueSourceTitle: String?,
+		/** Covers and info on a title's page come from the tracker (true) or from the source (false). */
+		val fromTracker: Boolean = true,
 	)
 
 	fun show(
@@ -43,6 +45,7 @@ object MetadataSheet {
 		onProvider: (HomeMetadata) -> Unit,
 		onCatalogue: (Boolean) -> Unit,
 		onPickSource: () -> Unit,
+		onFromTracker: (Boolean) -> Unit = {},
 	) {
 		val dialog = BottomSheetDialog(context)
 		val density = context.resources.displayMetrics.density
@@ -144,6 +147,24 @@ object MetadataSheet {
 					dialog.dismiss()
 				},
 			)
+		}
+
+		// Covers and info: the tracker (AniList / MAL / MangaBaka, whichever the title is tracked on) or the source
+		val fromTrackerToggle = MaterialSwitch(context).apply { isChecked = state.fromTracker }
+		column.addView(
+			row(
+				iconRes = R.drawable.ic_images,
+				title = context.getString(R.string.ds_cover_from_tracker),
+				subtitle = context.getString(R.string.ds_cover_from_tracker_desc),
+				selected = false,
+				trailing = fromTrackerToggle,
+			) {
+				fromTrackerToggle.toggle()
+			},
+		)
+		fromTrackerToggle.setOnCheckedChangeListener { _, checked ->
+			onFromTracker(checked)
+			dialog.dismiss()
 		}
 
 		column.addView(

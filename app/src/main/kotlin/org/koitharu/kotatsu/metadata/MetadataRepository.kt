@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.metadata
 
 import dagger.Lazy
+import org.koitharu.kotatsu.core.db.MangaDatabase
 import org.koitharu.kotatsu.core.model.contentMode
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.home.ui.model.HomeMetadata
@@ -8,9 +9,11 @@ import org.koitharu.kotatsu.home.ui.model.HomeMode
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaSource
 import org.koitharu.kotatsu.parsers.model.MangaTag
+import org.koitharu.kotatsu.parsers.util.runCatchingCancellable
 import org.koitharu.kotatsu.scrobbling.anilist.data.AniListRepository
+import org.koitharu.kotatsu.scrobbling.anilist.data.MetadataInfo
 import org.koitharu.kotatsu.scrobbling.anilist.data.MetadataTitle
-import org.koitharu.kotatsu.scrobbling.common.domain.TitleMatcher
+import org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerService
 import org.koitharu.kotatsu.scrobbling.mal.data.MALRepository
 import org.koitharu.kotatsu.scrobbling.mangabaka.data.MangaBakaRepository
 import java.util.concurrent.ConcurrentHashMap
@@ -33,6 +36,7 @@ class MetadataRepository @Inject constructor(
 	private val malLazy: Lazy<MALRepository>,
 	private val mangaBakaLazy: Lazy<MangaBakaRepository>,
 	private val settings: AppSettings,
+	private val db: MangaDatabase,
 ) {
 
 	private val aniList get() = aniListLazy.get()
@@ -42,6 +46,7 @@ class MetadataRepository @Inject constructor(
 	private val matches = ConcurrentHashMap<String, MetadataTitle>()
 	private val keysByManga = ConcurrentHashMap<Long, String>()
 	private val misses = ConcurrentHashMap.newKeySet<String>()
+	private val infos = ConcurrentHashMap<String, MetadataInfo>()
 
 	/** Whether [provider] can serve [mode]; otherwise callers fall back to the sources. */
 	fun supports(provider: HomeMetadata, mode: HomeMode): Boolean = when (provider) {
@@ -102,21 +107,36 @@ class MetadataRepository @Inject constructor(
 	}
 
 	/**
-	 * The tracker's entry for a title opened from a source, when the chosen metadata source is a tracker and
-	 * knows it. Null for titles it cannot match (web novels are rarely on AniList), so those keep what their
-	 * source says. Looked up once per title and remembered.
+	 * The tracker's entry for a title opened from a source, or null when the user chose "Source" for covers
+	 * and info, or the tracker does not know the title (web novels are rarely on AniList), so those keep what
+	 * their source says. Looked up once per title and remembered.
+	 *
+	 * A title that is tracked uses the entry it is tracked as, on the tracker it is tracked on, so its cover
+	 * and info always agree with the list entry. Otherwise the chosen tracker is searched by every name the
+	 * source has and the candidates are ranked by [MetadataMatcher], which also checks kind (manhwa, manhua,
+	 * manga) and Boys' Love so a namesake cannot win.
 	 */
 	suspend fun matchFor(manga: Manga): MetadataTitle? {
-		val provider = settings.homeMetadata
+		if (!settings.isMetadataFromTracker) return null
 		val mode = manga.source.contentMode
+		trackedMatch(manga, mode)?.let { return it }
+		val provider = settings.homeMetadataProvider
 		if (!supports(provider, mode)) return null
 		val key = "${provider.name}:${manga.id}"
 		matches[key]?.let { return it }
 		if (key in misses) return null
-		val names = (listOf(manga.title) + manga.altTitles).filter { it.isNotBlank() }.distinct()
-		val found = runCatching {
-			search(provider, names.first(), mode, limit = 8, hideAdult = false)
-		}.getOrDefault(emptyList()).firstOrNull { TitleMatcher.bestScore(names, it.names) >= MATCH_SCORE }
+		val profile = SourceProfile.of(manga)
+		if (profile.names.isEmpty()) return null
+		// Search by the first name, then by the other names: a namesake can crowd the right entry out of the
+		// first page, and a different spelling often surfaces it.
+		val pool = LinkedHashMap<Long, MetadataTitle>()
+		for (name in profile.names.take(SEARCH_NAMES)) {
+			runCatching { search(provider, name, mode, limit = 10, hideAdult = false) }
+				.getOrDefault(emptyList())
+				.forEach { pool.putIfAbsent(it.id, it) }
+			if (MetadataMatcher.best(profile, pool.values.toList()) != null && pool.size >= 3) break
+		}
+		val found = MetadataMatcher.best(profile, pool.values.toList())
 		if (found == null) {
 			misses.add(key)
 		} else {
@@ -126,11 +146,95 @@ class MetadataRepository @Inject constructor(
 		return found
 	}
 
+	/**
+	 * The entry [manga] is tracked as. The tracker chosen for metadata goes first, then the others, so a
+	 * title tracked on MAL while AniList is chosen still gets MAL's cover instead of a guessed AniList one.
+	 */
+	private suspend fun trackedMatch(manga: Manga, mode: HomeMode): MetadataTitle? {
+		val rows = runCatching { db.getScrobblingDao().findAll(manga.id) }.getOrDefault(emptyList())
+		if (rows.isEmpty()) return null
+		val chosen = settings.homeMetadataProvider
+		val order = (listOf(chosen) + listOf(HomeMetadata.ANILIST, HomeMetadata.MAL, HomeMetadata.MANGABAKA)).distinct()
+		for (provider in order) {
+			if (!supports(provider, mode)) continue
+			val service = provider.service() ?: continue
+			val row = rows.firstOrNull { it.scrobbler == service.id } ?: continue
+			val key = "TRACKED:${provider.name}:${row.targetId}"
+			val title = matches[key] ?: runCatching {
+				when (provider) {
+					HomeMetadata.ANILIST -> aniList.metadataById(row.targetId)
+					HomeMetadata.MAL -> mal.metadataById(row.targetId)
+					HomeMetadata.MANGABAKA -> mangaBaka.metadataById(row.targetId)
+					HomeMetadata.SOURCES -> null
+				}
+			}.getOrNull()?.also { matches[key] = it } ?: continue
+			keysByManga[manga.id] = MetadataLinks.key(MetaRef(provider, title.id, mode))
+			return title
+		}
+		return null
+	}
+
+	private fun HomeMetadata.service(): ScrobblerService? = when (this) {
+		HomeMetadata.ANILIST -> ScrobblerService.ANILIST
+		HomeMetadata.MAL -> ScrobblerService.MAL
+		HomeMetadata.MANGABAKA -> ScrobblerService.MANGABAKA
+		HomeMetadata.SOURCES -> null
+	}
+
+	/** One tracker entry by id, for a details page opened from a tracker title before any source was found. */
+	suspend fun titleById(provider: HomeMetadata, id: Long): MetadataTitle? = when (provider) {
+		HomeMetadata.ANILIST -> aniList.metadataById(id)
+		HomeMetadata.MAL -> mal.metadataById(id)
+		HomeMetadata.MANGABAKA -> mangaBaka.metadataById(id)
+		HomeMetadata.SOURCES -> null
+	}
+
+	/**
+	 * Remembers that [manga] is [title] on [provider], so its details page - opened straight from a tracker
+	 * title before any source was searched - already has the tracker's cover and info when it starts.
+	 */
+	fun remember(manga: Manga, provider: HomeMetadata, title: MetadataTitle) {
+		val mode = manga.source.contentMode
+		matches["${provider.name}:${manga.id}"] = title
+		keysByManga[manga.id] = MetadataLinks.key(MetaRef(provider, title.id, mode))
+	}
+
+	/** Info already fetched for [id] on [provider], or null. Lets a page draw its cards without waiting. */
+	fun cachedInfo(provider: HomeMetadata, id: Long): MetadataInfo? = infos["${provider.name}:$id"]
+
+	/**
+	 * The AniList-style page of a tracker title. AniList gives everything (stats, tags with percentages,
+	 * relations, characters, staff, recommendations); MAL and MangaBaka only give what their catalogue entry
+	 * holds. Fetched once and remembered.
+	 */
+	suspend fun info(provider: HomeMetadata, title: MetadataTitle): MetadataInfo {
+		val key = "${provider.name}:${title.id}"
+		infos[key]?.let { return it }
+		val full = if (provider == HomeMetadata.ANILIST) {
+			runCatchingCancellable { aniList.infoById(title.id) }.getOrNull()
+		} else {
+			null
+		}
+		val result = full ?: MetadataInfo.fromTitle(title)
+		// A failed AniList request is not remembered, so the next open tries again.
+		if (full != null || provider != HomeMetadata.ANILIST) infos[key] = result
+		return result
+	}
+
+	/** The tracker page of a title opened from a source, or null when the tracker does not know it. */
+	suspend fun infoFor(manga: Manga): MetadataInfo? {
+		val match = matchFor(manga) ?: return null
+		val provider = keysByManga[manga.id]?.substringBefore(':')
+			?.let { name -> runCatching { HomeMetadata.valueOf(name) }.getOrNull() }
+			?: return null
+		return info(provider, match)
+	}
+
 	/** The link key of the tracker title a details screen matched for [mangaId], once it has looked it up. */
 	fun metaKeyForManga(mangaId: Long): String? = keysByManga[mangaId]
 
 	private companion object {
-		const val MATCH_SCORE = 0.85f
+		const val SEARCH_NAMES = 3
 	}
 }
 

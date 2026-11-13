@@ -1,16 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One match on the tracker: cover, name and a "Best match" tag. Selected = primary outline. -->
+<!-- One title found on the trackers, kept small so two or three fit side by side: cover, a "Best match" tag,
+     the match percentage, the name and the icon of every tracker that has it. The adapter sets the card width
+     and the cover height (they depend on how many cards there are and on portrait/landscape).
+     Selected = primary outline. -->
 <com.google.android.material.card.MaterialCardView
 	xmlns:android="http://schemas.android.com/apk/res/android"
 	xmlns:app="http://schemas.android.com/apk/res-auto"
 	android:id="@+id/card"
-	android:layout_width="116dp"
+	android:layout_width="108dp"
 	android:layout_height="wrap_content"
-	android:layout_marginEnd="10dp"
 	android:checkable="false"
 	android:clickable="true"
 	android:focusable="true"
-	app:cardCornerRadius="18dp"
+	app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
+	app:cardCornerRadius="14dp"
 	app:cardElevation="0dp"
 	app:strokeWidth="1dp">
 
@@ -20,32 +23,76 @@
 		android:orientation="vertical"
 		android:padding="6dp">
 
-		<org.koitharu.kotatsu.image.ui.CoverImageView
-			android:id="@+id/image_cover"
+		<FrameLayout
 			android:layout_width="match_parent"
-			android:layout_height="150dp"
-			android:background="?attr/colorSurfaceContainerHigh"
-			android:scaleType="centerCrop"
-			app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Kotatsu.Cover" />
+			android:layout_height="wrap_content">
+
+			<org.koitharu.kotatsu.image.ui.CoverImageView
+				android:id="@+id/image_cover"
+				android:layout_width="match_parent"
+				android:layout_height="120dp"
+				android:background="?attr/colorSurfaceContainerHighest"
+				android:scaleType="centerCrop"
+				app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Kotatsu.Cover" />
+
+			<com.google.android.material.card.MaterialCardView
+				android:id="@+id/card_badge"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:layout_margin="4dp"
+				android:visibility="gone"
+				app:cardBackgroundColor="?attr/colorPrimaryContainer"
+				app:cardCornerRadius="8dp"
+				app:cardElevation="0dp"
+				app:strokeWidth="0dp">
+
+				<TextView
+					android:id="@+id/text_badge"
+					android:layout_width="wrap_content"
+					android:layout_height="wrap_content"
+					android:paddingHorizontal="6dp"
+					android:paddingVertical="1dp"
+					android:text="@string/ds_track_best_match"
+					android:textColor="?attr/colorOnPrimaryContainer"
+					android:textSize="9sp"
+					android:textStyle="bold" />
+
+			</com.google.android.material.card.MaterialCardView>
+
+			<TextView
+				android:id="@+id/text_match"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:layout_gravity="bottom|end"
+				android:layout_margin="4dp"
+				android:background="#B3000000"
+				android:paddingHorizontal="4dp"
+				android:paddingVertical="1dp"
+				android:textColor="#FFFFFFFF"
+				android:textSize="9sp"
+				android:textStyle="bold" />
+
+		</FrameLayout>
 
 		<TextView
 			android:id="@+id/text_title"
 			android:layout_width="match_parent"
 			android:layout_height="wrap_content"
-			android:layout_marginTop="6dp"
+			android:layout_marginTop="4dp"
 			android:ellipsize="end"
 			android:maxLines="2"
 			android:minLines="2"
-			android:textAppearance="?attr/textAppearanceLabelLarge" />
+			android:textColor="?attr/colorOnSurface"
+			android:textSize="11sp" />
 
-		<TextView
-			android:id="@+id/text_badge"
-			android:layout_width="wrap_content"
+		<LinearLayout
+			android:id="@+id/layout_trackers"
+			android:layout_width="match_parent"
 			android:layout_height="wrap_content"
-			android:text="@string/ds_track_best_match"
-			android:textAppearance="?attr/textAppearanceLabelSmall"
-			android:textColor="?attr/colorPrimary"
-			android:visibility="invisible" />
+			android:layout_marginTop="2dp"
+			android:gravity="center_vertical"
+			android:minHeight="16dp"
+			android:orientation="horizontal" />
 
 	</LinearLayout>
 </com.google.android.material.card.MaterialCardView>

@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home's own top bar. The YUGEN wordmark opens Yugen preferences (what the three-dots menu used to hold),
+     the bell opens Updates & feed, then Settings and Search. -->
+<LinearLayout
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto"
+	xmlns:tools="http://schemas.android.com/tools"
+	android:id="@+id/header_root"
+	android:layout_width="match_parent"
+	android:layout_height="wrap_content"
+	android:gravity="center_vertical"
+	android:orientation="horizontal"
+	android:paddingStart="20dp"
+	android:paddingEnd="8dp"
+	android:paddingVertical="6dp">
+
+	<LinearLayout
+		android:id="@+id/header_brand"
+		android:layout_width="wrap_content"
+		android:layout_height="48dp"
+		android:clickable="true"
+		android:contentDescription="@string/ds_yugen_prefs"
+		android:focusable="true"
+		android:gravity="center_vertical"
+		android:orientation="horizontal">
+
+		<androidx.appcompat.widget.AppCompatImageView
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:importantForAccessibility="no"
+			android:src="@drawable/ic_yugen_wordmark"
+			app:tint="?attr/colorPrimary" />
+
+		<androidx.appcompat.widget.AppCompatImageView
+			android:layout_width="20dp"
+			android:layout_height="20dp"
+			android:layout_marginStart="6dp"
+			android:importantForAccessibility="no"
+			android:src="@drawable/ic_expand_more"
+			app:tint="?attr/colorPrimary" />
+
+	</LinearLayout>
+
+	<!-- The current mode (Manga | Anime | Novel). Tap switches to the next one, long-press opens the list. -->
+	<com.google.android.material.button.MaterialButton
+		android:id="@+id/header_mode"
+		style="@style/Widget.Material3.Button.TonalButton.Icon"
+		android:layout_width="wrap_content"
+		android:layout_height="32dp"
+		android:layout_marginStart="8dp"
+		android:insetTop="0dp"
+		android:insetBottom="0dp"
+		android:minWidth="0dp"
+		android:paddingHorizontal="12dp"
+		android:paddingVertical="0dp"
+		android:letterSpacing="0.08"
+		android:text="@string/ds_mode_manga"
+		android:textAllCaps="true"
+		android:textSize="11sp"
+		android:textStyle="bold"
+		app:cornerRadius="16dp"
+		app:icon="@drawable/ic_read"
+		app:iconGravity="textStart"
+		app:iconPadding="5dp"
+		app:iconSize="16dp" />
+
+	<Space
+		android:layout_width="0dp"
+		android:layout_height="1dp"
+		android:layout_weight="1" />
+
+	<com.google.android.material.button.MaterialButton
+		android:id="@+id/header_settings"
+		style="?materialIconButtonStyle"
+		android:layout_width="44dp"
+		android:layout_height="44dp"
+		android:contentDescription="@string/settings"
+		android:insetLeft="0dp"
+		android:insetTop="0dp"
+		android:insetRight="0dp"
+		android:insetBottom="0dp"
+		android:padding="0dp"
+		app:icon="@drawable/ic_settings"
+		app:iconGravity="textStart"
+		app:iconPadding="0dp"
+		app:iconSize="24dp"
+		app:iconTint="?attr/colorTopBarIcon" />
+
+	<FrameLayout
+		android:layout_width="44dp"
+		android:layout_height="44dp"
+		android:clipChildren="false"
+		android:clipToPadding="false">
+
+		<com.google.android.material.button.MaterialButton
+			android:id="@+id/header_bell"
+			style="?materialIconButtonStyle"
+			android:layout_width="44dp"
+			android:layout_height="44dp"
+			android:contentDescription="@string/home_updates_and_feed"
+			android:insetLeft="0dp"
+			android:insetTop="0dp"
+			android:insetRight="0dp"
+			android:insetBottom="0dp"
+			android:padding="0dp"
+			app:icon="@drawable/ic_notification"
+			app:iconGravity="textStart"
+			app:iconPadding="0dp"
+			app:iconSize="24dp"
+			app:iconTint="?attr/colorTopBarIcon" />
+
+		<View
+			android:id="@+id/header_bell_dot"
+			android:layout_width="9dp"
+			android:layout_height="9dp"
+			android:layout_gravity="top|end"
+			android:layout_marginTop="10dp"
+			android:layout_marginEnd="10dp"
+			android:background="@drawable/bg_update_dot"
+			android:backgroundTint="?attr/colorError"
+			android:importantForAccessibility="no"
+			android:visibility="gone"
+			tools:visibility="visible" />
+
+	</FrameLayout>
+
+	<com.google.android.material.button.MaterialButton
+		android:id="@+id/header_search"
+		style="?materialIconButtonStyle"
+		android:layout_width="44dp"
+		android:layout_height="44dp"
+		android:contentDescription="@string/search"
+		android:insetLeft="0dp"
+		android:insetTop="0dp"
+		android:insetRight="0dp"
+		android:insetBottom="0dp"
+		android:padding="0dp"
+		app:icon="@drawable/ic_search"
+		app:iconGravity="textStart"
+		app:iconPadding="0dp"
+		app:iconSize="24dp"
+		app:iconTint="?attr/colorTopBarIcon" />
+
+</LinearLayout>

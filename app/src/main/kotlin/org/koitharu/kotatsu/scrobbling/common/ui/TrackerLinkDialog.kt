@@ -151,7 +151,9 @@ class TrackerLinkDialog : DialogFragment() {
 		b.textEmpty.isVisible = false
 		searchJob = lifecycleScope.launch {
 			val type = target.source.scrobblerType
-			val result = withContext(Dispatchers.Default) { scrobbler.searchSmart(names, type) }
+			val result = withContext(Dispatchers.Default) {
+				scrobbler.searchSmart(names, type, if (typed) null else target)
+			}
 			val bb = binding ?: return@launch
 			bb.progress.isVisible = false
 			adapter.submitList(result)
@@ -215,11 +217,13 @@ class TrackerLinkDialog : DialogFragment() {
 				title.text = c.manga.name
 				// All the names the tracker has for this title, not just the one that matched
 				val others = c.names.filter { it != c.manga.name }.distinct().take(MAX_NAMES_SHOWN)
-				subtitle.text = if (others.isEmpty()) {
+				val known = if (others.isEmpty()) {
 					c.manga.altName.orEmpty()
 				} else {
 					subtitle.context.getString(R.string.ds_track_also_known, others.joinToString(" · "))
 				}
+				// Manhwa / Manga / Novel up front, so two same-named entries can be told apart at a glance
+				subtitle.text = listOfNotNull(c.kindLabel, known.ifEmpty { null }).joinToString(" · ")
 				subtitle.isVisible = subtitle.text.isNotEmpty()
 				badge.isVisible = c.score >= 1f
 				cover.setImageAsync(c.manga.cover)

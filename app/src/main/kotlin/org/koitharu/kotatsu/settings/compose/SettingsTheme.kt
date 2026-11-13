@@ -1,12 +1,14 @@
 package org.koitharu.kotatsu.settings.compose
 
 import android.content.res.Configuration
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -20,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koitharu.kotatsu.R
+import org.koitharu.kotatsu.core.ui.pulse.PulseIndication
 import org.koitharu.kotatsu.main.ui.nav.composeColorSchemeFromTheme
 
 private const val ROND_ROUNDED = 100f
@@ -167,6 +170,8 @@ fun DropSauceTheme(content: @Composable () -> Unit) {
 		motionScheme = MotionScheme.expressive(),
 		shapes = DropSauceShapes,
 		typography = typography,
-		content = content,
-	)
+	) {
+		// No ripple anywhere in Compose: presses pulse the icon/label instead (see PulseIndication)
+		CompositionLocalProvider(LocalIndication provides PulseIndication, content = content)
+	}
 }

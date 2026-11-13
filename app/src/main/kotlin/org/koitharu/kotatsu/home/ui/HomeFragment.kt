@@ -12,6 +12,8 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
+import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -30,6 +32,8 @@ import org.koitharu.kotatsu.core.ui.dialog.buildAlertDialog
 import org.koitharu.kotatsu.core.util.ext.getThemeColor
 import org.koitharu.kotatsu.core.util.ext.addMenuProvider
 import org.koitharu.kotatsu.core.util.ext.consumeAllSystemBarsInsets
+import org.koitharu.kotatsu.core.util.ext.HapticEffect
+import org.koitharu.kotatsu.core.util.ext.hapticFeedback
 import org.koitharu.kotatsu.core.util.ext.observe
 import org.koitharu.kotatsu.core.util.ext.observeEvent
 import org.koitharu.kotatsu.core.util.ext.systemBarsInsets
@@ -45,6 +49,7 @@ import org.koitharu.kotatsu.home.ui.adapter.HomeSpotlightAdapter
 import org.koitharu.kotatsu.home.ui.model.HomeMode
 import org.koitharu.kotatsu.home.ui.model.HeroItem
 import org.koitharu.kotatsu.home.ui.model.HomeBannerStyle
+import org.koitharu.kotatsu.home.ui.model.HomeCarousel
 import org.koitharu.kotatsu.home.ui.model.HomeConfig
 import org.koitharu.kotatsu.home.ui.model.HomeMetadata
 import org.koitharu.kotatsu.home.ui.model.HomePoster
@@ -53,18 +58,23 @@ import org.koitharu.kotatsu.home.ui.model.HomeRowKind
 import org.koitharu.kotatsu.home.ui.model.HomeSectionState
 import org.koitharu.kotatsu.home.ui.model.HomeUiState
 import org.koitharu.kotatsu.image.ui.CoverImageView
+import org.koitharu.kotatsu.main.ui.MainViewModel
+import org.koitharu.kotatsu.main.ui.owners.AppBarOwner
 import org.koitharu.kotatsu.scrobbling.common.domain.model.TrackerReadingEntry
+import org.koitharu.kotatsu.scrobbling.common.ui.SyncLibraryDialog
 import org.koitharu.kotatsu.scrobbling.common.ui.TrackerLibraryDialog
 
 /**
- * The Home screen: a banner of trending titles (four styles, chosen in Settings > Appearance), two
- * quick buttons, then rows of posters. Chips at the top pick the sources and metadata provider and
- * open the genre / NSFW filters; the floating toggle switches between manga and novels.
+ * The Home screen: its own header (YUGEN wordmark, settings, bell, search), a banner of trending titles,
+ * a "Surprise me" button, then rows of posters. The wordmark opens Yugen preferences (incognito, filters,
+ * metadata, Home layout with a switch for every carousel); the bell opens Updates & feed. The Manga | Novel
+ * | Anime switch lives in the book button of the bottom bar.
  */
 @AndroidEntryPoint
 class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.Host {
 
 	private val viewModel by viewModels<HomeViewModel>()
+	private val mainViewModel by activityViewModels<MainViewModel>()
 
 	private var heroItems: List<HeroItem> = emptyList()
 	private var heroIndex = 0
@@ -82,8 +92,21 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 	override fun onViewBindingCreated(binding: FragmentHomeBinding, savedInstanceState: Bundle?) {
 		super.onViewBindingCreated(binding, savedInstanceState)
 
-		bindQuickButton(binding.buttonUpdates, R.string.home_updates_and_feed, R.drawable.ic_feed) {
-			router.openMangaUpdates()
+		// Header: wordmark = Yugen preferences, bell = Updates & feed
+		with(binding.header) {
+			headerBrand.setOnClickListener { showYugenPreferences() }
+			headerSettings.setOnClickListener { router.openSettings() }
+			headerBell.setOnClickListener { router.openMangaUpdates() }
+			headerMode.setOnClickListener { cycleMode(it) }
+			headerMode.setOnLongClickListener { showModeMenu(it); true }
+			headerSearch.setOnClickListener {
+				(activity as? androidx.appcompat.app.AppCompatActivity)?.onSupportNavigateUp()
+			}
+		}
+		mainViewModel.feedCounter.observe(viewLifecycleOwner) { binding.header.headerBellDot.isVisible = it != 0 }
+
+		bindQuickButton(binding.buttonSuggestions, R.string.suggestions, R.drawable.ic_suggestion) {
+			router.openSuggestions()
 		}
 		bindQuickButton(binding.buttonRandom, R.string.home_surprise_me, R.drawable.ic_dice) {
 			viewModel.openRandom()
@@ -138,17 +161,6 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 			})
 		}
 
-		// Sources, Filters, Metadata and Banner live in the three-dots menu, like on the other tabs
-		addMenuProvider(
-			HomeMenuProvider(
-				context = requireContext(),
-				config = { config },
-				onFilters = ::showFiltersDialog,
-				onMetadata = ::showMetadataDialog,
-				onBanner = ::showBannerDialog,
-			),
-		)
-
 		binding.swipeRefreshLayout.setOnRefreshListener { viewModel.refresh() }
 		viewModel.isLoading.observe(viewLifecycleOwner) { binding.swipeRefreshLayout.isRefreshing = it }
 		viewModel.uiState.observe(viewLifecycleOwner) { render(binding, it) }
@@ -176,6 +188,48 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 		}
 	}
 
+	override fun onStart() {
+		super.onStart()
+		if (!isHidden) setMainAppBarHidden(true)
+	}
+
+	override fun onResume() {
+		super.onResume()
+		// Home draws its own header, so the activity's top bar (settings, search, overflow) steps aside
+		if (!isHidden) setMainAppBarHidden(true)
+	}
+
+	/** Switching tabs hides this fragment without stopping it, so the bar comes back (or goes) here. */
+	override fun onHiddenChanged(hidden: Boolean) {
+		super.onHiddenChanged(hidden)
+		setMainAppBarHidden(!hidden)
+	}
+
+	/**
+	 * Not onPause: opening Settings or Updates pauses Home while it is still on screen, and bringing the bar back
+	 * then made the old search bar flash for a moment. onStop comes once the other screen has covered it.
+	 */
+	override fun onStop() {
+		setMainAppBarHidden(false)
+		super.onStop()
+	}
+
+	/**
+	 * Hiding the bar with GONE left the page below it offset by the bar's old height (a gap above the header that
+	 * showed up after coming back from another screen). A zero-height, invisible bar keeps the offset at zero.
+	 */
+	private fun setMainAppBarHidden(hidden: Boolean) {
+		val appBar = (activity as? AppBarOwner)?.appBar ?: return
+		if (hidden) {
+			appBar.setExpanded(true, false)
+			appBar.updateLayoutParams { height = 0 }
+			appBar.visibility = View.INVISIBLE
+		} else {
+			appBar.updateLayoutParams { height = ViewGroup.LayoutParams.WRAP_CONTENT }
+			appBar.visibility = View.VISIBLE
+		}
+	}
+
 	override fun onDestroyView() {
 		rowHolders.clear()
 		heroItems = emptyList()
@@ -186,17 +240,99 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 		val bars = insets.systemBarsInsets
 		// Extra room at the bottom so the floating toggle never covers the last row
 		// Room for the floating bottom bar; the Manga | Novel switch lives in the book button's menu
-		viewBinding?.layoutContent?.setPadding(bars.left, 0, bars.right, bars.bottom + 112)
+		// The top inset is ours now: the activity's top bar, which used to carry it, is hidden on Home
+		viewBinding?.layoutContent?.setPadding(bars.left, bars.top, bars.right, bars.bottom + 112)
 		return insets.consumeAllSystemBarsInsets()
 	}
 
 	// ---- Rendering ---------------------------------------------------------------------------
 
 	private fun render(binding: FragmentHomeBinding, state: HomeUiState) {
+		val modeChanged = modeShown != null && modeShown != state.config.mode
 		config = state.config
 		renderConfig(binding, state.config)
 		renderHero(binding, state.hero)
 		renderRows(binding, state.rows)
+		bindModeChip(binding, state.config.mode, animate = modeChanged)
+		modeShown = state.config.mode
+		if (modeChanged) playFeedReveal(binding)
+	}
+
+	private var modeShown: HomeMode? = null
+
+	/** Manga, then Anime, then Novel, then round again. */
+	private fun cycleMode(anchor: View) {
+		val order = listOf(HomeMode.MANGA, HomeMode.ANIME, HomeMode.NOVEL)
+		val next = order[(order.indexOf(config.mode) + 1) % order.size]
+		anchor.hapticFeedback(HapticEffect.CONFIRM)
+		viewModel.setMode(next)
+	}
+
+	/** Long-press on the mode chip: the three modes as a list, the current one ticked. */
+	private fun showModeMenu(anchor: View) {
+		anchor.hapticFeedback(HapticEffect.LONG_PRESS)
+		val menu = androidx.appcompat.widget.PopupMenu(anchor.context, anchor)
+		listOf(HomeMode.ANIME, HomeMode.MANGA, HomeMode.NOVEL).forEachIndexed { index, mode ->
+			menu.menu.add(0, index, index, modeTitleRes(mode)).apply {
+				isCheckable = true
+				isChecked = mode == config.mode
+			}
+		}
+		menu.menu.setGroupCheckable(0, true, true)
+		menu.setOnMenuItemClickListener { item ->
+			val picked = listOf(HomeMode.ANIME, HomeMode.MANGA, HomeMode.NOVEL)[item.itemId]
+			if (picked != config.mode) {
+				anchor.hapticFeedback(HapticEffect.CONFIRM)
+				viewModel.setMode(picked)
+			}
+			true
+		}
+		menu.show()
+	}
+
+	private fun modeTitleRes(mode: HomeMode) = when (mode) {
+		HomeMode.ANIME -> R.string.ds_mode_anime
+		HomeMode.NOVEL -> R.string.ds_mode_novel
+		HomeMode.MANGA -> R.string.ds_mode_manga
+	}
+
+	/** The header chip names the mode; on a change it squashes, swaps and springs back. */
+	private fun bindModeChip(binding: FragmentHomeBinding, mode: HomeMode, animate: Boolean) {
+		val chip = binding.header.headerMode
+		val apply = {
+			val name = getString(modeTitleRes(mode))
+			chip.text = name
+			chip.setIconResource(org.koitharu.kotatsu.main.ui.nav.modeIconRes(mode))
+			chip.contentDescription = getString(R.string.ds_mode_cycle, name)
+		}
+		if (!animate) {
+			apply()
+			return
+		}
+		chip.animate().cancel()
+		chip.animate().scaleX(0.78f).scaleY(0.78f).alpha(0.4f).setDuration(80).withEndAction {
+			apply()
+			chip.animate().scaleX(1f).scaleY(1f).alpha(1f)
+				.setInterpolator(android.view.animation.OvershootInterpolator(2.4f))
+				.setDuration(280).start()
+		}.start()
+	}
+
+	/** Everything under the header fades and lifts into place, a touch later for each block. */
+	private fun playFeedReveal(binding: FragmentHomeBinding) {
+		val content = binding.layoutContent
+		val lift = 10 * resources.displayMetrics.density
+		for (i in 1 until content.childCount) {
+			val v = content.getChildAt(i)
+			v.animate().cancel()
+			v.alpha = 0.35f
+			v.translationY = lift
+			v.animate().alpha(1f).translationY(0f)
+				.setStartDelay(((i - 1) * 35).toLong())
+				.setDuration(320)
+				.setInterpolator(android.view.animation.DecelerateInterpolator(1.6f))
+				.start()
+		}
 	}
 
 	private fun renderConfig(binding: FragmentHomeBinding, c: HomeConfig) {
@@ -233,7 +369,7 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 		}
 		// The quick buttons borrow cover art from titles further down the list.
 		val extras = (state as? HomeSectionState.Content)?.items.orEmpty().drop(3)
-		extras.getOrNull(0)?.let { binding.buttonUpdates.quickImage.loadHero(it, banner = false) }
+		extras.getOrNull(0)?.let { binding.buttonSuggestions.quickImage.loadHero(it, banner = false) }
 		extras.getOrNull(1)?.let { binding.buttonRandom.quickImage.loadHero(it, banner = false) }
 	}
 
@@ -349,6 +485,8 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 		val meta = item.meta
 		when {
 			manga != null -> router.openDetails(manga)
+			meta != null && viewModel.opensTrackerFirst ->
+				router.openMetaDetails(meta, item.title, item.coverUrl, item.bannerUrl)
 			meta != null -> viewModel.openMeta(meta, item.names, item.title)
 			else -> viewModel.openByNames(item.names.ifEmpty { listOf(item.title) })
 		}
@@ -403,10 +541,12 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 			holder.adapter.submitList(row.state.items)
 		}
 		// "See All" where a full screen exists: the updates feed and the tracker's whole library.
-		b.buttonSeeAll.isVisible = row.kind == HomeRowKind.UPDATES || row.kind == HomeRowKind.TRACKER
+		b.buttonSeeAll.isVisible = row.kind == HomeRowKind.UPDATES || row.kind == HomeRowKind.TRACKER ||
+			row.kind == HomeRowKind.SYNC
 		b.buttonSeeAll.setOnClickListener {
 			when (row.kind) {
 				HomeRowKind.UPDATES -> router.openMangaUpdates()
+				HomeRowKind.SYNC -> SyncLibraryDialog.show(childFragmentManager, config.mode == HomeMode.ANIME)
 				HomeRowKind.TRACKER -> holder.adapter.currentList.firstOrNull()?.trackerEntry?.service
 					?.let { TrackerLibraryDialog.show(childFragmentManager, it, config.mode == HomeMode.ANIME) }
 
@@ -419,6 +559,8 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 		val entry = poster.trackerEntry
 		when {
 			poster.manga != null -> router.openDetails(poster.manga)
+			poster.meta != null && viewModel.opensTrackerFirst ->
+				router.openMetaDetails(poster.meta, poster.title, poster.coverUrl, null)
 			poster.meta != null -> viewModel.openMeta(poster.meta, poster.altTitles, poster.title)
 			// Already linked to a manga in the library: go straight to it.
 			poster.localMangaId != null -> viewModel.openStored(poster.localMangaId, entry, poster.altTitles)
@@ -462,63 +604,29 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 		}
 	}
 
-	private fun showBannerDialog() {
-		val context = requireContext()
-		val styles = HomeBannerStyle.values()
-		val density = resources.displayMetrics.density
-		var dialog: androidx.appcompat.app.AlertDialog? = null
-		val list = android.widget.LinearLayout(context).apply {
-			orientation = android.widget.LinearLayout.VERTICAL
-			setPadding((20 * density).toInt(), (8 * density).toInt(), (20 * density).toInt(), (8 * density).toInt())
-		}
-		styles.forEach { style ->
-			val chosen = style == config.banner
-			val card = com.google.android.material.card.MaterialCardView(context).apply {
-				layoutParams = android.widget.LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = (12 * density).toInt() }
-				radius = 20 * density
-				cardElevation = 0f
-				strokeWidth = ((if (chosen) 3 else 1) * density).toInt()
-				strokeColor = context.getThemeColor(
-					if (chosen) androidx.appcompat.R.attr.colorPrimary else com.google.android.material.R.attr.colorOutlineVariant,
-				)
-				isClickable = true
-				isFocusable = true
-			}
-			val column = android.widget.LinearLayout(context).apply {
-				orientation = android.widget.LinearLayout.VERTICAL
-				val p = (10 * density).toInt()
-				setPadding(p, p, p, p)
-			}
-			column.addView(BannerStylePreviewView(context, style))
-			column.addView(
-				android.widget.TextView(context).apply {
-					text = getString(style.titleRes)
-					setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleMedium)
-					setPadding((4 * density).toInt(), (10 * density).toInt(), 0, 0)
-				},
-			)
-			column.addView(
-				android.widget.TextView(context).apply {
-					text = getString(style.descRes)
-					setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodySmall)
-					setPadding((4 * density).toInt(), 0, 0, 0)
-				},
-			)
-			card.addView(column)
-			card.setOnClickListener {
-				viewModel.setBannerStyle(style)
-				dialog?.dismiss()
-			}
-			list.addView(card)
-		}
-		dialog = buildAlertDialog(context) {
-			setTitle(R.string.ds_banner_style)
-			setView(android.widget.ScrollView(context).apply { addView(list) })
-			setNeutralButton(
-				if (config.autoRotate) R.string.ds_banner_rotate_off else R.string.ds_banner_rotate_on,
-			) { _, _ -> viewModel.setBannerAutoRotate(!config.autoRotate) }
-			setNegativeButton(android.R.string.cancel, null)
-		}.also { it.show() }
+	// ---- Yugen preferences ---------------------------------------------------------------------
+
+	private fun showYugenPreferences() {
+		val ctx = requireContext()
+		val layoutSummary = getString(
+			R.string.ds_prefs_layout_summary,
+			getString(config.banner.titleRes),
+			HomeCarousel.values().count { config.shows(it) },
+		)
+		YugenPreferencesSheet.show(
+			context = ctx,
+			state = YugenPreferencesSheet.State(
+				incognito = viewModel.isIncognito(),
+				filterCount = config.filterCount,
+				metadataName = getString(config.metadata.titleRes),
+				layoutSummary = layoutSummary,
+			),
+			onIncognito = viewModel::setIncognito,
+			onFilters = ::showFiltersDialog,
+			onMetadata = ::showMetadataDialog,
+			// Home layout lives in Settings now, with its own preview
+			onLayout = { router.openHomeLayoutSettings() },
+		)
 	}
 
 	private fun showMetadataDialog() {
@@ -535,9 +643,11 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 					provider = viewModel.currentProvider(),
 					catalogue = config.metadata == HomeMetadata.SOURCES,
 					catalogueSourceTitle = pickedTitle,
+					fromTracker = viewModel.isMetadataFromTracker(),
 				),
 				onProvider = viewModel::setProvider,
 				onCatalogue = viewModel::setSourceCatalogue,
+				onFromTracker = viewModel::setMetadataFromTracker,
 				onPickSource = {
 					startActivity(org.koitharu.kotatsu.metadata.SourceChooserActivity.pickIntent(ctx, mode))
 				},
@@ -550,58 +660,80 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 		val b = DialogHomeFiltersBinding.inflate(layoutInflater)
 		val include = config.include.toMutableSet()
 		val exclude = config.exclude.toMutableSet()
-		b.switchNsfw.isChecked = config.hideNsfw
-		GENRES.forEach { genre ->
-			val chip = Chip(ctx).apply { isCheckable = false }
-			fun paint() {
-				val (bg, fg, prefix) = when {
-					genre in include -> Triple(
-						com.google.android.material.R.attr.colorPrimaryContainer,
-						com.google.android.material.R.attr.colorOnPrimaryContainer,
-						"+ ",
-					)
-
-					genre in exclude -> Triple(
-						com.google.android.material.R.attr.colorErrorContainer,
-						com.google.android.material.R.attr.colorOnErrorContainer,
-						"− ",
-					)
-
-					else -> Triple(
-						com.google.android.material.R.attr.colorSurfaceContainerHigh,
-						com.google.android.material.R.attr.colorOnSurface,
-						"",
-					)
-				}
-				chip.text = prefix + genre
-				chip.chipBackgroundColor = ColorStateList.valueOf(MaterialColors.getColor(chip, bg))
-				chip.setTextColor(MaterialColors.getColor(chip, fg))
+		b.switchNsfw.isChecked = viewModel.isNsfwMode()
+		// Hentai is an adult-only genre, so its chip exists only while NSFW mode is on
+		fun genresFor(nsfw: Boolean) = if (nsfw) GENRES + NSFW_GENRE else GENRES
+		fun addGenreChips() {
+			b.chipGenres.removeAllViews()
+			genresFor(b.switchNsfw.isChecked).forEach { genre -> b.chipGenres.addView(createGenreChip(ctx, genre, include, exclude)) }
+		}
+		addGenreChips()
+		b.switchNsfw.setOnCheckedChangeListener { _, checked ->
+			if (!checked) {
+				// A hidden chip must not keep filtering the feed
+				include -= NSFW_GENRE
+				exclude -= NSFW_GENRE
 			}
-			chip.setOnClickListener {
-				// none -> include -> exclude -> none
-				when {
-					genre in include -> {
-						include -= genre
-						exclude += genre
-					}
-
-					genre in exclude -> exclude -= genre
-					else -> include += genre
-				}
-				paint()
-			}
-			paint()
-			b.chipGenres.addView(chip)
+			addGenreChips()
 		}
 		buildAlertDialog(ctx) {
 			setTitle(R.string.ds_home_filters_title)
 			setView(b.root)
 			setPositiveButton(R.string.ds_filters_apply) { _, _ ->
-				viewModel.setFilters(include, exclude, b.switchNsfw.isChecked)
+				viewModel.setNsfwMode(b.switchNsfw.isChecked)
+				viewModel.setFilters(include, exclude, false)
 			}
 			setNeutralButton(R.string.ds_filters_reset) { _, _ -> viewModel.setFilters(emptySet(), emptySet(), false) }
 			setNegativeButton(android.R.string.cancel, null)
 		}.show()
+	}
+
+	private fun createGenreChip(
+		ctx: android.content.Context,
+		genre: String,
+		include: MutableSet<String>,
+		exclude: MutableSet<String>,
+	): Chip {
+		val chip = Chip(ctx).apply { isCheckable = false }
+		fun paint() {
+			val (bg, fg, prefix) = when {
+				genre in include -> Triple(
+					com.google.android.material.R.attr.colorPrimaryContainer,
+					com.google.android.material.R.attr.colorOnPrimaryContainer,
+					"+ ",
+				)
+
+				genre in exclude -> Triple(
+					com.google.android.material.R.attr.colorErrorContainer,
+					com.google.android.material.R.attr.colorOnErrorContainer,
+					"− ",
+				)
+
+				else -> Triple(
+					com.google.android.material.R.attr.colorSurfaceContainerHigh,
+					com.google.android.material.R.attr.colorOnSurface,
+					"",
+				)
+			}
+			chip.text = prefix + genre
+			chip.chipBackgroundColor = ColorStateList.valueOf(MaterialColors.getColor(chip, bg))
+			chip.setTextColor(MaterialColors.getColor(chip, fg))
+		}
+		chip.setOnClickListener {
+			// none -> include -> exclude -> none
+			when {
+				genre in include -> {
+					include -= genre
+					exclude += genre
+				}
+
+				genre in exclude -> exclude -= genre
+				else -> include += genre
+			}
+			paint()
+		}
+		paint()
+		return chip
 	}
 
 	private fun bindQuickButton(
@@ -618,6 +750,9 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 	private companion object {
 
 		const val HERO_INTERVAL_MS = 5_000L
+
+		/** AniList's adult-only genre, offered in the Home filters only while NSFW mode is on. */
+		const val NSFW_GENRE = "Hentai"
 
 		/** AniList's genre names; sources match them without regard to case. */
 		val GENRES = listOf(

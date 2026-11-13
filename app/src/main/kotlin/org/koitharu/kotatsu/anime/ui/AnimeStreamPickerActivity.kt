@@ -50,6 +50,8 @@ import org.koitharu.kotatsu.anime.AnimeMangaRepository
 import org.koitharu.kotatsu.anime.AnimeStream
 import org.koitharu.kotatsu.anime.player.AnimePlaybackSession
 import org.koitharu.kotatsu.anime.player.AnimePlayerLauncher
+import org.koitharu.kotatsu.anime.player.AnimePlayerPrefs
+import org.koitharu.kotatsu.anime.player.AnimeStreamAutoPicker
 import org.koitharu.kotatsu.anime.player.AnimeStreamProbe
 import org.koitharu.kotatsu.anime.player.StreamKind
 import org.koitharu.kotatsu.core.model.parcelable.ParcelableManga
@@ -130,16 +132,38 @@ class AnimeStreamPickerActivity : AppCompatActivity() {
 					return@onSuccess
 				}
 				val saved = AnimePlaybackSession.rememberedServer(this@AnimeStreamPickerActivity, manga)
-				val auto = when {
-					saved != null -> list.indexOfFirst { it.video.videoTitle == saved }.takeIf { it >= 0 }
-					list.size == 1 -> 0
-					else -> null
+				// Auto-pick is the default (Settings > Player); a remembered server always wins.
+				if (saved != null || list.size == 1 || AnimePlayerPrefs.isAutoPick(this@AnimeStreamPickerActivity)) {
+					autoPick(list, saved)
 				}
-				if (auto != null) pick(auto)
 			}.onFailure {
 				loading = false
 				error = it.message ?: it::class.java.simpleName
 			}
+		}
+	}
+
+	/** Plays the best server for the quality setting, moving on to the next when one is dead; the list opens if none works. */
+	private fun autoPick(list: List<AnimeStream>, preferTitle: String?) {
+		val order = AnimeStreamAutoPicker.order(this, list, preferTitle)
+		loading = true
+		error = null
+		lifecycleScope.launch {
+			for (i in order) {
+				val stream = list[i]
+				val probe = stream.probe ?: AnimeStreamProbe.probe(stream).also { stream.probe = it }
+				if (probe.kind == StreamKind.ERROR) continue
+				val snapshot = manga.copy(chapters = chapters)
+				AnimePlayerLauncher.play(this@AnimeStreamPickerActivity, snapshot, chapters, index, list, i)
+				finish()
+				return@launch
+			}
+			loading = false
+			android.widget.Toast.makeText(
+				this@AnimeStreamPickerActivity,
+				"No server could be played automatically: pick one",
+				android.widget.Toast.LENGTH_LONG,
+			).show()
 		}
 	}
 
