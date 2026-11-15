@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+build/win/java/
+build/win/bridge/
+build/win/*.zip
+build/win/*.tmp/

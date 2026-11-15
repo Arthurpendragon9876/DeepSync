@@ -1,0 +1,33 @@
+{
+  "name": "yomi",
+  "productName": "Yomi",
+  "version": "0.5.0",
+  "description": "Yomi: anime, manga and light novels on Windows, with tracker sync (part of the DeepSync project)",
+  "main": "main/main.js",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "start": "electron .",
+    "dev:web": "node tools/dev-server.js",
+    "dev:web:win": "node tools/dev-server.js --platform win32 --material mica",
+    "test": "node --test test/*.test.js",
+    "fetch:win-runtime": "node tools/fetch-win-runtime.js",
+    "build:win": "bash tools/build-yomi.sh",
+    "dist:win": "node tools/fetch-win-runtime.js && electron-builder --win --x64 --config electron-builder.win.js --publish never",
+    "pack:win": "node tools/fetch-win-runtime.js && electron-builder --win --x64 --dir --config electron-builder.win.js --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.8.15",
+    "cheerio": "^1.0.0",
+    "css-select": "^5.2.2",
+    "dayjs": "^1.11.23",
+    "domhandler": "^5.0.3",
+    "domutils": "^3.2.2",
+    "htmlparser2": "^9.1.0",
+    "xpath": "^0.0.34",
+    "electron-updater": "^6.3.9"
+  }
+}
