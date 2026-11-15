@@ -1,10 +1,10 @@
-name: Build and Release
+name: Android release
 
 on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: 'New version name (e.g. 1.2.3) — release tag will be created as v<version>'
+        description: 'New version name (e.g. 1.2.3) — release tag will be created as android-v<version>'
         required: true
         type: string
 
@@ -17,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    defaults:
+      run:
+        working-directory: android
     env:
       # Optional: test the future runtime now
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -37,11 +40,11 @@ jobs:
 
         # Require the version to match a semver-like pattern (no leading 'v'; release tag will be v<version>)
         if ! echo "$VERSION_NAME" | grep -qE '^[0-9]+(\.[0-9]+)*(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'; then
-          echo "::error::version_name '${VERSION_NAME}' is invalid. Use a semver-like format such as '1.2.3' or '1.2.3-beta.1'. The release tag will be created as v${VERSION_NAME}."
+          echo "::error::version_name '${VERSION_NAME}' is invalid. Use a semver-like format such as '1.2.3' or '1.2.3-beta.1'. The release tag will be created as android-v${VERSION_NAME}."
           exit 1
         fi
 
-        echo "version_name '${VERSION_NAME}' is valid. Release tag will be: v${VERSION_NAME}"
+        echo "version_name '${VERSION_NAME}' is valid. Release tag will be: android-v${VERSION_NAME}"
 
     - name: Checkout code
       uses: actions/checkout@v5
@@ -151,7 +154,7 @@ jobs:
         # 3) Last resort: git log since the previous release tag.
         if [ ! -s "$OUT" ]; then
           echo "::warning::No changelog file found for ${VERSION_NAME} (looked for ${PER_RELEASE} and a '## [${VERSION_NAME}]' section in CHANGELOG.md). Falling back to git log."
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match 'v*' "$COMMIT_SHA" 2>/dev/null || true)
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match 'android-v*' "$COMMIT_SHA" 2>/dev/null || true)
           if [ -n "$PREVIOUS_TAG" ]; then RANGE="$PREVIOUS_TAG..$COMMIT_SHA"; else RANGE="$COMMIT_SHA"; fi
           git log --pretty=format:"- %s" --no-merges -n 50 --invert-grep --grep='^chore(release): set versionName ' $RANGE > "$OUT" || true
           if [ ! -s "$OUT" ]; then echo "- No changes since ${PREVIOUS_TAG:-the last release}" > "$OUT"; fi
@@ -186,7 +189,7 @@ jobs:
         VERSION_NAME: ${{ inputs.version_name }}
         TARGET_SHA: ${{ steps.version_commit.outputs.commit_sha }}
       run: |
-        TAG="v${VERSION_NAME}"
+        TAG="android-v${VERSION_NAME}"
         NOTES_FILE="release_notes.md"
 
         {

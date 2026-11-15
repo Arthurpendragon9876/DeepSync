@@ -1,0 +1,61 @@
+{
+  "name": "shinkai",
+  "productName": "Shinkai",
+  "version": "0.4.10",
+  "description": "Shinkai: anime, manga and light novels on the Linux desktop, with tracker sync (part of the DeepSync project)",
+  "main": "main/main.js",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "start": "electron .",
+    "dev:web": "node tools/dev-server.js",
+    "test": "node --test test/*.test.js",
+    "dist": "electron-builder --linux",
+    "pack": "electron-builder --linux dir"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.kotatsu.shinkai",
+    "productName": "Shinkai",
+    "files": [
+      "main/**",
+      "renderer/**",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "rpm",
+        "pacman",
+        "tar.gz"
+      ],
+      "category": "AudioVideo;Video;Graphics",
+      "icon": "build/icon.png",
+      "maintainer": "Shinkai",
+      "synopsis": "Anime, manga and novels with tracker sync",
+      "desktop": {
+        "StartupWMClass": "Shinkai",
+        "Keywords": "anime;manga;novel;anilist;",
+        "Name": "Shinkai"
+      },
+      "executableName": "shinkai"
+    }
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.8.15",
+    "cheerio": "^1.0.0",
+    "css-select": "^5.2.2",
+    "dayjs": "^1.11.23",
+    "domhandler": "^5.0.3",
+    "domutils": "^3.2.2",
+    "htmlparser2": "^9.1.0",
+    "xpath": "^0.0.34"
+  }
+}

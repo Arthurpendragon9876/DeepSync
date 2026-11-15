@@ -1,0 +1,178 @@
+/* Shinkai: the Android app's look (Material 3 shapes, floating pill navigation, overlay-title covers, tonal chips, grouped settings tiles,
+   Google Sans Flex). Loaded after app.css; colors come from theme.css. Shape scale: 8 / 16 / 24 dp, 32 for sheets, pills for buttons. */
+
+:root, :is(.on-media, .hero, .d-hero, .cw-hero, .reader, .lightbox, .fan, .p-idle) {
+  --glass: color-mix(in srgb, var(--md-surface-container-high) 72%, transparent);
+  --tonal: var(--md-secondary-container); --on-tonal: var(--md-on-secondary-container);
+}
+html, body { font-weight: 500; font-variation-settings: 'ROND' 100; }
+h1, h2, h3, .page-title { font-weight: 700; }
+
+/* ---- shell: floating rounded navigation rail (the app's nav pill, vertical) ---- */
+#app { grid-template-columns: calc(var(--sidebar-w) + 12px) 1fr; }
+#sidebar { margin: 12px 0 12px 12px; border: 0; border-radius: 28px; background: var(--surface); padding: 14px 0 12px; gap: 2px; }
+#sidebar .logo { margin-bottom: 8px; width: 44px; height: 44px; }
+.nav { width: 54px; height: 38px; border-radius: 16px; color: var(--muted); }
+.nav:hover { background: rgb(var(--fg) / .08); color: var(--text); }
+.nav.active { background: var(--tonal); color: var(--on-tonal); }
+.nav.on { color: rgb(var(--accent)); }
+.nav[data-tip]:hover::after { left: 64px; background: var(--md-inverse-surface); color: var(--md-inverse-on-surface); border-radius: 12px; padding: 6px 12px; font-weight: 600; }
+.nav .badge { background: var(--md-error); color: var(--md-on-error); }
+.avatar { background: var(--surface-3); }
+#titlebar { background: var(--bg); }
+
+/* ---- buttons, chips, inputs ---- */
+.btn { height: 40px; padding: 0 20px; border-radius: 999px; background: var(--tonal); color: var(--on-tonal); font-weight: 600; }
+.btn:hover { background: color-mix(in srgb, var(--tonal) 86%, var(--on-tonal)); }
+.btn.primary, .btn.light { background: rgb(var(--accent)); color: var(--on-accent); }
+.btn.primary:hover, .btn.light:hover { background: color-mix(in srgb, rgb(var(--accent)) 86%, var(--on-accent)); }
+.btn.ghost { background: var(--glass); backdrop-filter: blur(12px); }
+.btn.ghost:hover { background: color-mix(in srgb, var(--glass) 80%, var(--text)); }
+.btn.danger { color: rgb(var(--danger)); }
+.btn.sm { height: 32px; padding: 0 14px; border-radius: 999px; }
+.ibtn { width: 44px; height: 44px; border-radius: 50%; background: var(--glass); color: var(--text); }
+.ibtn:hover { background: color-mix(in srgb, var(--glass) 80%, var(--text)); }
+.ibtn.flat { background: transparent; } .ibtn.flat:hover { background: rgb(var(--fg) / .1); }
+.ibtn.round { width: 40px; height: 40px; border: 0; background: var(--surface-2); }
+.squircle { width: 48px; height: 48px; border-radius: 50%; background: var(--glass); color: var(--text); }
+.squircle:hover { background: color-mix(in srgb, var(--glass) 80%, var(--text)); }
+.mode-pill, .list-pill, .wide-btn { background: var(--glass); color: var(--text); }
+.mode-pill:hover, .list-pill:hover, .wide-btn:hover { background: color-mix(in srgb, var(--glass) 80%, var(--text)); }
+.wide-btn.on { background: rgb(var(--accent) / .22); }
+.chip { height: 32px; padding: 0 14px; border-radius: 12px; background: var(--tonal); color: var(--on-tonal); font-weight: 600; backdrop-filter: none; }
+.chip.btn-like:hover { background: color-mix(in srgb, var(--tonal) 86%, var(--on-tonal)); }
+.chip.acc { background: rgb(var(--accent) / .18); color: rgb(var(--accent)); }
+.chip.warn { background: rgb(var(--warn) / .18); color: rgb(var(--warn)); }
+.src-chip { height: 32px; border-radius: 12px; background: var(--tonal); color: var(--on-tonal); backdrop-filter: none; }
+.src-chip:hover { background: color-mix(in srgb, var(--tonal) 86%, var(--on-tonal)); }
+.pill { background: var(--surface-3); backdrop-filter: none; } .pill:hover { background: color-mix(in srgb, var(--surface-3) 85%, var(--text)); }
+.pillchip { background: var(--tonal); color: var(--on-tonal); border: 0; font-weight: 600; }
+.seg { padding: 4px; border-radius: 999px; background: var(--surface-2); backdrop-filter: none; }
+.seg button { border-radius: 999px; color: var(--muted); }
+.seg button.on { background: var(--tonal); color: var(--on-tonal); }
+.seg button:not(.on):hover { background: rgb(var(--fg) / .08); }
+.input, select.input { height: 44px; border-radius: 999px; padding: 0 18px; background: var(--surface-2); border: 1px solid transparent; }
+.input:focus { border-color: rgb(var(--accent) / .85); }
+select.input { border-radius: 16px; padding-right: 34px; }
+textarea.input { height: auto; border-radius: 16px; padding: 12px 16px; }
+.cw-filter .input, .cw-search .input { background: var(--surface-2); }
+.switch { width: 52px; height: 32px; border-radius: 16px; background: var(--surface-3); box-shadow: inset 0 0 0 2px var(--md-outline); }
+.switch::after { left: 8px; top: 8px; width: 16px; height: 16px; background: var(--md-outline); transition: transform .2s, width .2s, height .2s, left .2s, top .2s, background .2s; }
+.switch.on { background: rgb(var(--accent)); box-shadow: none; }
+.switch.on::after { left: 4px; top: 4px; width: 24px; height: 24px; transform: translateX(20px); background: var(--on-accent); }
+.tab { border-radius: 999px; background: var(--surface); } .tab.on { background: var(--tonal); color: var(--on-tonal); }
+.chips-row { justify-content: flex-start; gap: 10px; padding: 22px var(--pad) 4px; }
+.chips-row a { padding: 8px 18px; border-radius: 14px; background: var(--tonal); color: var(--on-tonal); font-size: 14.5px; font-weight: 600; }
+.chips-row a:hover { background: color-mix(in srgb, var(--tonal) 86%, var(--on-tonal)); color: var(--on-tonal); }
+.offline-pill { border-radius: 16px; background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); border: 0; }
+
+/* ---- sections ---- */
+.section-head h2 { font-size: 24px; letter-spacing: -.01em; }
+.page-title { font-size: 30px; }
+.card, .yt-card, .yt-side { background: var(--surface); border: 0; border-radius: 24px; }
+.card { padding: 20px; }
+.day { border: 0; border-radius: 20px; background: var(--surface); } .day.today { box-shadow: inset 0 0 0 2px rgb(var(--accent) / .6); }
+.skeleton { border-radius: 16px; }
+.empty .btn { margin-top: 16px; }
+
+/* ---- covers: title over a bottom scrim, like the app's grid ---- */
+.poster .cover { border-radius: 16px; background: var(--surface); }
+.poster:hover .cover { transform: translateY(-3px); }
+.poster .name { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: 40px 12px 11px; z-index: 1; color: #fff; font-size: 14px; font-weight: 600; line-height: 1.25;
+  background: linear-gradient(to top, color-mix(in srgb, var(--md-primary) 10%, rgb(0 0 0 / .88)), transparent); text-shadow: 0 1px 3px rgb(0 0 0 / .5); }
+.poster .sub { margin-top: 7px; padding: 0 3px; font-size: 13px; }
+.poster .pbar { top: auto; bottom: 0; height: 4px; z-index: 2; background: rgb(255 255 255 / .25); } .poster .pbar b { border-radius: 0 4px 4px 0; }
+.poster .tag, .poster .score { top: 9px; bottom: auto; z-index: 1; padding: 3px 9px; border-radius: 999px; background: rgb(0 0 0 / .55); backdrop-filter: blur(8px); color: #fff; font-weight: 700; }
+.poster .tag { left: 9px; } .poster .score { right: 9px; color: #ffd978; }
+.grid { gap: 16px 14px; }
+.wide .thumb { border-radius: 24px; } .wide .thumb .bar { background: rgb(255 255 255 / .22); }
+.cc-poster { border-radius: 16px; }
+.car .arrow { background: var(--glass); backdrop-filter: blur(10px); color: var(--text); }
+
+/* ---- banners are rounded cards (they sit on the page; the title stays on a dark scrim in light mode too) ---- */
+.hero { margin: 14px var(--pad) 4px; height: 400px; border-radius: 28px; }
+.hero::before { background: linear-gradient(to top, rgb(0 0 0 / .9) 0%, rgb(0 0 0 / .4) 42%, rgb(0 0 0 / .05) 80%), linear-gradient(to right, rgb(0 0 0 / .45), transparent 55%); }
+.hero .copy { left: 34px; bottom: 30px; } .hero .tools { top: 18px; right: 22px; } .hero .dots { right: 26px; bottom: 28px; }
+.hero .title { font-weight: 700; }
+.hero .dots i.on { background: rgb(var(--accent)); }
+.hero.card { height: 330px; margin: 14px var(--pad) 4px; border-radius: 28px; }
+.hero.panels { height: 400px; }
+.hero.panels::before { background: linear-gradient(to top, rgb(0 0 0 / .85) 4%, rgb(0 0 0 / .3) 45%, transparent 80%); }
+.style-card { border-radius: 24px; background: var(--surface); } .style-card .pv { border-radius: 16px; }
+
+/* ---- details ---- */
+.d-hero { margin: 14px var(--pad) 0; padding: 0 30px 30px; min-height: 420px; border-radius: 28px; overflow: hidden; }
+.d-hero::before { background: linear-gradient(to top, rgb(0 0 0 / .9) 3%, rgb(0 0 0 / .62) 45%, rgb(0 0 0 / .3)); }
+.d-hero .back { left: 22px; top: 18px; }
+.d-cover { border-radius: 24px; width: 230px; }
+.d-info h1 { font-weight: 700; }
+.d-info .alt { color: rgb(var(--accent)); font-weight: 700; font-size: 16px; }
+.d-prog .track { background: rgb(var(--fg) / .18); border-radius: 4px; }
+.list-entry .le-ico { border-radius: 16px; }
+.cw-hero { margin: 14px var(--pad) 0; border: 0; border-radius: 28px; }
+.cw-hero::after { background: radial-gradient(ellipse 65% 85% at 22% 35%, rgb(var(--accent) / .18), rgb(0 0 0 / .55) 55%, rgb(0 0 0 / .9)); }
+.cw-hero-in { padding: 34px 32px; }
+.cw-cover { border-radius: 24px; }
+.cw-work, .cw-insp { border: 0; border-radius: 28px; box-shadow: none; }
+.cw-toolbar, .cw-insp .ih, .cw-table th { background: var(--bg-2); }
+.cw-start { border-radius: 999px; }
+.split, .cw-actions .sq, .metrics, .cw-launch { border: 0; border-radius: 999px; background: var(--surface-3); box-shadow: none; }
+.cw-actions .sq { border-radius: 50%; }
+.split .main { border-radius: 999px 0 0 999px; } .split .drop { border-radius: 0 999px 999px 0; }
+.cw-tab, .gp, .cw-sort { border-radius: 999px; }
+.cw-tab.on { background: var(--tonal); color: var(--on-tonal); border: 0; }
+.cta { border-radius: 28px; }
+
+/* ---- sheets, menus, toasts ---- */
+.sheet { background: var(--md-surface-container-low); border: 0; }
+.scrim.bottom .sheet { border-radius: 32px 32px 0 0; } .scrim.center .sheet { border-radius: 28px; } .scrim.right .sheet { border-radius: 32px 0 0 32px; }
+.sheet .sh-head h3 { font-weight: 700; }
+.menu { background: var(--md-surface-container); border: 0; border-radius: 20px; padding: 8px; }
+.menu .mi { border-radius: 14px; } .menu .mi:hover { background: rgb(var(--fg) / .08); }
+.toast { background: var(--md-inverse-surface); color: var(--md-inverse-on-surface); border: 0; border-radius: 16px; }
+.toast.err { background: var(--md-error-container); color: var(--md-on-error-container); }
+.opt, .pf-card, .qs-card, .qs-wide { border-radius: 20px; } .opt.on { border-color: rgb(var(--accent)); }
+.md-chip { border-radius: 12px; }
+.ep-row, .yt-ep { border-radius: 16px; } .ep-row .th, .yt-th { border-radius: 12px; }
+.qs { border-radius: 28px; }
+
+/* ---- settings: grouped tiles with colored icon circles, as in the app ---- */
+.s-menu { gap: 3px; }
+.s-item { padding: 12px 16px; border-radius: 6px; background: var(--surface); }
+.s-item:first-child { border-radius: 24px 24px 6px 6px; } .s-item:last-child { border-radius: 6px 6px 24px 24px; }
+.s-item.on { background: var(--tonal); color: var(--on-tonal); } .s-item.on small { color: inherit; opacity: .75; }
+.s-item .ib { width: 42px; height: 42px; background: var(--cat-bg, var(--surface-3)); color: var(--cat-fg, var(--text)); }
+.s-item[data-k='appearance'] { --cat-bg: var(--cat-appearance-bg); --cat-fg: var(--cat-appearance-fg); }
+.s-item[data-k='home'] { --cat-bg: var(--cat-services-bg); --cat-fg: var(--cat-services-fg); }
+.s-item[data-k='trackers'] { --cat-bg: var(--cat-tracker-bg); --cat-fg: var(--cat-tracker-fg); }
+.s-item[data-k='chapters'] { --cat-bg: var(--cat-downloads-bg); --cat-fg: var(--cat-downloads-fg); }
+.s-item[data-k='reader'] { --cat-bg: var(--cat-reader-bg); --cat-fg: var(--cat-reader-fg); }
+.s-item[data-k='library'] { --cat-bg: var(--cat-storage-bg); --cat-fg: var(--cat-storage-fg); }
+.s-item[data-k='player'] { --cat-bg: var(--cat-extensions-bg); --cat-fg: var(--cat-extensions-fg); }
+.s-item[data-k='content'] { --cat-bg: var(--cat-sync-bg); --cat-fg: var(--cat-sync-fg); }
+.s-item[data-k='data'] { --cat-bg: var(--cat-backup-bg); --cat-fg: var(--cat-backup-fg); }
+.s-item[data-k='about'] { --cat-bg: var(--cat-about-bg); --cat-fg: var(--cat-about-fg); }
+.s-pane h2 { font-size: 28px; font-weight: 700; }
+.s-row { margin-bottom: 3px; padding: 16px 20px; border-radius: 6px; }
+.s-row:not(.s-row + .s-row) { border-top-left-radius: 24px; border-top-right-radius: 24px; }
+.s-row:not(:has(+ .s-row)) { border-bottom-left-radius: 24px; border-bottom-right-radius: 24px; margin-bottom: 12px; }
+.path-item, .note code { border-radius: 12px; }
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; margin: 6px 0 16px; }
+.tcard { display: grid; gap: 8px; padding: 9px; border-radius: 20px; background: var(--surface); border: 2px solid transparent; text-align: left; transition: background .15s; }
+.tcard:hover { background: var(--surface-2); } .tcard.on { border-color: rgb(var(--accent)); }
+.tcard b { font-size: 13.5px; font-weight: 600; padding: 0 3px 2px; }
+.tpv { position: relative; display: block; height: 62px; border-radius: 13px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
+.tpv i { position: absolute; left: 10px; top: 12px; width: 36px; height: 36px; border-radius: 50%; }
+.tpv em { position: absolute; right: 10px; bottom: 11px; width: 34px; height: 14px; border-radius: 7px; opacity: .55; }
+.settings { grid-template-columns: 300px 1fr; }
+
+/* banners / readers / players re-resolve the text color with the dark palette (otherwise they inherit the page's light-mode color) */
+:is(.on-media, .hero, .d-hero, .cw-hero, .reader, .lightbox, .fan, .p-idle) { color: var(--text); }
+
+/* hero toolbar keeps the original translucent look: soft rounded squares + a round mode pill, same in dark and light */
+.hero .tools .ibtn { width: 38px; height: 38px; border-radius: 10px; background: rgb(255 255 255 / .07); backdrop-filter: blur(10px); color: #fff; }
+.hero .tools .ibtn:hover { background: rgb(255 255 255 / .14); }
+.hero .tools .btn.ghost { height: 38px; padding: 0 16px; border-radius: 10px; background: rgb(255 255 255 / .07); backdrop-filter: blur(10px); color: #fff; }
+.hero .tools .btn.ghost:hover { background: rgb(255 255 255 / .13); }
+.mode-pill { height: 38px; border-radius: 19px; background: rgb(255 255 255 / .12); backdrop-filter: blur(10px); color: #fff; }
+.mode-pill:hover { background: rgb(255 255 255 / .2); }

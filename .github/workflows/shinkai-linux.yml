@@ -1,0 +1,89 @@
+name: Shinkai Linux (beta)
+
+# Shinkai is in beta: this workflow only ever builds Linux packages and only publishes GitHub *pre*-releases.
+# Windows (Yomi) is not ready and has no workflow yet.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['shinkai-v*']
+    # Test trigger for the experiment branch. Remove after the branch is merged.
+    branches: [desktop]
+    paths: ['desktop/shinkai/**', '.github/workflows/shinkai-linux.yml']
+
+concurrency:
+  group: shinkai-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: desktop/shinkai
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/shinkai/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/shinkai/package-lock.json
+      - name: Read version (and check the tag matches it)
+        id: ver
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/shinkai-v* && "$GITHUB_REF_NAME" != "shinkai-v$VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION"; exit 1
+          fi
+      - name: Packaging tools (rpm, pacman)
+        run: sudo apt-get update && sudo apt-get install -y rpm libarchive-tools
+        working-directory: .
+      - run: npm ci
+      - run: npm run dist -- --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Shinkai-linux-${{ steps.ver.outputs.version }}-beta
+          path: |
+            desktop/shinkai/dist/*.AppImage
+            desktop/shinkai/dist/*.deb
+            desktop/shinkai/dist/*.rpm
+            desktop/shinkai/dist/*.pacman
+            desktop/shinkai/dist/*.tar.gz
+          if-no-files-found: error
+
+  prerelease:
+    if: startsWith(github.ref, 'refs/tags/shinkai-v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Shinkai-linux-${{ needs.package.outputs.version }}-beta
+          path: dist
+      - name: Create pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --prerelease \
+            --title "Shinkai ${{ needs.package.outputs.version }} (beta, Linux)" \
+            --notes "Beta build for Linux. Windows (Yomi) is not available yet."
+        working-directory: .

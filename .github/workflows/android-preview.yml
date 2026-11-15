@@ -1,4 +1,4 @@
-name: Preview Build
+name: Android preview build
 
 # Builds a standalone "preview" APK on manual dispatch.
 # The preview variant is a non-debuggable build with none of the debug-only tooling
@@ -10,6 +10,10 @@ name: Preview Build
 # The SHA-256/SHA-1/MD5 hashes are printed to the run summary.
 on:
   workflow_dispatch:
+  # Remove this push block once the branch experiment is merged and tested.
+  push:
+    branches: [desktop]
+    paths: ['android/**', '.github/workflows/android-preview.yml']
 
 permissions:
   contents: read
@@ -24,6 +28,9 @@ jobs:
     name: Build preview APK
     if: github.actor == github.repository_owner
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
 
     steps:
       - name: Checkout code
@@ -83,6 +90,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.apk.outputs.apk_name }}
-          path: ${{ steps.apk.outputs.apk_name }}
+          path: android/${{ steps.apk.outputs.apk_name }}
           if-no-files-found: error
           retention-days: 30
