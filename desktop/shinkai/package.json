@@ -5,6 +5,8 @@
   "description": "Shinkai: anime, manga and light novels on the Linux desktop, with tracker sync (part of the DeepSync project)",
   "main": "main/main.js",
   "license": "GPL-3.0-only",
+  "homepage": "https://github.com/Arthurpendragon9876/DeepSync",
+  "author": "Arthurpendragon9876",
   "scripts": {
     "start": "electron .",
     "dev:web": "node tools/dev-server.js",
