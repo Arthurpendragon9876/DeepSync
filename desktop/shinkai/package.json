@@ -34,7 +34,6 @@
       "target": [
         "AppImage",
         "deb",
-        "rpm",
         "pacman",
         "tar.gz"
       ],
@@ -48,11 +47,6 @@
         "Name": "Shinkai"
       },
       "executableName": "shinkai"
-    },
-    "rpm": {
-      "fpm": [
-        "--rpm-rpmbuild-define=_build_id_links none"
-      ]
     }
   },
   "dependencies": {
