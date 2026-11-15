@@ -525,3 +525,7 @@ select.input { appearance: none; padding-right: 30px; background-image: linear-g
 /* mode pill in the Home banner tools, like the Yugen header */
 .mode-pill { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px 0 12px; border-radius: 19px; background: rgb(var(--fg) / .12); backdrop-filter: blur(10px); color: var(--text); font-weight: 800; font-size: 13px; letter-spacing: .08em; transition: background .15s, transform .15s; }
 .mode-pill:hover { background: rgb(var(--fg) / .2); } .mode-pill:active { transform: scale(.95); }
+
+/* Player: "no sound" notice */
+.player .p-nosound { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 5; display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: center; max-width: 92%; padding: 10px 14px; border-radius: 16px; background: #000d; color: #fff; font-size: 13px; backdrop-filter: blur(8px); }
+.player .p-nosound.hidden { display: none; }

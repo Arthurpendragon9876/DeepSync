@@ -225,6 +225,7 @@ function createApi({ store, zipUrl, proxyUrl, streamUrl = (u) => u, dialogs = {}
     'ext:status': () => ext.status(),
     'ext:progress': () => ({ ...ext.runtime.state }),
     'ext:setup': ({ force } = {}) => ext.ensure({ force }),
+    'ext:checkUpdate': ({ force } = {}) => ext.checkUpdate({ force }),
     'ext:setJava': async ({ javaPath }) => (store.patchSettings({ extensions: { javaPath: String(javaPath || '') } }), ext.stop(), ext.status()),
     'ext:accept': async () => (store.patchSettings({ extensions: { acceptedRisk: true } }), true),
     'ext:repos': async () => ext.repos(),
@@ -251,14 +252,17 @@ function createApi({ store, zipUrl, proxyUrl, streamUrl = (u) => u, dialogs = {}
       url: streamUrl(video.url, video.headers),
       hls: /\.m3u8(\?|#|$)/i.test(video.url),
       subtitles: (video.subtitles || []).map((t) => ({ label: t.label, url: streamUrl(t.url, video.headers) })),
+      // Sources that keep the sound in its own file (Mangayomi `audios`, Aniyomi `audioTracks`): the player plays it alongside the video.
+      audios: (video.audios || []).map((t) => ({ label: t.label || '', url: streamUrl(t.url, video.headers), hls: /\.m3u8(\?|#|$)/i.test(t.url) })),
     }),
+    'ext:streamLog': () => require('./serve').streamLog.slice(-30),
     'ext:stop': async () => (ext.stop(), true),
 
     // ---- system ------------------------------------------------------------------------------------------------
     'system:volume': ({ delta }) => sysvolume.change(delta),
     'player:mpv': ({ file }) => (isAllowed(file) ? launchMpv(['--force-window=yes', ...mpvLangArgs(), file]) : { error: 'Path is outside your library folders' }),
     // Online (extension) video: headers such as Referer/User-Agent are passed through to mpv.
-    'ext:mpv': ({ url, headers = {}, subtitles = [], title }) => {
+    'ext:mpv': ({ url, headers = {}, subtitles = [], audios = [], title }) => {
       if (!/^https?:\/\//i.test(url || '')) return { error: 'Not a web video address' }
       const args = ['--force-window=yes', ...mpvLangArgs()]
       for (const [k, v] of Object.entries(headers)) {
@@ -268,6 +272,7 @@ function createApi({ store, zipUrl, proxyUrl, streamUrl = (u) => u, dialogs = {}
         else args.push('--http-header-fields-append=' + k + ': ' + v)
       }
       for (const t of subtitles) if (/^https?:\/\//i.test(t.url || '')) args.push('--sub-file=' + t.url)
+      for (const t of audios) if (/^https?:\/\//i.test(t.url || '')) args.push('--audio-file=' + t.url)
       if (title) args.push('--force-media-title=' + String(title).replace(/[\r\n]/g, ' '))
       return launchMpv([...args, url])
     },

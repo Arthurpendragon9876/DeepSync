@@ -389,3 +389,43 @@ test('stream: HLS playlists are rewritten through the proxy with the source head
   assert.equal((await streamResponse(b64('https://x/y.m3u8'), '', null, mk, async () => { throw new Error('down') })).status, 502)
   assert.equal(rewritePlaylist('#EXTM3U\n\nseg.ts', 'https://a/b/c.m3u8', {}, (u) => '<' + u + '>'), '#EXTM3U\n\n<https://a/b/seg.ts>')
 })
+
+// ---- separate audio tracks and the stream proxy ---------------------------------------------------------------------------
+test('manager: separate audio tracks pass through; videoUrl is used when url is not a web address; unusable lists explain themselves', async () => {
+  let videos = []
+  const bridge = (req) => {
+    if (req.method === 'convertApk') { fs.writeFileSync(req.args.outJarPath, 'jar'); return { data: { success: true } } }
+    if (req.method === 'loadExtensions') return { data: fs.readdirSync(req.args.folderPath).filter((f) => f.endsWith('.jar')).map((j) => ({ id: BIG_ID, name: 'Anime', lang: 'en', type: 'anime', baseUrl: 'https://a.example', pkgName: j.replace(/\.jar$/, ''), version: '1', supportsLatest: true, supportsPopular: true })) }
+    if (req.method === 'getVideoList') return { data: videos }
+    return { data: null }
+  }
+  const { m } = setup({ bridge })
+  await m.addRepo(REPO); await m.install({ pkg: 'eu.kanade.tachiyomi.extension.all.mangadex' }); await m.loadInstalled()
+  const ep = { sourceId: BIG_ID, episode: { name: 'e', url: '/e' } }
+  videos = [{ title: 'Server 1', url: '/relative/page', videoUrl: 'https://cdn.example/v.m3u8', headers: {}, audios: [{ file: 'https://cdn.example/jp.m3u8', label: 'Japanese' }, { file: 'javascript:1', label: 'bad' }] }]
+  const v = await m.videos(ep)
+  assert.equal(v[0].url, 'https://cdn.example/v.m3u8')
+  assert.deepEqual(v[0].audios, [{ url: 'https://cdn.example/jp.m3u8', label: 'Japanese' }])
+  videos = [{ title: 'Server 1', url: 'ftp://nope', audioTracks: [{ url: 'https://cdn.example/en.aac', lang: 'English' }] }, { title: 'S2', url: 'https://cdn.example/ok.mp4' }]
+  const w = await m.videos(ep)
+  assert.equal(w.length, 1, 'only the web link is kept'); assert.deepEqual(w[0].audios, [])
+  videos = [{ title: 'S1', url: 'ftp://nope' }]
+  await assert.rejects(m.videos(ep), /none is a web address/)
+  m.stop()
+})
+
+test('stream proxy: default Referer, no stale Content-Length for compressed bodies, request log', async () => {
+  const { streamLog } = require('../main/serve')
+  let seen
+  const f = async (url, init) => { seen = init.headers; return { ok: true, status: 200, url, headers: new Map([['content-type', 'video/mp4'], ['content-length', '10'], ['content-encoding', 'gzip']]), body: null } }
+  const mk = (u) => u
+  const a = await streamResponse(b64('https://cdn.example/v/seg1.mp4'), b64('{}'), 'bytes=0-', mk, f)
+  assert.equal(seen.Referer, 'https://cdn.example/')
+  assert.equal(a.headers['content-length'], undefined, 'upstream length is for the compressed bytes')
+  await streamResponse(b64('https://cdn.example/v/seg2.mp4'), b64(JSON.stringify({ Referer: 'https://own/' })), 'bytes=0-', mk, f)
+  assert.equal(seen.Referer, 'https://own/', 'the extension\'s own Referer wins')
+  const last = streamLog.at(-1)
+  assert.equal(last.host, 'cdn.example'); assert.equal(last.status, 200); assert.ok(!JSON.stringify(streamLog).includes('seg2'), 'paths are never logged')
+  const down = await streamResponse(b64('https://x.example/y.mp4'), '', null, mk, async () => { throw Object.assign(new Error('fetch failed'), { cause: { code: 'ENOTFOUND' } }) })
+  assert.equal(down.status, 502); assert.match(down.body, /ENOTFOUND/)
+})

@@ -80,31 +80,51 @@ function rewritePlaylist(text, base, headers, mk) {
   }).join('\n')
 }
 
+// Last few proxy requests (host + status only, never full URLs: they can carry tokens). The player's "Copy details" button reads this
+// so a stream that will not load can be diagnosed from what the host actually answered.
+const streamLog = []
+const logStream = (e) => { streamLog.push({ at: Date.now(), ...e }); if (streamLog.length > 60) streamLog.shift() }
+const hostOf = (u) => { try { return new URL(u).host } catch { return '?' } }
+
 async function streamResponse(u, h, range, mk, fetchImpl = globalThis.fetch) {
   const url = unb64(u)
   if (!/^https?:\/\//i.test(url)) return { status: 400, headers: CORS, body: 'Bad address' }
   let given = {}
   try { given = JSON.parse(unb64(h) || '{}') } catch {}
-  const headers = { 'User-Agent': UA }
+  const headers = { 'User-Agent': UA, Accept: '*/*' }
   for (const [k, v] of Object.entries(given)) if (typeof v === 'string' && !/[\r\n]/.test(k + v) && !BLOCKED.test(k)) headers[k] = v
+  // Many hosts refuse a request with no Referer. When the extension gave none, use the stream's own site.
+  if (!Object.keys(headers).some((k) => /^referer$/i.test(k))) { try { headers.Referer = new URL(url).origin + '/' } catch {} }
   if (range) headers.Range = range
   let res
   try {
     res = await fetchImpl(url, { headers, redirect: 'follow', signal: AbortSignal.timeout(45000) })
-  } catch { return { status: 502, headers: CORS, body: 'Upstream unreachable' } }
+  } catch (e) {
+    const why = e?.cause?.code || e?.name || 'network error'
+    logStream({ host: hostOf(url), error: why })
+    return { status: 502, headers: CORS, body: 'Upstream unreachable: ' + why }
+  }
   const type = res.headers.get('content-type') || ''
+  logStream({ host: hostOf(url), status: res.status, type: type.split(';')[0], ranged: !!range })
   const looksText = /mpegurl|text|octet-stream|json/i.test(type) || /\.m3u8/i.test(url)
   if (looksText && res.ok && !range) {
     const buf = Buffer.from(await res.arrayBuffer())
     const head = buf.subarray(0, 8).toString('utf8')
     if (isPlaylist(url, type, head)) {
+      // What kind of playlist this is (tags only, no addresses): tells a master playlist with sound renditions from a video-only one.
+      const raw = buf.toString('utf8')
+      const media = [...raw.matchAll(/#EXT-X-MEDIA:([^\r\n]*)/g)].map((m) => `${/TYPE=([A-Z-]+)/.exec(m[1])?.[1] || '?'}:${/NAME="([^"]*)"/.exec(m[1])?.[1] || ''}${/URI=/.test(m[1]) ? '' : '(no uri)'}`)
+      const codecs = [...new Set([...raw.matchAll(/CODECS="([^"]*)"/g)].map((m) => m[1]))].slice(0, 3)
+      logStream({ host: hostOf(url), note: `${/#EXT-X-STREAM-INF/.test(raw) ? 'master playlist' : 'media playlist'}, ${(raw.match(/#EXT-X-STREAM-INF/g) || []).length} variants, EXT-X-MEDIA: ${media.join(', ') || 'none'}, CODECS: ${codecs.join(' | ') || 'none'}${/#EXT-X-KEY/.test(raw) ? ', encrypted' : ''}` })
       const text = rewritePlaylist(buf.toString('utf8'), res.url || url, given, mk)
       return { status: 200, headers: { ...CORS, 'Content-Type': 'application/vnd.apple.mpegurl', 'Cache-Control': 'no-store' }, body: text }
     }
     return { status: res.status, headers: { ...CORS, 'Content-Type': type || 'application/octet-stream', 'Content-Length': String(buf.length) }, body: buf }
   }
   const out = { ...CORS }
-  for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) if (res.headers.get(k)) out[k] = res.headers.get(k)
+  // fetch() has already undone any gzip/br, so the upstream Content-Length would no longer match the body.
+  const encoded = (res.headers.get('content-encoding') || 'identity') !== 'identity'
+  for (const k of ['content-type', 'content-length', 'content-range', 'accept-ranges']) if (res.headers.get(k) && !(encoded && k === 'content-length')) out[k] = res.headers.get(k)
   return { status: res.status, headers: out, body: res.body ? require('stream').Readable.fromWeb(res.body) : '' }
 }
 const streamUrlFor = (prefix) => (url, headers) =>
@@ -113,4 +133,4 @@ const streamUrlFor = (prefix) => (url, headers) =>
 const b64 = (s) => Buffer.from(s, 'utf8').toString('base64url')
 const unb64 = (s) => Buffer.from(s || '', 'base64url').toString('utf8')
 
-module.exports = { fileResponse, zipResponse, proxyResponse, proxyUrlFor, streamResponse, streamUrlFor, rewritePlaylist, mime, b64, unb64 }
+module.exports = { fileResponse, zipResponse, proxyResponse, proxyUrlFor, streamResponse, streamUrlFor, streamLog, rewritePlaylist, mime, b64, unb64 }

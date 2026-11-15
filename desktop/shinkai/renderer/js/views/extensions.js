@@ -17,29 +17,38 @@ export async function extensions({ query }) {
 
   // ---- runtime card -------------------------------------------------------------------------------------------------
   let rstat
+  let checked = false
   async function drawRuntime() {
     try { rstat = await api('ext:status') } catch (e) { return rt.replaceChildren(errorBox(e)) }
     const ok = rstat.java.found && rstat.bridge.installed
+    const upd = ok && rstat.bridge.update // set only when a newer bridge than the installed one is actually published
     const java = h('input', { class: 'input', placeholder: '/usr/lib/jvm/default/bin/java', value: S.settings.extensions?.javaPath || '', style: { maxWidth: '320px' } })
     const status = h('div', { class: 'note' })
-    const btn = h('button', { class: 'btn primary' }, ok ? 'Update runtime' : 'Set up runtime')
-    btn.onclick = async () => {
+    // Set up when something is missing, Update only when there is a newer bridge; otherwise no button at all.
+    const run = async (btn, force) => {
       btn.disabled = true
       const poll = setInterval(async () => { const p = await api('ext:progress').catch(() => null); if (p) status.textContent = p.label ? `${p.label}${p.progress ? ` (${Math.round(p.progress * 100)}%)` : ''}` : '' }, 400)
-      try { await api('ext:setup', { force: ok }); toast('Extension runtime ready') } catch (e) { toast(e.message, true) }
+      try { await api('ext:setup', { force }); toast('Extension runtime ready') } catch (e) { toast(e.message, true) }
       clearInterval(poll)
       drawRuntime(); draw()
     }
+    const btn = !ok || upd ? h('button', { class: 'btn primary' }, !ok ? 'Set up runtime' : `Update runtime${upd.latest ? ' to ' + upd.latest : ''}`) : null
+    if (btn) btn.onclick = () => run(btn, !!ok)
+    const reinstall = h('button', { class: 'btn' }, 'Reinstall bridge')
+    reinstall.onclick = () => run(reinstall, true)
+    // Look for a newer bridge in the background (cached for hours); redraw only if one turns up.
+    if (ok && !upd && !checked) { checked = true; api('ext:checkUpdate').then((st) => st?.bridge?.update && drawRuntime()).catch(() => {}) }
     rt.replaceChildren(h('div', { class: 'card' },
       h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '16px', alignItems: 'center' } },
-        h('div', null, h('b', null, 'Extension runtime'), h('span', { class: 'chip ' + (ok ? 'acc' : ''), style: { marginLeft: '10px' } }, ok ? 'Ready' : 'Not set up')),
+        h('div', null, h('b', null, 'Extension runtime'), h('span', { class: 'chip ' + (ok ? 'acc' : ''), style: { marginLeft: '10px' } }, !ok ? 'Not set up' : upd ? 'Update available' : 'Ready')),
         h('div', { style: { display: 'flex', gap: '8px' } }, btn, ok && h('button', { class: 'btn', onclick: async () => (await api('ext:stop'), toast('Runtime stopped; it restarts when needed')) }, 'Stop'))),
       h('p', { class: 'note', style: { margin: '10px 0 4px' } }, 'Aniyomi and Mihon extensions are Android programs. Shinkai runs them with the AnymeX desktop bridge, a separate Java process it starts for you.'),
       h('p', { class: 'note', style: { margin: '0 0 4px' } },
         rstat.java.found ? `Java ${rstat.java.major} (${rstat.java.managed ? 'downloaded by Shinkai' : 'system'}: ${rstat.java.path})` : rstat.java.tooOld ? `Java ${rstat.java.major} is too old; version ${rstat.minJava}+ is needed.` : `Java ${rstat.minJava}+ not found; setup will download one (about 50 MB).`,
-        ' · ', rstat.bridge.installed ? `Bridge ${mb(rstat.bridge.size)}` : 'Bridge not downloaded (about 42 MB)'),
+        ' · ', rstat.bridge.installed ? `Bridge ${rstat.bridge.version ? rstat.bridge.version + ', ' : ''}${mb(rstat.bridge.size)}` : 'Bridge not downloaded (about 42 MB)'),
       status,
       h('details', { style: { marginTop: '8px' } }, h('summary', { class: 'note', style: { cursor: 'pointer' } }, 'Use my own Java'),
+        ok && h('div', { style: { marginTop: '8px' } }, reinstall),
         h('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, java, h('button', { class: 'btn', onclick: async () => { try { await api('ext:setJava', { javaPath: java.value.trim() }); S.settings = await api('settings:get'); toast('Saved'); drawRuntime() } catch (e) { toast(e.message, true) } } }, 'Save'))),
       h('p', { class: 'note', style: { margin: '8px 0 0', fontSize: '12px' } }, 'Bridge: RyanYuuki/AnymeXExtensionRuntimeBridge (Unabandon Public License = GPLv3 + public source). It is downloaded from its GitHub releases and run as a separate process.')))
   }

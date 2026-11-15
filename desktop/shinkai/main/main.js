@@ -12,7 +12,9 @@ const { fileResponse, zipResponse, proxyResponse, proxyUrlFor, streamResponse, s
 app.setName('Shinkai')
 {
   const legacy = path.join(app.getPath('appData'), 'DeepSync')
-  if (fs.existsSync(legacy) && !fs.existsSync(path.join(app.getPath('appData'), 'Shinkai'))) app.setPath('userData', legacy)
+  // Judge by saved data, not by the folder merely existing: an empty or freshly created ~/.config/Shinkai must not hide the old folder.
+  const hasData = (d) => fs.existsSync(path.join(d, 'settings.json'))
+  if (hasData(legacy) && !hasData(path.join(app.getPath('appData'), 'Shinkai'))) app.setPath('userData', legacy)
 }
 // Wayland-friendly defaults (Hyprland, Sway, GNOME, KDE). Falls back to X11 automatically.
 app.commandLine.appendSwitch('ozone-platform-hint', 'auto')

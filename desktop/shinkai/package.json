@@ -1,7 +1,7 @@
 {
   "name": "shinkai",
   "productName": "Shinkai",
-  "version": "0.4.10",
+  "version": "0.4.15",
   "description": "Shinkai: anime, manga and light novels on the Linux desktop, with tracker sync (part of the DeepSync project)",
   "main": "main/main.js",
   "license": "GPL-3.0-only",

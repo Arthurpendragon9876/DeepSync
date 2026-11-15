@@ -569,10 +569,88 @@ export function createPlayer({ title, files, index = 0, onWatched, onIndex, onCl
   let startAt = 0
   const err = h('div', { class: 'perr hidden' })
   const quality = h('select', { class: 'input hidden', 'aria-label': 'Quality', style: { width: 'auto', height: '34px' } })
+  // ---- sound that is not inside the video stream ---------------------------------------------------------------------------------
+  // Some sources send picture and sound as two links (Mangayomi `audios`, Aniyomi `audioTracks`). A <video> only plays the first, so those
+  // episodes were silent. The extra track plays in a hidden <audio> that is kept in step with the video.
+  const aud = h('audio', { preload: 'auto', class: 'hidden' })
+  let audHls = null, audList = [], audIdx = -1, audTimer = 0, silenceT = 0
+  const diag = { codecs: '', errors: [] }
+  const note = (t) => { diag.errors.push(t); if (diag.errors.length > 12) diag.errors.shift() }
+  const audStop = () => { clearInterval(audTimer); audHls?.destroy(); audHls = null; audList = []; audIdx = -1; aud.pause(); aud.removeAttribute('src'); aud.load() }
+  const pickAudio = (list) => { const re = S.settings.player?.audio === 'dub' ? /dub|eng|^en/i : /jpn|^ja|japan|original/i; const i = list.findIndex((t) => re.test(t.label || '')); return i >= 0 ? i : 0 }
+  async function audUse(i, my) {
+    const t = audList[i]; if (!t) return
+    audIdx = i; audHls?.destroy(); audHls = null; aud.pause(); aud.removeAttribute('src')
+    aud.crossOrigin = 'anonymous'
+    aud.volume = video.volume; aud.muted = video.muted; aud.playbackRate = video.playbackRate
+    if (t.hls) {
+      await loadHls()
+      if (my !== token) return
+      if (window.Hls.isSupported()) {
+        audHls = new window.Hls({ maxBufferLength: 40, enableWorker: false })
+        audHls.on(window.Hls.Events.ERROR, (_, d) => { note(`audio track: ${d.details}${d.response?.code ? ' HTTP ' + d.response.code : ''}`) })
+        audHls.loadSource(t.url); audHls.attachMedia(aud)
+      } else aud.src = t.url
+    } else aud.src = t.url
+    aud.addEventListener('loadedmetadata', () => { try { aud.currentTime = video.currentTime } catch {} if (!video.paused) aud.play().catch(() => {}) }, { once: true })
+  }
+  aud.addEventListener('error', () => {
+    note('separate audio element error')
+    if (audList.length > 1 && audIdx >= 0) { const j = (audIdx + 1) % audList.length; if (j !== audIdx && !aud.dataset.retried) { aud.dataset.retried = '1'; return audUse(j, token) } }
+    toast('The separate audio track failed to load', true)
+  })
+  const audSync = () => { if (audIdx < 0) return; aud.playbackRate = video.playbackRate; aud.volume = video.volume; aud.muted = video.muted }
+  video.addEventListener('volumechange', audSync); video.addEventListener('ratechange', audSync)
+  video.addEventListener('pause', () => audIdx >= 0 && aud.pause())
+  video.addEventListener('waiting', () => audIdx >= 0 && aud.pause())
+  video.addEventListener('seeking', () => { if (audIdx >= 0) try { aud.currentTime = video.currentTime } catch {} })
+  video.addEventListener('playing', () => { if (audIdx >= 0) { try { aud.currentTime = video.currentTime } catch {} aud.play().catch(() => {}) } })
+  const audDrift = () => { if (audIdx < 0 || video.paused) return; if (Math.abs(aud.currentTime - video.currentTime) > 0.35) { try { aud.currentTime = video.currentTime } catch {} } if (aud.paused && aud.readyState > 2) aud.play().catch(() => {}) }
+
+  // No sound at all (a codec Chromium lacks such as AC-3 / E-AC-3, a blocked audio playlist, a stream with no audio track) used to look like
+  // a working player. After a few seconds of playback with nothing decoded, say so and offer the fixes.
+  const nosound = h('div', { class: 'p-nosound hidden' })
+  const copyDiag = async () => {
+    const log = await api('ext:streamLog').catch(() => [])
+    const v = vids[vi] || {}, el = audIdx >= 0 ? aud : video
+    const host = (() => { try { return new URL(v.url).host } catch { return '?' } })()
+    const txt = [
+      `Episode: ${title} · ${files[cur]?.name || ''}`,
+      `Stream: ${v.quality || v.title || '?'} · ${host} · ${streamInfo?.hls ? 'HLS' : 'direct file'}`,
+      `Separate audio tracks from the source: ${audList.length}`,
+      `Fields the extension sent for this stream: ${v.fields || 'unknown'}`,
+      `originalUrl: ${v.originalUrl ? (v.originalUrl === v.url ? 'same as url' : 'differs from url (' + (() => { try { return new URL(v.originalUrl).host } catch { return '?' } })() + ')') : 'none'}`,
+      `HLS audio tracks: ${(hls?.audioTracks || []).map((t) => t.name || t.lang).join(', ') || 'none'} (selected ${hls ? hls.audioTrack : '-'})`,
+      `Codecs: ${diag.codecs || 'unknown'}`,
+      `Audio bytes decoded: ${el.webkitAudioDecodedByteCount ?? 'n/a'}`,
+      `Errors: ${diag.errors.join(' | ') || 'none'}`,
+      'Proxy log:', ...log.map((l) => `  ${l.note ? 'playlist' : l.status ?? 'ERR'} ${l.host} ${l.note || l.type || l.error || ''}${l.ranged ? ' (range)' : ''}`),
+    ].join('\n')
+    try { await navigator.clipboard.writeText(txt); toast('Details copied') } catch { toast('Could not copy', true) }
+  }
+  const showNoSound = () => {
+    const unsupported = /ac-?3|ec-?3|dts|truehd/i.test(diag.codecs)
+    nosound.replaceChildren(
+      h('b', null, 'No sound from this stream'),
+      h('span', null, (unsupported ? 'Its audio format is one the built-in player cannot decode' : 'Its audio could not be decoded or loaded') + (diag.codecs ? ` (${diag.codecs}).` : '.')),
+      h('button', { class: 'btn sm primary', onclick: () => (nosound.classList.add('hidden'), mpv()) }, 'Play in mpv'),
+      vids.length > 1 ? h('button', { class: 'btn sm', onclick: () => (nosound.classList.add('hidden'), tryNext(true)) }, 'Try another stream') : null,
+      h('button', { class: 'btn sm', onclick: copyDiag }, 'Copy details'),
+      h('button', { class: 'ibtn', 'aria-label': 'Dismiss', onclick: () => nosound.classList.add('hidden') }, icon('x', 16)))
+    nosound.classList.remove('hidden')
+  }
+  video.addEventListener('playing', () => {
+    clearTimeout(silenceT)
+    silenceT = setTimeout(() => {
+      const el = audIdx >= 0 ? aud : video
+      if (video.paused || video.ended || video.currentTime < 1.5 || video.muted || video.volume === 0 || !('webkitAudioDecodedByteCount' in el)) return
+      if (el.webkitAudioDecodedByteCount === 0) showNoSound()
+    }, 3500)
+  })
   const mpv = async () => {
     video.pause()
     const f = files[cur]
-    const r = f.videos ? await api('ext:mpv', { url: vids[vi]?.url, headers: vids[vi]?.headers, subtitles: vids[vi]?.subtitles, title: `${title} · ${f.name}` }) : await api('player:mpv', { file: f.path })
+    const r = f.videos ? await api('ext:mpv', { url: vids[vi]?.url, headers: vids[vi]?.headers, subtitles: vids[vi]?.subtitles, audios: vids[vi]?.audios, title: `${title} · ${f.name}` }) : await api('player:mpv', { file: f.path })
     r.error ? toast(r.error, true) : toast('Opened in mpv')
   }
   // ---- desktop version of the Android player extras: speed, subtitles, audio, resize, PiP, lock, notes, gestures, shortcuts ----
@@ -625,6 +703,7 @@ export function createPlayer({ title, files, index = 0, onWatched, onIndex, onCl
     menu(e.currentTarget, items)
   }
   const audioMenu = (e) => {
+    if (audList.length > 1) return menu(e.currentTarget, audList.map((t, i) => ({ label: t.label || `Audio ${i + 1}`, icon: tick(audIdx === i), run: () => { aud.dataset.retried = ''; audUse(i, token) } })))
     const as = hls?.audioTracks || []
     if (as.length < 2) return say('This stream has a single audio track')
     menu(e.currentTarget, as.map((t, i) => ({ label: t.name || t.lang || `Audio ${i + 1}`, icon: tick(hls.audioTrack === i), run: () => (hls.audioTrack = i) })))
@@ -712,12 +791,12 @@ export function createPlayer({ title, files, index = 0, onWatched, onIndex, onCl
   const onKeyUp = (e) => { if (e.key === ' ' && root.contains(e.target) && e.target.tagName === 'BUTTON') e.preventDefault() }
   document.addEventListener('keyup', onKeyUp, true)
   // A stream that fails (dead link, blocked host) is replaced by the next best one when auto-pick is on, before any error is shown.
-  const tryNext = () => {
-    if (S.settings.player?.autoPick === false || vids.length < 2) return false
+  const tryNext = (force = false) => {
+    if ((!force && S.settings.player?.autoPick === false) || vids.length < 2) return false
     tried.add(vi)
     const rest = vids.map((v, i) => i).filter((i) => !tried.has(i)).sort((a, b) => Math.abs(heightOf(vids[a]) - heightOf(vids[vi])) - Math.abs(heightOf(vids[b]) - heightOf(vids[vi])))
     if (!rest.length) return false
-    vi = rest[0]; quality.value = String(vi); toast(`That stream failed, trying ${vids[vi].quality || vids[vi].title}`)
+    vi = rest[0]; quality.value = String(vi); toast(`${force ? 'Trying' : 'That stream failed, trying'} ${vids[vi].quality || vids[vi].title}`)
     playStream(vids[vi], video.currentTime).catch((e) => fail('Could not start playback', e.message)); return true
   }
   // ================= streaming-style controls (custom UI, replaces the native <video> bar) =================
@@ -810,7 +889,7 @@ export function createPlayer({ title, files, index = 0, onWatched, onIndex, onCl
         h('div', { class: 'pc-l' }, playBtn, btn('replay10', 'Back 10 s (J)', () => seek(-10), { badge: '10' }), btn('fwd10', 'Forward 10 s (L)', () => seek(10), { badge: '10' }), h('div', { class: 'pc-vol' }, muteBtn, volEl)),
         h('div', { class: 'pc-mid' }, h('b', null, title), sub),
         h('div', { class: 'pc-r' }, btn('skipB', 'Previous episode (P)', () => load(cur - 1), { size: 22 }), btn('skipF', 'Next episode (N)', () => load(cur + 1), { size: 22 }), btn('text', 'Subtitles (C)', subsMenu), btn('layers', 'Audio track', audioMenu), btn('gear', 'Settings', gearMenu), fsBtn))))
-  root.append(video, spin, err, idle, ui, flash, lockBtn)
+  root.append(video, aud, spin, err, nosound, idle, ui, flash, lockBtn)
 
   // auto-hide: controls fade after a moment of no activity while playing; mouse move shows them; a click on the picture shows / hides them
   const busy = () => video.paused || dragging || root.classList.contains('idle-on') || !err.classList.contains('hidden') || root.querySelector('.menu') || ui.querySelector('.pc-vol:hover, .pc-range:active')
@@ -823,7 +902,7 @@ export function createPlayer({ title, files, index = 0, onWatched, onIndex, onCl
   let clickT = 0
   root.addEventListener('click', (e) => {
     clearTimeout(clickT)
-    if (e.target.closest('.pc-ui button, .pc-seek, .pc-vol, .menu, .p-idle, .perr, .p-lock')) return show()
+    if (e.target.closest('.pc-ui button, .pc-seek, .pc-vol, .menu, .p-idle, .perr, .p-nosound, .p-lock')) return show()
     if (e.detail > 1) return
     const r = root.getBoundingClientRect(), x = (e.clientX - r.left) / r.width
     const middle = !pp.locked && x > 0.33 && x < 0.67 && !root.classList.contains('idle-on')
@@ -838,10 +917,10 @@ export function createPlayer({ title, files, index = 0, onWatched, onIndex, onCl
   for (const ev of ['playing', 'canplay', 'seeked', 'error', 'emptied']) video.addEventListener(ev, () => ev !== 'emptied' && spin.classList.add('hidden'))
   video.addEventListener('loadstart', () => spin.classList.remove('hidden'))
   const fail = (headline, detail) => {
-    err.replaceChildren(h('div', null, h('h3', null, headline), h('p', { class: 'note', style: { margin: '8px 0 18px' } }, detail), h('button', { class: 'btn primary', onclick: mpv }, icon('external', 16), 'Open in mpv')))
+    err.replaceChildren(h('div', null, h('h3', null, headline), h('p', { class: 'note', style: { margin: '8px 0 18px' } }, detail), h('div', { style: { display: 'flex', gap: '10px', justifyContent: 'center' } }, h('button', { class: 'btn primary', onclick: mpv }, icon('external', 16), 'Open in mpv'), h('button', { class: 'btn', onclick: copyDiag }, 'Copy details'))))
     err.classList.remove('hidden')
   }
-  const teardown = () => { hls?.destroy(); hls = null; pvReset(); streamInfo = null; video.querySelectorAll('track').forEach((t) => t.remove()) }
+  const teardown = () => { hls?.destroy(); hls = null; audStop(); clearTimeout(silenceT); nosound.classList.add('hidden'); diag.codecs = ''; diag.errors = []; pvReset(); streamInfo = null; video.querySelectorAll('track').forEach((t) => t.remove()) }
   async function playStream(v, start) {
     const my = ++token
     teardown(); err.classList.add('hidden')
@@ -853,6 +932,11 @@ export function createPlayer({ title, files, index = 0, onWatched, onIndex, onCl
     // No srclang/default on purpose, so Chromium has less reason to pick a track itself.
     armAuto()
     if (start > 5) video.addEventListener('loadedmetadata', () => (video.currentTime = start), { once: true })
+    if (s.audios?.length) {
+      audList = s.audios; aud.dataset.retried = ''
+      audUse(pickAudio(audList), my).catch((e) => note('separate audio: ' + e.message))
+      audTimer = setInterval(audDrift, 500)
+    }
     if (s.hls) {
       await loadHls()
       if (my !== token) return
@@ -860,7 +944,20 @@ export function createPlayer({ title, files, index = 0, onWatched, onIndex, onCl
         hls = new window.Hls({ maxBufferLength: 40, enableWorker: false })
         hls.on(window.Hls.Events.SUBTITLE_TRACKS_UPDATED, () => armAuto())
         hls.on(window.Hls.Events.AUDIO_TRACKS_UPDATED, () => { const want = S.settings.player?.audio === 'dub' ? /dub|eng|^en/i : /jpn|^ja|japan/i; const i = hls.audioTracks.findIndex((t) => want.test(`${t.name} ${t.lang}`)); if (i >= 0 && hls.audioTrack !== i) hls.audioTrack = i })
-        hls.on(window.Hls.Events.ERROR, (_, d) => { if (d.fatal && !tryNext()) fail('This stream failed to load', `${d.details || 'Playback error'}. The source may have blocked the request or the link expired; try another quality or mpv.`) })
+        hls.on(window.Hls.Events.BUFFER_CODECS, (_, d) => { diag.codecs = [d.video?.codec, d.audio?.codec, d.audiovideo?.codec].filter(Boolean).join(' + ') })
+        const audTried = new Set(); let recovered = false
+        hls.on(window.Hls.Events.ERROR, (_, d) => {
+          const code = d.response?.code ? ` (HTTP ${d.response.code})` : ''
+          note(`${d.details}${code}${d.fatal ? ' fatal' : ''}`)
+          // An alternate-audio playlist that fails to load does not stop hls.js: the picture just plays without sound. Move to the next audio track.
+          if (/audioTrack/i.test(d.details || '') || d.frag?.type === 'audio' || d.context?.type === 'audioTrack') {
+            audTried.add(hls.audioTrack)
+            const j = hls.audioTracks.findIndex((_t, k) => !audTried.has(k))
+            if (j >= 0) { hls.audioTrack = j; return }
+          }
+          if (d.fatal && d.type === window.Hls.ErrorTypes.MEDIA_ERROR && !recovered) { recovered = true; hls.recoverMediaError(); return }
+          if (d.fatal && !tryNext()) fail('This stream failed to load', `${d.details || 'Playback error'}${code}. The source may have blocked the request or the link expired; try another quality or mpv.`)
+        })
         hls.loadSource(s.url); hls.attachMedia(video)
         return
       }

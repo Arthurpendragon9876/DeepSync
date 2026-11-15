@@ -439,7 +439,10 @@ function createEngine({ source, code, language, deps = {} }) {
       return r.filter((v) => v && v.url).map((v) => ({
         url: str(v.url).trim(), originalUrl: str(v.originalUrl || v.url).trim(), quality: str(v.quality).trim(), headers: v.headers || {},
         subtitles: (v.subtitles || []).filter((t) => t?.file).map((t) => ({ file: str(t.file).trim(), label: str(t.label).trim() })),
-        audios: (v.audios || []).filter((t) => t?.file).map((t) => ({ file: str(t.file).trim(), label: str(t.label).trim() })),
+        // Any array field with "audio" in its name; items may use file or url, label or lang.
+        audios: Object.keys(v).filter((k) => /audio/i.test(k) && Array.isArray(v[k])).flatMap((k) => v[k]).map((t) => (typeof t === 'string' ? { file: t, label: '' } : { file: t?.file || t?.url, label: t?.label || t?.lang || t?.name || '' }))
+          .filter((t) => t.file).map((t) => ({ file: str(t.file).trim(), label: str(t.label).trim() })),
+        fields: Object.keys(v).map((k) => (Array.isArray(v[k]) ? `${k}[${v[k].length}]` : k)).join(', '),
       })).filter((v) => !seen.has(v.url + v.originalUrl) && seen.add(v.url + v.originalUrl))
     },
 

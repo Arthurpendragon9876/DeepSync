@@ -354,15 +354,24 @@ function create({ dir, store, fetchImpl = globalThis.fetch, proxyUrl = (u) => u,
     const s = await src(sourceId)
     const r = unwrap(await call('getVideoList', { ...ref(s), episode: { name: episode.name, url: episode.url, episode_number: episode.number, scanlator: episode.scanlator } }, { timeout: 90000 }))
     if (!Array.isArray(r)) throw new Error('The source returned no video links')
-    return r
-      .filter((v) => isHttp(v?.url))
-      .map((v) => ({
-        title: v.title || v.quality || 'Video',
-        quality: v.quality || v.title || '',
-        url: v.url,
-        headers: v.headers || {},
-        subtitles: (v.subtitles || []).filter((t) => isHttp(t.file)).map((t) => ({ url: t.file, label: t.label || '' })),
-      }))
+    // Aniyomi's Video has both `url` (page) and `videoUrl` (the real stream); take whichever is a web address.
+    // Any array field with "audio" in its name counts (the bridge may call it audios, audioTracks, audio_tracks...); items may be { file | url | videoUrl, label | lang | name | title }.
+    const audiosOf = (v) => Object.keys(v || {}).filter((k) => /audio/i.test(k) && Array.isArray(v[k])).flatMap((k) => v[k])
+      .map((t) => (typeof t === 'string' ? { url: t, label: '' } : { url: t?.file || t?.url || t?.videoUrl, label: t?.label || t?.lang || t?.name || t?.title || '' }))
+      .filter((t) => isHttp(t.url))
+    const fieldsOf = (v) => Object.keys(v || {}).map((k) => (Array.isArray(v[k]) ? `${k}[${v[k].length}]` : k)).join(', ')
+    const real = (v) => (isHttp(v?.url) ? v.url : isHttp(v?.videoUrl) ? v.videoUrl : '')
+    const ok = r.filter((v) => real(v))
+    if (r.length && !ok.length) throw new Error(`The extension returned ${r.length} link(s) but none is a web address (first: "${String(r[0]?.url || r[0]?.videoUrl || 'empty').slice(0, 60)}").`)
+    return ok.map((v) => ({
+      title: v.title || v.quality || 'Video',
+      quality: v.quality || v.title || '',
+      url: real(v),
+      headers: v.headers || {},
+      subtitles: (v.subtitles || v.subtitleTracks || []).map((t) => ({ url: t.file || t.url, label: t.label || t.lang || '' })).filter((t) => isHttp(t.url)),
+      audios: audiosOf(v),
+      fields: fieldsOf(v), // raw shape of what the bridge sent, for "Copy details"
+    }))
   }
 
   // Finds an AniList title in the installed sources, the way the Android app picks a source for a tracker entry.
@@ -415,7 +424,7 @@ function create({ dir, store, fetchImpl = globalThis.fetch, proxyUrl = (u) => u,
   const stop = () => (sidecar?.stop(), (sidecar = null), (installed = null))
   const stopAll = () => (stop(), js.stop())
 
-  return { js, chapterText, stopAll, runtime, status, ensure: (o) => runtime.ensure(o).then(() => status()), repos, addRepo, removeRepo, available, loadInstalled, install, uninstall, browse, detail, pages, videos, filters, autoMatch, stop, call }
+  return { js, chapterText, stopAll, runtime, status, ensure: (o) => runtime.ensure(o).then(() => status()), checkUpdate: (o) => runtime.checkUpdate(o).then(() => status()), repos, addRepo, removeRepo, available, loadInstalled, install, uninstall, browse, detail, pages, videos, filters, autoMatch, stop, call }
 }
 
 module.exports = { create, parseIndex, parseAny, cmpVersion, normaliseRepoUrl, entryType }

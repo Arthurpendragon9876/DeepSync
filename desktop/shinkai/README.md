@@ -57,6 +57,14 @@ Wayland (Hyprland, Sway, GNOME, KDE) is picked automatically; X11 works too. The
 1. Create a client at https://anilist.co/settings/developer with redirect URL `https://anilist.co/api/v2/oauth/pin`.
 2. Settings > Trackers: enter the client ID, click **Open AniList login**, approve, paste the token shown, **Connect**.
 
+## New in 0.4.11 (silent episodes, stream diagnostics)
+
+- **Separate audio tracks.** Sources that send the sound as its own link (Mangayomi `audios`, Aniyomi `audioTracks`) used to play without sound; the player now plays that track alongside the video (Sub/Dub preference picks it, the audio button switches), and mpv gets `--audio-file`.
+- **"No sound from this stream" notice.** If a stream plays for a few seconds with no audio decoded (for example AC-3 / E-AC-3, which Chromium cannot decode) the player says so and offers **Play in mpv**, **Try another stream** and **Copy details**.
+- **HLS audio recovery.** A broken alternate-audio playlist now moves to the next audio track instead of playing silently; fatal media errors are retried once.
+- **Stream proxy.** Adds the stream's own site as Referer when the extension sends none, no longer sends a wrong Content-Length for compressed responses, and keeps a short host/status log (no URLs) that "Copy details" includes.
+- Extensions that return a stream in `videoUrl`, or only unusable links, now work or say exactly what they returned.
+
 ## New in 0.3.0 (Shinkai / Yugen parity)
 
 - **Source linked on open.** Opening a title resolves its source immediately: the saved link first, otherwise your installed sources are searched with the
@@ -93,7 +101,10 @@ GPLv3 + public source) converts each APK to a JAR and supplies the Android APIs.
 object per line over stdin/stdout (`main/extensions/sidecar.js`).
 
 - **Setup**: Extensions > *Set up runtime* downloads the bridge JAR (~42 MB) and, only if there is no Java 17+, a Temurin 17 JRE
-  (~50 MB, checksum-verified, Linux x64/arm64). Or install Java yourself (Arch: `sudo pacman -S jre-openjdk`) or point to it under *Use my own Java*.
+  (~50 MB, checksum-verified, Linux x64/arm64). Both download at the same time, each over several parallel connections that resume
+  if one drops. Or install Java yourself (Arch: `sudo pacman -S jre-openjdk`) or point to it under *Use my own Java*.
+- **Updates**: *Update runtime* only appears when the bridge's latest GitHub release tag differs from the one installed (checked in the
+  background, cached for 6 hours, silent when offline). A bridge JAR you chose yourself is never offered an update.
 - **Repos**: none are bundled. Add the address of an `index.min.json` or `index.pb` (protobuf) repo index, or an `aniyomi://add-repo?url=` link.
 - **Use**: press **Read / Watch / Continue** on a title's page. Shinkai searches your installed sources (English and "all"-language ones by default,
   `extensions.autoLangs`) with the AniList title and synonyms, ranks the results with the same title matcher as the Android app (threshold 0.85),

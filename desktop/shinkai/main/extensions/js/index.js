@@ -185,8 +185,10 @@ function create({ dir, fetchImpl = globalThis.fetch, proxyUrl = (u) => u, host: 
     const m = get(id)
     const r = await call(m, 'videos', [episode.url], { timeout: 90000 })
     return r.filter((v) => isHttp(v.url)).map((v) => ({
-      title: v.quality || 'Video', quality: v.quality || '', url: v.url, headers: v.headers || {},
+      title: v.quality || 'Video', quality: v.quality || '', url: v.url, originalUrl: v.originalUrl || '', headers: v.headers || {},
       subtitles: (v.subtitles || []).filter((t) => isHttp(t.file)).map((t) => ({ url: t.file, label: t.label || '' })),
+      audios: (v.audios || []).filter((t) => isHttp(t.file)).map((t) => ({ url: t.file, label: t.label || '' })),
+      fields: v.fields || '',
     }))
   }
 
