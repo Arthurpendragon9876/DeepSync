@@ -18,7 +18,22 @@ defaults:
     working-directory: desktop/yomi
 
 jobs:
+  # The test suite fakes mpv, pactl and java with shell scripts, so it runs on Linux.
+  # (On a Windows runner those three tests cannot start the fake programs and fail for that reason only.)
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/yomi/package-lock.json
+      - run: npm ci
+      - run: npm test
+
   build:
+    needs: test
     runs-on: windows-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
@@ -39,7 +54,6 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION"; exit 1
           fi
       - run: npm ci
-      - run: npm test
       # Downloads the bundled Java runtime and extension bridge, then builds the installer.
       - run: npm run dist:win
         env:
