@@ -26,6 +26,8 @@ jobs:
 
     steps:
     - name: Validate version_name input
+      # Runs before checkout, when the android/ folder does not exist yet.
+      working-directory: ${{ github.workspace }}
       run: |
         VERSION_NAME="${{ inputs.version_name }}"
 
