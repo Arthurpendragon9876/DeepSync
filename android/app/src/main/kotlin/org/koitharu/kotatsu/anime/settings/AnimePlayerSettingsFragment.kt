@@ -5,6 +5,20 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
@@ -54,6 +68,12 @@ private fun AnimePlayerSettingsContent() {
 	var quality by rememberStringPref(AnimePlayerPrefs.KEY_PREFERRED_QUALITY, AnimePlayerPrefs.QUALITY_BEST)
 	var autoNext by rememberBooleanPref(AnimePlayerPrefs.KEY_AUTOPLAY_NEXT, true)
 	var skip by rememberStringPref(AnimePlayerPrefs.KEY_SKIP_SECONDS, "85")
+	var subFont by rememberStringPref(AnimePlayerPrefs.KEY_SUB_FONT, "sans")
+	var subSize by rememberStringPref(AnimePlayerPrefs.KEY_SUB_SIZE, "normal")
+	var subColor by rememberStringPref(AnimePlayerPrefs.KEY_SUB_COLOR, "white")
+	var subEdge by rememberStringPref(AnimePlayerPrefs.KEY_SUB_EDGE, "outline")
+	var subBackground by rememberStringPref(AnimePlayerPrefs.KEY_SUB_BACKGROUND, "none")
+	var subPosition by rememberStringPref(AnimePlayerPrefs.KEY_SUB_POSITION, "normal")
 	// These two live in the anime player's own prefs file, so they are held as plain state here.
 	var preset by remember { mutableStateOf(AnimePlaybackSession.audioPreset(context)) }
 	var vlc by remember { mutableStateOf(AnimePlayerLauncher.isVlcDefault(context)) }
@@ -159,6 +179,73 @@ private fun AnimePlayerSettingsContent() {
 				}
 			}
 		}
+		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
+		item {
+			SettingsGroup(title = stringResource(R.string.ds_player_group_subtitles)) {
+				item { _ ->
+					SubtitlePreview(subFont, subSize, subColor, subEdge, subBackground)
+				}
+				item { pos -> SubtitleChoice(R.string.ds_player_sub_font, AnimePlayerPrefs.SUBTITLE_FONTS, subFont, { subFont = it }, pos.shape) }
+				item { pos -> SubtitleChoice(R.string.ds_player_sub_size, AnimePlayerPrefs.SUBTITLE_SIZES, subSize, { subSize = it }, pos.shape) }
+				item { pos -> SubtitleChoice(R.string.ds_player_sub_color, AnimePlayerPrefs.SUBTITLE_COLORS, subColor, { subColor = it }, pos.shape) }
+				item { pos -> SubtitleChoice(R.string.ds_player_sub_edge, AnimePlayerPrefs.SUBTITLE_EDGES, subEdge, { subEdge = it }, pos.shape) }
+				item { pos -> SubtitleChoice(R.string.ds_player_sub_background, AnimePlayerPrefs.SUBTITLE_BACKGROUNDS, subBackground, { subBackground = it }, pos.shape) }
+				item { pos -> SubtitleChoice(R.string.ds_player_sub_position, AnimePlayerPrefs.SUBTITLE_POSITIONS, subPosition, { subPosition = it }, pos.shape) }
+			}
+		}
 		item { Spacer(Modifier.height(24.dp).fillMaxWidth()) }
+	}
+}
+
+@Composable
+private fun SubtitleChoice(
+	titleRes: Int,
+	options: List<Pair<String, String>>,
+	selected: String,
+	onSelected: (String) -> Unit,
+	shape: androidx.compose.ui.graphics.Shape,
+) {
+	ListSettingsItem(
+		title = stringResource(titleRes),
+		entries = options.map { it.second },
+		entryValues = options.map { it.first },
+		selectedValue = selected,
+		onValueChange = onSelected,
+		icon = R.drawable.ic_ap_subtitles,
+		shape = shape,
+	)
+}
+
+/** A sample line drawn the way the player will draw it, so a choice can be judged without opening an episode. */
+@Composable
+private fun SubtitlePreview(font: String, size: String, color: String, edge: String, background: String) {
+	val textColor = Color(AnimePlayerPrefs.colorOf(color))
+	val box = Color(AnimePlayerPrefs.backgroundOf(background))
+	Box(
+		modifier = Modifier
+			.fillMaxWidth()
+			.height(96.dp)
+			.clip(RoundedCornerShape(16.dp))
+			.background(Color(0xFF1B1B1F)),
+		contentAlignment = Alignment.Center,
+	) {
+		Text(
+			text = "The quick brown fox jumps over the lazy dog",
+			modifier = Modifier
+				.padding(horizontal = 16.dp)
+				.background(box)
+				.padding(horizontal = 6.dp, vertical = 2.dp),
+			textAlign = TextAlign.Center,
+			style = TextStyle(
+				color = textColor,
+				fontSize = (15f * AnimePlayerPrefs.sizeScale(size)).sp,
+				fontFamily = FontFamily(AnimePlayerPrefs.typefaceOf(font)),
+				shadow = when (edge) {
+					"none" -> null
+					"raised" -> Shadow(Color.Black, Offset(-1.5f, -1.5f), 2f)
+					else -> Shadow(Color.Black, Offset(2f, 2f), if (edge == "outline") 4f else 3f)
+				},
+			),
+		)
 	}
 }

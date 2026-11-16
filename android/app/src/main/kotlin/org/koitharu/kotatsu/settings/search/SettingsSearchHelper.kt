@@ -156,6 +156,7 @@ class SettingsSearchHelper @Inject constructor(
 				addItem(AppSettings.KEY_READER_MODE, R.string.default_mode, breadcrumbs = crumbs, fragmentClass = ReaderSettingsFragment::class.java, keywordArrayRes = intArrayOf(R.array.reader_modes))
 				addItem(AppSettings.KEY_READER_MODE_DETECT, R.string.detect_reader_mode, R.string.detect_reader_mode_summary, crumbs, ReaderSettingsFragment::class.java)
 				addItem(AppSettings.KEY_TITLE_TAP_TO_READ, R.string.title_tap_to_read, R.string.title_tap_to_read_summary, crumbs, ReaderSettingsFragment::class.java)
+				addItem(AppSettings.KEY_OPEN_EXTERNAL_BROWSER, R.string.open_external_browser, R.string.open_external_browser_summary, crumbs, ReaderSettingsFragment::class.java)
 				addItem(AppSettings.KEY_CHECK_DUPLICATES, R.string.duplicates_check, R.string.duplicates_check_summary, crumbs, ReaderSettingsFragment::class.java)
 			}
 			group(sectionCrumbs, "Zoom") { crumbs ->
@@ -295,7 +296,6 @@ class SettingsSearchHelper @Inject constructor(
 				addItem(AppSettings.KEY_SUGGESTIONS_NOTIFICATIONS, R.string.notifications_enable, R.string.suggestions_notifications_summary, crumbs + ctx.getString(R.string.suggestions), SuggestionsSettingsFragment::class.java)
 				addItem(AppSettings.KEY_SUGGESTIONS_EXCLUDE_TAGS, R.string.suggestions_excluded_genres, R.string.suggestions_excluded_genres_summary, crumbs + ctx.getString(R.string.suggestions), SuggestionsSettingsFragment::class.java)
 				addItem(AppSettings.KEY_SUGGESTIONS_EXCLUDE_NSFW, R.string.exclude_nsfw_from_suggestions, R.string.exclude_nsfw_from_suggestions_summary, crumbs + ctx.getString(R.string.suggestions), SuggestionsSettingsFragment::class.java)
-				addItem(AppSettings.KEY_SUGGESTIONS_EXCLUDE_NOVELS, R.string.exclude_novels_from_suggestions, R.string.exclude_novels_from_suggestions_summary, crumbs + ctx.getString(R.string.suggestions), SuggestionsSettingsFragment::class.java)
 				addItem(AppSettings.KEY_RELATED_MANGA, R.string.related_manga, R.string.related_manga_summary, crumbs, ServicesSettingsFragment::class.java)
 				addItem(AppSettings.KEY_STATS_ENABLED, R.string.reading_stats, breadcrumbs = crumbs, fragmentClass = ServicesSettingsFragment::class.java)
 				addItem(AppSettings.KEY_READING_TIME, R.string.reading_time_estimation, R.string.reading_time_estimation_summary, crumbs, ServicesSettingsFragment::class.java)

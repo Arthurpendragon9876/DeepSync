@@ -168,6 +168,7 @@ private fun NovelReaderScreen(
 	onPickBackground: () -> Unit,
 	onClearBackground: () -> Unit,
 ) {
+	val localContext = LocalContext.current
 	val fontValues = remember {
 		listOf("serif", "sans-serif", "monospace") + EpubBundledFonts.all.map { it.value }
 	}
@@ -491,6 +492,25 @@ private fun NovelReaderScreen(
 									},
 								)
 							}
+						}
+					}
+				}
+				item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
+				item {
+					SettingsGroup(title = "More") {
+						item { pos ->
+							ActionSettingsItem(
+								title = "Advanced novel settings",
+								subtitle = "Download throttling, update limits and translation",
+								icon = R.drawable.ic_download,
+								shape = pos.shape,
+								onClick = {
+									var ctx: android.content.Context? = localContext
+									while (ctx is android.content.ContextWrapper && ctx !is SettingsActivity) ctx = ctx.baseContext
+									(ctx as? SettingsActivity)
+										?.openFragment(AdvancedNovelSettingsFragment::class.java, null, isFromRoot = false)
+								},
+							)
 						}
 					}
 				}

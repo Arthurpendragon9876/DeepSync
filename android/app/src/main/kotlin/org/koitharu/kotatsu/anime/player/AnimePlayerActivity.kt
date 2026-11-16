@@ -276,23 +276,8 @@ class AnimePlayerActivity : AppCompatActivity() {
 		playerView = PlayerView(this).apply {
 			useController = false
 			setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
-			// Subtitles: plain white text with a thin dark outline and no background box.
-			subtitleView?.apply {
-				setApplyEmbeddedStyles(false)
-				setApplyEmbeddedFontSizes(false)
-				setStyle(
-					androidx.media3.ui.CaptionStyleCompat(
-						android.graphics.Color.WHITE,
-						android.graphics.Color.TRANSPARENT,
-						android.graphics.Color.TRANSPARENT,
-						androidx.media3.ui.CaptionStyleCompat.EDGE_TYPE_OUTLINE,
-						android.graphics.Color.BLACK,
-						null,
-					),
-				)
-				setFractionalTextSize(androidx.media3.ui.SubtitleView.DEFAULT_TEXT_SIZE_FRACTION * 1.15f)
-				setBottomPaddingFraction(0.07f)
-			}
+			// Subtitles: font, size, colour, edge, box and position come from Settings > Player.
+			subtitleView?.let { AnimePlayerPrefs.applySubtitleStyle(this@AnimePlayerActivity, it) }
 			layoutParams = android.view.ViewGroup.LayoutParams(-1, -1)
 		}
 		setContent { DropSauceTheme { Root() } }
@@ -417,7 +402,9 @@ class AnimePlayerActivity : AppCompatActivity() {
 			return
 		}
 		val saved = AnimePlaybackSession.rememberedServer(this, manga)
-		val order = AnimeStreamAutoPicker.order(this, list, saved ?: lastServerTitle)
+		// Sub / Dub also ranks streams: an explicit remembered server still wins, the previous episode's
+		// server only stays first while it matches the preset (see AnimeStreamAutoPicker).
+		val order = AnimeStreamAutoPicker.order(this, list, saved ?: lastServerTitle, preferStrict = saved != null)
 		val rememberedHere = saved != null && list.any { it.video.videoTitle == saved }
 		val automatic = rememberedHere || list.size == 1 || AnimePlayerPrefs.isAutoPick(this)
 		streamIndex = order.first()
@@ -598,11 +585,17 @@ class AnimePlayerActivity : AppCompatActivity() {
 		val renderers = NextRenderersFactory(this)
 			.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
 			.setEnableDecoderFallback(true)
+		// Sub / Dub is set on the selector before prepare(), so the right audio and subtitles are chosen
+		// straight away instead of starting on the default track and switching after the tracks load.
+		val presetDub = AnimePlaybackSession.audioPreset(this) == "dub"
 		val trackSelector = DefaultTrackSelector(this).apply {
 			setParameters(
 				buildUponParameters()
 					.setConstrainAudioChannelCountToDeviceCapabilities(false)
-					.setAllowAudioMixedMimeTypeAdaptiveness(true),
+					.setAllowAudioMixedMimeTypeAdaptiveness(true)
+					.setPreferredAudioLanguages(*if (presetDub) arrayOf("en", "eng") else arrayOf("ja", "jpn"))
+					.setPreferredTextLanguages("en", "eng")
+					.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, presetDub),
 			)
 		}
 		val exo = ExoPlayer.Builder(this, renderers)
@@ -618,7 +611,13 @@ class AnimePlayerActivity : AppCompatActivity() {
 
 			override fun onTracksChanged(t: Tracks) {
 				tracks = t
-				applyAudioPreset(t)
+				val wasApplied = presetApplied
+				if (!applyAudioPreset(t) && !wasApplied) {
+					// Single-audio stream of the wrong kind: use a matching stream when this episode has one.
+					// Posted: the player must not be released from inside its own listener callback.
+					window.decorView.post { switchStreamForPreset(AnimePlaybackSession.audioPreset(this@AnimePlayerActivity)) }
+					return
+				}
 				// Say so when audio exists but nothing playable is selected, instead of staying silent.
 				val audio = t.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
 				val playing = audio.any { g -> (0 until g.length).any { g.isTrackSelected(it) } }
@@ -685,16 +684,21 @@ class AnimePlayerActivity : AppCompatActivity() {
 	/**
 	 * Sub = Japanese audio with (English) subtitles on; Dub = English audio with subtitles off.
 	 * Applied once per playback, when the tracks first show up; the Audio / Subtitles menus still
-	 * override it afterwards.
+	 * override it afterwards. The track selector already prefers these languages (see startPlayback), so
+	 * this only corrects what that missed and skips every change that would not alter the selection.
+	 *
+	 * @return true when the playing stream satisfies the preset: it has a matching audio track, or it is a
+	 * single-audio stream whose own label (Sub / Dub) already says so. False means another stream may do better.
 	 */
-	private fun applyAudioPreset(t: Tracks) {
-		if (presetApplied) return
-		val exo = player ?: return
+	private fun applyAudioPreset(t: Tracks): Boolean {
+		if (presetApplied) return true
+		val exo = player ?: return true
 		val audio = t.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
 		val text = t.groups.filter { it.type == C.TRACK_TYPE_TEXT }
-		if (audio.isEmpty() && text.isEmpty()) return
+		if (audio.isEmpty() && text.isEmpty()) return true
 		presetApplied = true
-		val dub = AnimePlaybackSession.audioPreset(this) == "dub"
+		val presetName = AnimePlaybackSession.audioPreset(this)
+		val dub = presetName == "dub"
 		val wanted = if (dub) listOf("en", "eng", "english") else listOf("ja", "jpn", "jp", "japanese")
 
 		fun matches(f: androidx.media3.common.Format, langs: List<String>): Boolean {
@@ -712,21 +716,62 @@ class AnimePlayerActivity : AppCompatActivity() {
 		}
 
 		val params = exo.trackSelectionParameters.buildUpon()
-		find(audio, wanted)?.let { (g, i) ->
-			params.setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i))
+		var changed = false
+		val audioHit = find(audio, wanted)
+		if (audioHit != null && !audioHit.first.isTrackSelected(audioHit.second)) {
+			params.setOverrideForType(TrackSelectionOverride(audioHit.first.mediaTrackGroup, audioHit.second))
+			changed = true
 		}
+		val textDisabled = exo.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_TEXT)
 		if (dub) {
-			params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+			if (!textDisabled) {
+				params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+				changed = true
+			}
 		} else {
 			val subs = find(text, listOf("en", "eng", "english")) ?: text.firstNotNullOfOrNull { g ->
 				(0 until g.length).firstOrNull { g.isTrackSupported(it) }?.let { g to it }
 			}
-			if (subs != null) {
+			val subsOn = text.any { g -> (0 until g.length).any { g.isTrackSelected(it) } }
+			if (subs != null && (textDisabled || !subsOn)) {
 				params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
 					.setOverrideForType(TrackSelectionOverride(subs.first.mediaTrackGroup, subs.second))
+				changed = true
 			}
 		}
-		exo.trackSelectionParameters = params.build()
+		if (changed) exo.trackSelectionParameters = params.build()
+
+		if (audioHit != null) return true
+		val stream = AnimePlaybackSession.streams.getOrNull(streamIndex) ?: return true
+		// Scores only ever go down across switches (see switchStreamForPreset), so this cannot loop.
+		return AnimeStreamAutoPicker.variantScore(stream, presetName) == 0
+	}
+
+	/**
+	 * The preset changed (or the stream has no matching audio track): move to the best other stream that
+	 * matches it, keeping the playback position. Quiet no-op when nothing matches better.
+	 */
+	private fun switchStreamForPreset(preset: String) {
+		val streams = AnimePlaybackSession.streams
+		val current = streams.getOrNull(streamIndex) ?: return
+		val currentScore = AnimeStreamAutoPicker.variantScore(current, preset)
+		if (currentScore == 0) return
+		val order = AnimeStreamAutoPicker.order(this, streams, null)
+		val best = order.firstOrNull { it != streamIndex && AnimeStreamAutoPicker.variantScore(streams[it], preset) < currentScore }
+			?: return
+		saveProgress()
+		autoOrder = order
+		autoTried.clear()
+		autoTried += best
+		streamIndex = best
+		AnimePlaybackSession.streamIndex = best
+		lastServerTitle = streams[best].video.videoTitle
+		attempts.clear()
+		triedProxy = false
+		errorText = null
+		isBuffering = true
+		updateLabels()
+		play()
 	}
 
 	private fun saveProgress() {
@@ -1363,7 +1408,12 @@ class AnimePlayerActivity : AppCompatActivity() {
 		// Apply to what is playing right now as well, not only to the next episode.
 		if (player != null) {
 			presetApplied = false
-			applyAudioPreset(tracks)
+			player?.let { exo ->
+				exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+					.setPreferredAudioLanguages(*if (preset == "dub") arrayOf("en", "eng") else arrayOf("ja", "jpn"))
+					.build()
+			}
+			if (!applyAudioPreset(tracks)) switchStreamForPreset(preset)
 		}
 	}
 

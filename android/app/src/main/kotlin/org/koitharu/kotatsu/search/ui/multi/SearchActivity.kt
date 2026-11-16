@@ -10,6 +10,7 @@ import androidx.appcompat.view.ActionMode
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
+import androidx.recyclerview.widget.GridLayoutManager
 import com.google.android.material.badge.BadgeDrawable
 import com.google.android.material.badge.BadgeUtils
 import com.google.android.material.color.MaterialColors
@@ -23,22 +24,20 @@ import org.koitharu.kotatsu.core.ui.BaseActivity
 import org.koitharu.kotatsu.core.ui.list.ListSelectionController
 import org.koitharu.kotatsu.core.ui.list.OnListItemClickListener
 import org.koitharu.kotatsu.core.ui.util.StatusBarScrim
-import org.koitharu.kotatsu.core.ui.widgets.ChipsView
 import org.koitharu.kotatsu.core.ui.widgets.TipView
 import org.koitharu.kotatsu.core.util.ShareHelper
-import org.koitharu.kotatsu.core.util.ext.HapticEffect
 import org.koitharu.kotatsu.core.util.ext.consumeAllSystemBarsInsets
-import org.koitharu.kotatsu.core.util.ext.hapticFeedback
 import org.koitharu.kotatsu.core.util.ext.invalidateNestedItemDecorations
 import org.koitharu.kotatsu.core.util.ext.observe
 import org.koitharu.kotatsu.core.util.ext.observeEvent
 import org.koitharu.kotatsu.core.util.ext.systemBarsInsets
 import org.koitharu.kotatsu.databinding.ActivitySearchBinding
 import org.koitharu.kotatsu.list.domain.ListFilterOption
+import org.koitharu.kotatsu.list.ui.GridSpanResolver
 import org.koitharu.kotatsu.list.ui.MangaSelectionDecoration
+import org.koitharu.kotatsu.list.ui.adapter.ListItemType
 import org.koitharu.kotatsu.list.ui.adapter.MangaListListener
 import org.koitharu.kotatsu.metadata.metaRef
-import androidx.core.view.isVisible
 import kotlinx.coroutines.launch
 import androidx.lifecycle.lifecycleScope
 import org.koitharu.kotatsu.list.ui.adapter.TypedListSpacingDecoration
@@ -97,6 +96,7 @@ class SearchActivity :
 			}
 		}
 		val sizeResolver = DynamicItemSizeResolver(resources, this, settings, adjustWidth = true)
+		val gridSizeResolver = DynamicItemSizeResolver(resources, this, settings, adjustWidth = false)
 		val selectionDecoration = MangaSelectionDecoration(this)
 		selectionController = ListSelectionController(
 			appCompatDelegate = delegate,
@@ -108,22 +108,23 @@ class SearchActivity :
 			listener = this,
 			itemClickListener = itemClickListener,
 			sizeResolver = sizeResolver,
+			gridSizeResolver = gridSizeResolver,
 			selectionDecoration = selectionDecoration,
 		)
-		// Covers sit behind two grid_spacing_outer gaps (the row's SpacingItemDecoration + the card's
-		// own margin), so the rounded cut has to be pulled in by both to land on the first cover.
+		// Source rows: covers sit behind two grid_spacing_outer gaps (the row's SpacingItemDecoration + the
+		// card's own margin), so the rounded cut is pulled in by both. The Discover grid has the card margin only.
 		viewBinding.recyclerView.roundTopCorners(
 			radius = resources.getDimension(R.dimen.cover_corner_large),
-			extraInset = resources.getDimensionPixelOffset(R.dimen.grid_spacing_outer) * 2,
+			extraInset = resources.getDimensionPixelOffset(R.dimen.grid_spacing_outer) * if (viewModel.isTrackerGrid) 1 else 2,
 		)
 		viewBinding.recyclerView.adapter = adapter
 		viewBinding.recyclerView.setHasFixedSize(true)
 		viewBinding.recyclerView.addItemDecoration(TypedListSpacingDecoration(this, true))
+		if (viewModel.isTrackerGrid) setupGrid(adapter, selectionDecoration)
 
 		setDisplayHomeAsUp(isEnabled = true, showUpAsClose = false)
 		supportActionBar?.setSubtitle(R.string.search_results)
 
-		setupScopeChips()
 		addMenuProvider(SearchMenuProvider(this, viewModel))
 		viewBinding.statusBarScrim.background = StatusBarScrim.drawable(this)
 		viewModel.hasActiveFilters.observe(this, ::onActiveFiltersChanged)
@@ -132,33 +133,23 @@ class SearchActivity :
 		viewModel.onError.observeEvent(this, SnackbarErrorObserver(viewBinding.recyclerView, null))
 	}
 
-	/** The chip row toggles tracker catalogues (AniList, MyAnimeList, MangaBaka) into the search. */
-	private fun setupScopeChips() {
-		if (viewModel.availableTrackers.isEmpty()) {
-			viewBinding.chipsScope.isVisible = false
-			return
+	/**
+	 * Discover results (the trackers) are one poster grid, as in every other list in the app, instead of a
+	 * carousel per tracker. Posters take one cell; headers and the loading / empty states take the whole row.
+	 */
+	private fun setupGrid(adapter: SearchAdapter, selectionDecoration: MangaSelectionDecoration) {
+		val spanResolver = GridSpanResolver(resources)
+		val layoutManager = GridLayoutManager(this, spanResolver.spanCount)
+		layoutManager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+			override fun getSpanSize(position: Int): Int = when (adapter.getItemViewType(position)) {
+				ListItemType.MANGA_GRID.ordinal -> 1
+				else -> layoutManager.spanCount
+			}
 		}
-		viewBinding.chipsScope.onChipClickListener = ChipsView.OnChipClickListener { _, data ->
-			val provider = data as? org.koitharu.kotatsu.home.ui.model.HomeMetadata ?: return@OnChipClickListener
-			viewBinding.chipsScope.hapticFeedback(HapticEffect.CLICK)
-			viewModel.toggleTracker(provider)
-		}
-		viewModel.trackerScope.observe(this) { enabled ->
-			viewBinding.chipsScope.setChips(
-				viewModel.availableTrackers.map { provider ->
-					ChipsView.ChipModel(
-						titleResId = provider.titleRes,
-						icon = when (provider) {
-							org.koitharu.kotatsu.home.ui.model.HomeMetadata.ANILIST -> R.drawable.ic_anilist
-							org.koitharu.kotatsu.home.ui.model.HomeMetadata.MAL -> R.drawable.ic_mal
-							else -> R.drawable.ic_mangabaka
-						},
-						isChecked = provider in enabled,
-						data = provider,
-					)
-				},
-			)
-		}
+		viewBinding.recyclerView.layoutManager = layoutManager
+		viewBinding.recyclerView.addItemDecoration(selectionDecoration)
+		viewBinding.recyclerView.addOnLayoutChangeListener(spanResolver)
+		spanResolver.setGridSize(settings.gridSize / 100f, viewBinding.recyclerView)
 	}
 
 	override fun onApplyWindowInsets(v: View, insets: WindowInsetsCompat): WindowInsetsCompat {

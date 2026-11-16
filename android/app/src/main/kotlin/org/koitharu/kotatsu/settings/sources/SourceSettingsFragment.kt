@@ -39,10 +39,14 @@ import androidx.preference.PreferenceManager
 import androidx.preference.PreferenceScreen
 import androidx.preference.TwoStatePreference
 import dagger.hilt.android.AndroidEntryPoint
+import eu.kanade.tachiyomi.animesource.ConfigurableAnimeSource
+import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.source.CatalogueSource
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.online.HttpSource
 import org.koitharu.kotatsu.R
+import org.koitharu.kotatsu.anime.AnimeMangaRepository
+import org.koitharu.kotatsu.anime.AnimeMangaSource
 import org.koitharu.kotatsu.core.exceptions.resolve.SnackbarErrorObserver
 import org.koitharu.kotatsu.core.model.getTitle
 import org.koitharu.kotatsu.core.model.isNovelSource
@@ -103,7 +107,9 @@ class SourceSettingsFragment : BaseComposeSettingsFragment(0) {
 		val repo = viewModel.repository
 		val isValidSource = repo !is EmptyMangaRepository
 		val mihonSource = (repo as? MihonMangaRepository)?.source
-		val uninstallPkg = mihonSource?.pkgName
+		// Aniyomi anime extensions have their own settings screen, exactly like Mihon manga ones
+		val animeSource = (repo as? AnimeMangaRepository)?.source
+		val uninstallPkg = mihonSource?.pkgName ?: animeSource?.pkgName
 		val novelSource = viewModel.source.unwrap() as? LnMangaSource
 		val novelPluginId = novelSource?.pluginId
 		// Prose either way — an LNReader plugin or a novel extension APK.
@@ -137,10 +143,10 @@ class SourceSettingsFragment : BaseComposeSettingsFragment(0) {
 				}
 			} else {
 				variantCache.getOrPut(DEFAULT_VARIANT_KEY) {
-					if (mihonSource != null) {
-						buildVariant(mihonSource.catalogueSource, mihonSource.name)
-					} else {
-						buildVariant(null, viewModel.source.name)
+					when {
+						mihonSource != null -> buildVariant(mihonSource.catalogueSource, mihonSource.name)
+						animeSource != null -> buildVariant(null, animeSource.name, animeSource)
+						else -> buildVariant(null, viewModel.source.name)
 					}
 				}
 			}
@@ -185,17 +191,24 @@ class SourceSettingsFragment : BaseComposeSettingsFragment(0) {
 		super.onDestroyView()
 	}
 
-	private fun buildVariant(catalogueSource: CatalogueSource?, sourceName: String): SourceVariant {
+	private fun buildVariant(
+		catalogueSource: CatalogueSource?,
+		sourceName: String,
+		animeSource: AnimeMangaSource? = null,
+	): SourceVariant {
 		val prefsName = SourceSettings.getStorageName(sourceName)
 		val prefs = requireContext().getSharedPreferences(prefsName, Context.MODE_PRIVATE)
 		val novelSource = viewModel.source.unwrap() as? LnMangaSource
 		val sections = if (novelSource != null) {
 			buildNovelSections(novelSource)
+		} else if (animeSource != null) {
+			buildAnimeSections(animeSource, prefsName)
 		} else {
 			buildMihonSections(catalogueSource, prefsName)
 		}
 		val browserUrl = novelSource?.plugin?.site?.takeIf { it.isNotBlank() }
 			?: (catalogueSource as? HttpSource)?.baseUrl?.takeIf { it.isNotBlank() }
+			?: (animeSource?.catalogueSource as? AnimeHttpSource)?.baseUrl?.takeIf { it.isNotBlank() }
 		return SourceVariant(sections = sections, sourcePrefs = prefs, openBrowserUrl = browserUrl)
 	}
 
@@ -207,6 +220,23 @@ class SourceSettingsFragment : BaseComposeSettingsFragment(0) {
 		val preferences = LnPluginSettings.buildPreferences(requireContext(), source.plugin)
 		if (preferences.isEmpty()) return emptyList()
 		return listOf(PreferenceSection(null, preferences))
+	}
+
+	/** Same as [buildMihonSections], for the settings an Aniyomi anime extension declares. */
+	@SuppressLint("RestrictedApi")
+	private fun buildAnimeSections(source: AnimeMangaSource, prefsName: String): List<PreferenceSection> {
+		val configurable = source.catalogueSource as? ConfigurableAnimeSource ?: return emptyList()
+		val ctx = requireContext()
+		val pm = PreferenceManager(ctx).apply { sharedPreferencesName = prefsName }
+		val screen = pm.createPreferenceScreen(ctx)
+		try {
+			configurable.setupPreferenceScreen(screen)
+		} catch (e: Throwable) {
+			Log.e("SourceSettingsFragment", "Failed to setup anime extension preferences", e)
+		}
+		mihonPms += pm
+		mihonScreens += screen
+		return buildSections(screen)
 	}
 
 	@SuppressLint("RestrictedApi")

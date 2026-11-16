@@ -20,6 +20,26 @@ import com.google.android.material.badge.BadgeDrawable
 import dagger.hilt.android.AndroidEntryPoint
 import org.koitharu.kotatsu.R
 import com.google.android.material.snackbar.Snackbar
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.core.view.isVisible
+import coil3.ImageLoader
+import javax.inject.Inject
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
+import org.koitharu.kotatsu.explore.ui.meta.ExploreHeader
+import org.koitharu.kotatsu.explore.ui.meta.ExploreHeaderActions
+import org.koitharu.kotatsu.explore.ui.meta.ExploreMetaActions
+import org.koitharu.kotatsu.explore.ui.meta.ExploreSourceEntry
+import org.koitharu.kotatsu.explore.ui.meta.ExploreMetadataScreen
+import org.koitharu.kotatsu.explore.ui.meta.ExploreMetadataViewModel
+import org.koitharu.kotatsu.explore.ui.meta.MetaTarget
+import org.koitharu.kotatsu.metadata.SourceChooserActivity
+import org.koitharu.kotatsu.settings.compose.DropSauceTheme
 import org.koitharu.kotatsu.core.exceptions.resolve.SnackbarErrorObserver
 import org.koitharu.kotatsu.core.model.LocalMangaSource
 import org.koitharu.kotatsu.core.model.getTitle
@@ -58,6 +78,10 @@ class ExploreFragment :
 	OnListItemClickListener<MangaSourceItem>, ListSelectionController.Callback {
 
 	private val viewModel by viewModels<ExploreViewModel>()
+	private val metaViewModel by viewModels<ExploreMetadataViewModel>()
+
+	@Inject
+	lateinit var coil: ImageLoader
 	private var sourceSelectionController: ListSelectionController? = null
 	private var manageBadge: BadgeDrawable? = null
 
@@ -118,6 +142,7 @@ class ExploreFragment :
 				},
 			)
 		}
+		setupMetadataTab(binding)
 		actionModeDelegate.addListener(this)
 		addMenuProvider(ExploreMenuProvider(router, ::showLanguageFilterDialog))
 		viewModel.headerContent.observe(viewLifecycleOwner, headerAdapter)
@@ -178,12 +203,121 @@ class ExploreFragment :
 		}
 	}
 
+	// ---- Explore: Sources / Explore: Metadata ----------------------------------------------------
+
+	private fun setupMetadataTab(binding: FragmentExploreBinding) {
+		binding.metadataCompose.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+		binding.exploreHeader.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+		val actions = ExploreMetaActions(
+			onSearch = metaViewModel::search,
+			onFilters = metaViewModel::setFilters,
+			onClearFilters = metaViewModel::clearFilters,
+			onOpen = metaViewModel::open,
+			onNextResults = metaViewModel::nextResultsPage,
+			onPreviousResults = metaViewModel::previousResultsPage,
+			onNextForYou = metaViewModel::nextForYouPage,
+			onPreviousForYou = metaViewModel::previousForYouPage,
+			onReshuffleSamples = metaViewModel::reshuffleSamples,
+			onTrailer = { url -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) },
+			onOpenStats = { router.openStatistic(viewModel.currentMode) },
+			onOpenMetadataSettings = { router.openHomeLayoutSettings() },
+		)
+		binding.metadataCompose.setContent {
+			DropSauceTheme {
+				val state by metaViewModel.state.collectAsState()
+				ExploreMetadataScreen(state = state, imageLoader = coil, actions = actions)
+			}
+		}
+		val context = binding.root.context
+		val sourceEntries = viewModel.visibleSources.map { list ->
+			list.filterIsInstance<MangaSourceItem>().map { ExploreSourceEntry(it.source, it.source.getTitle(context)) }
+		}
+		val headerActions = ExploreHeaderActions(
+			onSelectTab = { selectExploreTab(binding, it) },
+			onSelectFeed = { feed ->
+				selectExploreTab(binding, 1)
+				metaViewModel.selectFeed(feed)
+			},
+			onOpenSource = { entry -> router.openList(entry.source, null, null) },
+			onFilters = { filters ->
+				selectExploreTab(binding, 1)
+				metaViewModel.setFilters(filters)
+			},
+			onOpenSettings = { router.openSettings() },
+			onSearch = { (activity as? org.koitharu.kotatsu.main.ui.MainActivity)?.openSearch() },
+			onLanguageFilter = ::showLanguageFilterDialog,
+			onOpenExtensionSettings = { router.openExtensionsSettings() },
+			onDiscoverDefault = metaViewModel::setDiscoverDefault,
+			onSetListView = metaViewModel::setListView,
+			onAutoUpdateExtensions = metaViewModel::setAutoUpdateExtensions,
+			onHideAdult = metaViewModel::setHideAdult,
+			onMetadataFromTracker = metaViewModel::setMetadataFromTracker,
+			onProvider = metaViewModel::setProvider,
+		)
+		binding.exploreHeader.setContent {
+			DropSauceTheme {
+				val state by metaViewModel.state.collectAsState()
+				val tab by metaViewModel.selectedTab.collectAsState()
+				val prefs by metaViewModel.quickPrefs.collectAsState()
+				val sources by sourceEntries.collectAsState(initial = emptyList())
+				ExploreHeader(state = state, tab = tab, sources = sources, prefs = prefs, actions = headerActions)
+			}
+		}
+		showExploreTab(binding, metaViewModel.selectedTab.value)
+		metaViewModel.onOpen.observeEvent(viewLifecycleOwner, ::onOpenMetadataTarget)
+		// Next / Previous page swaps the posters but the scroller stays where the pager button was, at the
+		// bottom. Jump back to the top so the new page is seen from its first row (instant: the list shrinks
+		// to a spinner while loading, which a smooth scroll would fight).
+		metaViewModel.state
+			.map { it.results.page to it.forYou.page }
+			.distinctUntilChanged()
+			.drop(1)
+			.observe(viewLifecycleOwner) {
+				viewBinding?.scrollView?.scrollTo(0, 0)
+			}
+		// The content mode can change from the nav bar while this tab is open.
+		viewModel.modeFlow.observe(viewLifecycleOwner) {
+			if (metaViewModel.selectedTab.value == 1) metaViewModel.sync()
+		}
+	}
+
+	private fun selectExploreTab(binding: FragmentExploreBinding, index: Int) {
+		if (metaViewModel.selectedTab.value != index) showExploreTab(binding, index)
+	}
+
+	private fun showExploreTab(binding: FragmentExploreBinding, index: Int) {
+		metaViewModel.selectedTab.value = index
+		val isMetadata = index == 1
+		binding.header.root.isVisible = !isMetadata
+		binding.pager.isVisible = !isMetadata
+		binding.metadataCompose.isVisible = isMetadata
+		// Pull-to-refresh regenerates the source suggestions, which the Discover tab does not show.
+		binding.swipeRefreshLayout.isEnabled = !isMetadata
+		if (isMetadata) metaViewModel.sync() else binding.pager.post(::updatePagerHeight)
+	}
+
+	private fun onOpenMetadataTarget(target: MetaTarget) {
+		when (target) {
+			is MetaTarget.Details -> router.openMetaDetails(target.ref, target.title, target.cover, target.banner)
+			is MetaTarget.Library -> router.openDetails(target.manga)
+			is MetaTarget.ChooseSource -> startActivity(
+				SourceChooserActivity.intent(requireContext(), target.query, target.mode, target.key),
+			)
+		}
+	}
+
+	override fun onResume() {
+		super.onResume()
+		// The metadata provider is chosen in Home settings; re-read it when coming back from there.
+		if (metaViewModel.selectedTab.value == 1) metaViewModel.sync()
+	}
+
 	override fun onApplyWindowInsets(v: View, insets: WindowInsetsCompat): WindowInsetsCompat {
 		barsInsets = insets.systemBarsInsets
 		val basePadding = v.resources.getDimensionPixelOffset(R.dimen.list_spacing_normal)
 		viewBinding?.layoutContent?.setPadding(
 			/* left = */ barsInsets.left + basePadding,
-			/* top = */ basePadding,
+			/* top = */ 0,
 			/* right = */ barsInsets.right + basePadding,
 			/* bottom = */ barsInsets.bottom + basePadding,
 		)

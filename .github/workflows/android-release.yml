@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version_name:
-        description: 'New version name (e.g. 1.2.3) — release tag will be created as android-v<version>'
+        description: 'New version name (e.g. 1.2.3) — release tag will be created as android-v<version>; a version with a suffix such as 0.1.2-beta.1 is published as a pre-release'
         required: true
         type: string
 
@@ -205,11 +205,16 @@ jobs:
 
         If this is your first time using the app, I recommend uninstalling any extension you find when opening the app for the first time and then installing latest extensions from your preferred repository.
 
-        Yugen is the Android app of the DeepSync project. Shinkai (Linux) and Yomi (Windows) are coming soon.
+        Yugen is the Android app of the DeepSync project. Shinkai (Linux) and Yomi (Windows) are the desktop apps, see the other releases of this repository.
         EOF
         } > "$NOTES_FILE"
 
+        # A version with a suffix (0.1.2-beta.1) is published as a pre-release
+        PRERELEASE=""
+        case "$VERSION_NAME" in *-*) PRERELEASE="--prerelease" ;; esac
+
         gh release create "$TAG" release/*.apk \
-          --title "Yugen $TAG" \
+          --title "Yugen ${VERSION_NAME}" \
           --target "$TARGET_SHA" \
+          $PRERELEASE \
           --notes-file "$NOTES_FILE"

@@ -79,6 +79,9 @@ private fun collectionFields(anime: Boolean) = """
   }
 """
 
+/** One page of discovery results; [hasNext] says whether asking for the next page can return more. */
+data class MetadataPage(val items: List<MetadataTitle>, val hasNext: Boolean)
+
 /** A title from AniList's public catalogue, used for Home's hero and Trending when AniList is the metadata source. */
 data class MetadataTitle(
 	val id: Long,
@@ -100,6 +103,8 @@ data class MetadataTitle(
 	/** Tags / themes beyond genres, e.g. "Boys' Love", used to tell same-named titles apart. */
 	val tags: List<String> = emptyList(),
 	val year: Int? = null,
+	/** A watchable trailer (YouTube / Dailymotion) when the tracker has one; used by Explore's samples. */
+	val trailerUrl: String? = null,
 ) {
 
 	/** Normalised kind: MANHWA, MANHUA, MANGA, NOVEL, ONE_SHOT or null when unknown. */
@@ -526,6 +531,72 @@ class AniListRepository @Inject constructor(
 	}
 
 	/**
+	 * Pageable discovery over AniList's catalogue: search, genre include/exclude, status, format / country
+	 * (manhwa, manhua), release year and sort, with AniList's own `hasNextPage` so callers can offer a
+	 * next page after the first one runs out. [country] is an ISO code (KR manhwa, CN manhua, JP manga).
+	 */
+	suspend fun discover(
+		page: Int,
+		perPage: Int,
+		novel: Boolean,
+		anime: Boolean,
+		sort: String,
+		include: Set<String>,
+		exclude: Set<String>,
+		includeTags: Set<String> = emptySet(),
+		excludeTags: Set<String> = emptySet(),
+		status: String?,
+		format: String?,
+		country: String?,
+		year: Int?,
+		season: String? = null,
+		search: String?,
+		hideAdult: Boolean,
+	): MetadataPage {
+		val formatArg = when {
+			format != null -> ", format: $format"
+			anime -> ""
+			novel -> ", format: NOVEL"
+			else -> ", format_not: NOVEL"
+		}
+		val genreIn = if (include.isEmpty()) "" else ", genre_in: [${include.joinToString { JSONObject.quote(it) }}]"
+		val genreNot = if (exclude.isEmpty()) "" else ", genre_not_in: [${exclude.joinToString { JSONObject.quote(it) }}]"
+		val tagIn = if (includeTags.isEmpty()) "" else ", tag_in: [${includeTags.joinToString { JSONObject.quote(it) }}]"
+		val tagNot = if (excludeTags.isEmpty()) "" else ", tag_not_in: [${excludeTags.joinToString { JSONObject.quote(it) }}]"
+		val adult = if (hideAdult) ", isAdult: false" else ""
+		val statusArg = if (status == null) "" else ", status: $status"
+		val countryArg = if (country == null) "" else ", countryOfOrigin: $country"
+		val seasonArg = if (season == null) "" else ", season: $season"
+		val yearArg = when {
+			year == null -> ""
+			season != null -> ", seasonYear: $year"
+			else -> ", startDate_greater: ${year * 10000}, startDate_lesser: ${(year + 1) * 10000}"
+		}
+		val searchArg = if (search.isNullOrBlank()) "" else ", search: ${JSONObject.quote(search)}"
+		val sortArg = if (search.isNullOrBlank()) sort else "SEARCH_MATCH"
+		val response = doRequest(
+			REQUEST_QUERY,
+			"""
+			Page(page: $page, perPage: $perPage) {
+				pageInfo { hasNextPage }
+				media(type: ${if (anime) "ANIME" else "MANGA"}$formatArg, sort: $sortArg$statusArg$countryArg$seasonArg$yearArg$searchArg$genreIn$genreNot$tagIn$tagNot$adult) {
+					id
+					title { userPreferred romaji english native }
+					synonyms
+					$META_FIELDS
+					trailer { id site }
+				}
+			}
+		""",
+		)
+		val pageJson = response.getJSONObject("data").getJSONObject("Page")
+		return MetadataPage(
+			items = pageJson.getJSONArray("media").mapJSON { json -> metadataOf(json) },
+			hasNext = pageJson.optJSONObject("pageInfo")?.optBoolean("hasNextPage") ?: false,
+		)
+	}
+
+	/**
 	 * One exact AniList entry by id. Used when the title is already tracked here, so the cover and info
 	 * come from the entry the user actually linked rather than from whichever same-named title ranks first.
 	 */
@@ -698,6 +769,14 @@ class AniListRepository @Inject constructor(
 			country = json.getStringOrNull("countryOfOrigin"),
 			tags = tags,
 			year = json.optJSONObject("startDate")?.optInt("year")?.takeIf { it > 0 },
+			trailerUrl = json.optJSONObject("trailer")?.let { t ->
+				val id = t.getStringOrNull("id") ?: return@let null
+				when (t.getStringOrNull("site")?.lowercase()) {
+					"youtube" -> "https://www.youtube.com/watch?v=$id"
+					"dailymotion" -> "https://www.dailymotion.com/video/$id"
+					else -> null
+				}
+			},
 		)
 	}
 

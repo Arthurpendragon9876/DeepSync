@@ -137,6 +137,10 @@ class ChaptersFragment :
 			val manga = viewModel.getMangaOrNull()
 			router.openBrowser(url = url, source = manga?.source, title = manga?.title)
 		}
+		viewModel.onOpenChapterExternally.observeEvent(viewLifecycleOwner) { url ->
+			val manga = viewModel.getMangaOrNull()
+			router.openBrowserExternally(url = url, source = manga?.source, title = manga?.title)
+		}
 	}
 
 	private fun applyDetailsSheetBackground(binding: FragmentChaptersBinding) {

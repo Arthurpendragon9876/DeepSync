@@ -98,9 +98,11 @@ class SourceSettings(context: Context, source: MangaSource) : MangaSourceConfig 
 		}.isSuccess
 
 		fun getStorageName(sourceName: String): String {
+			// Anime extensions (Aniyomi) keep their preferences in the same "source_<id>" file as Mihon ones,
+			// so the extension reads back what the settings page writes
 			val sourceId = sourceName
-				.takeIf { it.startsWith("MIHON_") }
-				?.removePrefix("MIHON_")
+				.takeIf { it.startsWith("MIHON_") || it.startsWith("ANIME_") }
+				?.substringAfter('_')
 				?.substringBefore(':')
 				?.toLongOrNull()
 			return if (sourceId != null && sourceId > 0) {

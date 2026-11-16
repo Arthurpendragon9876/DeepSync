@@ -192,6 +192,10 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		get() = prefs.getBoolean(KEY_TITLE_OVER_COVER, true)
 		set(value) = prefs.edit { putBoolean(KEY_TITLE_OVER_COVER, value) }
 
+	/** Web pages (chapter, title) open in the phone's browser instead of the built-in WebView. */
+	val isOpenInExternalBrowser: Boolean
+		get() = prefs.getBoolean(KEY_OPEN_EXTERNAL_BROWSER, false)
+
 	var isTitleTapToReadEnabled: Boolean
 		get() = prefs.getBoolean(KEY_TITLE_TAP_TO_READ, false)
 		set(value) = prefs.edit { putBoolean(KEY_TITLE_TAP_TO_READ, value) }
@@ -657,6 +661,44 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		get() = prefs.getBoolean(KEY_REVERSE_CHAPTERS, false)
 		set(value) = prefs.edit { putBoolean(KEY_REVERSE_CHAPTERS, value) }
 
+	// --- Advanced novel settings (novel downloads + translation) ---
+	var isNovelThrottleEnabled: Boolean
+		get() = prefs.getBoolean(KEY_NOVEL_THROTTLE, true)
+		set(value) = prefs.edit { putBoolean(KEY_NOVEL_THROTTLE, value) }
+
+	/** Requests to one novel source that may go through back to back before the delay is enforced. */
+	var novelRequestsBeforeDelay: Int
+		get() = prefs.getInt(KEY_NOVEL_BURST, 5).coerceIn(1, 20)
+		set(value) = prefs.edit { putInt(KEY_NOVEL_BURST, value) }
+
+	/** Delay between novel requests once the burst is used up, in milliseconds. */
+	var novelRequestDelayMs: Int
+		get() = prefs.getInt(KEY_NOVEL_DELAY, 1000).coerceIn(0, 10_000)
+		set(value) = prefs.edit { putInt(KEY_NOVEL_DELAY, value) }
+
+	var novelParallelUpdates: Int
+		get() = prefs.getInt(KEY_NOVEL_PARALLEL_UPDATES, 5).coerceIn(1, 15)
+		set(value) = prefs.edit { putInt(KEY_NOVEL_PARALLEL_UPDATES, value) }
+
+	var novelConcurrentMassImports: Int
+		get() = prefs.getInt(KEY_NOVEL_MASS_IMPORTS, 5).coerceIn(1, 30)
+		set(value) = prefs.edit { putInt(KEY_NOVEL_MASS_IMPORTS, value) }
+
+	/** Skip the rest of a source's urls after this many consecutive detail-fetch failures; 0 disables. */
+	var novelSkipAfterErrors: Int
+		get() = prefs.getInt(KEY_NOVEL_SKIP_ERRORS, 2).coerceIn(0, 20)
+		set(value) = prefs.edit { putInt(KEY_NOVEL_SKIP_ERRORS, value) }
+
+	/** Per-source delay overrides (source name -> ms); they win over the global delay. */
+	var novelDelayOverrides: Map<String, Int>
+		get() = prefs.getString(KEY_NOVEL_OVERRIDES, null).orEmpty().split(';').mapNotNull {
+			val i = it.lastIndexOf('=')
+			if (i <= 0) null else it.substring(0, i) to (it.substring(i + 1).toIntOrNull() ?: return@mapNotNull null)
+		}.toMap()
+		set(value) = prefs.edit {
+			putString(KEY_NOVEL_OVERRIDES, value.entries.joinToString(";") { "${it.key}=${it.value}" })
+		}
+
 	var isChaptersGridView: Boolean
 		get() = prefs.getBoolean(KEY_GRID_VIEW_CHAPTERS, false)
 		set(value) = prefs.edit { putBoolean(KEY_GRID_VIEW_CHAPTERS, value) }
@@ -880,8 +922,29 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 
 	/** Trackers (HomeMetadata names) whose catalogues global search includes next to the sources. */
 	var globalSearchTrackers: Set<String>
-		get() = prefs.getStringSet(KEY_GLOBAL_SEARCH_TRACKERS, emptySet()).orEmpty()
+		get() = when {
+			prefs.contains(KEY_GLOBAL_SEARCH_TRACKERS) ->
+				prefs.getStringSet(KEY_GLOBAL_SEARCH_TRACKERS, emptySet()).orEmpty()
+			// Never chosen: search the tracker Home already uses, unless Home runs on the sources
+			!isHomeSourceCatalogue -> setOf(homeMetadataProvider.name)
+			else -> emptySet()
+		}
 		set(value) = prefs.edit { putStringSet(KEY_GLOBAL_SEARCH_TRACKERS, value) }
+
+	/** Explore opens on its Discover (tracker) page rather than the Sources page. */
+	var isExploreDiscoverDefault: Boolean
+		// Until chosen, follow Home: Discover is only useful once a tracker (not the source catalogue) is in use
+		get() = if (prefs.contains(KEY_EXPLORE_DISCOVER_DEFAULT)) {
+			prefs.getBoolean(KEY_EXPLORE_DISCOVER_DEFAULT, true)
+		} else {
+			!isHomeSourceCatalogue
+		}
+		set(value) = prefs.edit { putBoolean(KEY_EXPLORE_DISCOVER_DEFAULT, value) }
+
+	/** Explore's Discover page lists titles as rows instead of a poster grid. */
+	var isExploreListView: Boolean
+		get() = prefs.getBoolean(KEY_EXPLORE_LIST_VIEW, false)
+		set(value) = prefs.edit { putBoolean(KEY_EXPLORE_LIST_VIEW, value) }
 
 	var isGlobalSearchNovelScope: Boolean
 		get() = prefs.getBoolean(KEY_GLOBAL_SEARCH_NOVEL_SCOPE, false)
@@ -1136,6 +1199,12 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 	val isSuggestionsExcludeNovels: Boolean
 		get() = prefs.getBoolean(KEY_SUGGESTIONS_EXCLUDE_NOVELS, true)
 
+	val isSuggestionsExcludeManga: Boolean
+		get() = prefs.getBoolean(KEY_SUGGESTIONS_EXCLUDE_MANGA, false)
+
+	val isSuggestionsExcludeAnime: Boolean
+		get() = prefs.getBoolean(KEY_SUGGESTIONS_EXCLUDE_ANIME, false)
+
 	val isSuggestionsNotificationAvailable: Boolean
 		get() = prefs.getBoolean(KEY_SUGGESTIONS_NOTIFICATIONS, false)
 
@@ -1145,7 +1214,9 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 			if (string.isNullOrEmpty()) {
 				return emptySet()
 			}
-			return string.split(',').mapToSet { it.trim() }
+			// Excluding "Yaoi" also has to drop "BL" and "Boys' Love": sources name the same thing differently
+			return string.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+				.flatMapTo(HashSet()) { word -> setOf(word) + org.koitharu.kotatsu.metadata.DiscoverTags.synonymsOf(word) }
 		}
 
 	val isReaderBarEnabled: Boolean
@@ -1533,6 +1604,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_LIST_MODE = "list_mode_2"
 		const val KEY_TITLE_OVER_COVER = "title_over_cover"
 		const val KEY_TITLE_TAP_TO_READ = "title_tap_to_read"
+		const val KEY_OPEN_EXTERNAL_BROWSER = "open_external_browser"
 		const val KEY_LIST_CHECKPOINT = "list_checkpoint"
 		const val KEY_CHECK_DUPLICATES = "check_duplicates"
 		const val KEY_MIGRATE_DUPLICATE_PROGRESS = "migrate_duplicate_progress"
@@ -1638,6 +1710,19 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_DETAILS_UI = "details_ui"
 		const val KEY_REVERSE_CHAPTERS = "reverse_chapters"
 		const val KEY_GRID_VIEW_CHAPTERS = "grid_view_chapters"
+		const val KEY_NOVEL_THROTTLE = "novel_throttle_enabled"
+		const val KEY_NOVEL_BURST = "novel_requests_before_delay"
+		const val KEY_NOVEL_DELAY = "novel_request_delay_ms"
+		const val KEY_NOVEL_PARALLEL_UPDATES = "novel_parallel_updates"
+		const val KEY_NOVEL_MASS_IMPORTS = "novel_concurrent_mass_imports"
+		const val KEY_NOVEL_SKIP_ERRORS = "novel_skip_on_errors"
+		const val KEY_NOVEL_OVERRIDES = "novel_delay_overrides"
+		const val KEY_NOVEL_TRANSLATE = "novel_translation_enabled"
+		const val KEY_NOVEL_TRANSLATE_ENGINE = "novel_translation_engine"
+		const val KEY_NOVEL_TRANSLATE_SOURCE = "novel_translation_source_lang"
+		const val KEY_NOVEL_TRANSLATE_TARGET = "novel_translation_target_lang"
+		const val KEY_NOVEL_TRANSLATE_AUTO_DL = "novel_translation_auto_download"
+		const val KEY_NOVEL_TRANSLATE_AUTO_DOWNLOADS = "novel_translation_auto_translate_downloads"
 		const val KEY_SORT_CHAPTERS_BY_NAME = "sort_chapters_by_name_"
 		const val KEY_SORT_CHAPTERS_BY_DATE = "sort_chapters_by_date_"
 		const val KEY_DEFAULT_BROWSE_SORT = "default_browse_sort"
@@ -1648,6 +1733,8 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_SUGGESTIONS_WIFI_ONLY = "suggestions_wifi"
 		const val KEY_SUGGESTIONS_EXCLUDE_NSFW = "suggestions_exclude_nsfw"
 		const val KEY_SUGGESTIONS_EXCLUDE_NOVELS = "suggestions_exclude_novels"
+		const val KEY_SUGGESTIONS_EXCLUDE_MANGA = "suggestions_exclude_manga"
+		const val KEY_SUGGESTIONS_EXCLUDE_ANIME = "suggestions_exclude_anime"
 		const val KEY_SUGGESTIONS_EXCLUDE_TAGS = "suggestions_exclude_tags"
 		const val KEY_SUGGESTIONS_NOTIFICATIONS = "suggestions_notifications"
 		const val KEY_DOWNLOADS_METERED_NETWORK = "downloads_metered_network"
@@ -1772,6 +1859,8 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 
 		const val KEY_GLOBAL_SEARCH_NOVEL_SCOPE = "global_search_novel_scope"
 		const val KEY_GLOBAL_SEARCH_TRACKERS = "global_search_trackers"
+		const val KEY_EXPLORE_DISCOVER_DEFAULT = "explore_discover_default"
+		const val KEY_EXPLORE_LIST_VIEW = "explore_list_view"
 		const val KEY_SEARCH_PINNED_ONLY = "search_pinned_only"
 		const val KEY_SEARCH_LOCAL_ONLY = "search_local_only"
 		const val KEY_SHIZUKU_INSTALLER = "shizuku_installer"

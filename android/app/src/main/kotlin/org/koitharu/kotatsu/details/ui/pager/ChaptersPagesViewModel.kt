@@ -78,6 +78,7 @@ abstract class ChaptersPagesViewModel(
 	val onDownloadStarted = MutableEventFlow<Unit>()
 	val onMangaRemoved = MutableEventFlow<Manga>()
 	val onOpenChapterInBrowser = MutableEventFlow<String>()
+	val onOpenChapterExternally = MutableEventFlow<String>()
 
 	val chaptersQuery = MutableStateFlow("")
 	val selectedBranch = MutableStateFlow<String?>(null)
@@ -288,7 +289,7 @@ abstract class ChaptersPagesViewModel(
 		}
 	}
 
-	fun openChapterInBrowser(chapterId: Long) {
+	fun openChapterInBrowser(chapterId: Long, external: Boolean = false) {
 		// Downloaded chapters replace their online twins in the merged list and carry a local file path
 		// as their url, so resolve the chapter from the source's own (online) manga instead.
 		val manga = mangaDetails.value?.sourceManga?.takeUnless { it.isLocal } ?: return
@@ -296,7 +297,7 @@ abstract class ChaptersPagesViewModel(
 		launchJob(Dispatchers.Default) {
 			val url = mangaRepositoryFactory.create(manga.source).getChapterUrl(manga, chapter)
 			if (!url.isNullOrEmpty()) {
-				onOpenChapterInBrowser.call(url)
+				(if (external) onOpenChapterExternally else onOpenChapterInBrowser).call(url)
 			}
 		}
 	}

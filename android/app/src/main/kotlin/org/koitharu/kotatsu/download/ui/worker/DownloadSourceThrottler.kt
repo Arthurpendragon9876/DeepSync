@@ -7,6 +7,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import org.koitharu.kotatsu.core.model.isNovelSource
+import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.SourceSettings
 import org.koitharu.kotatsu.parsers.model.MangaSource
 import javax.inject.Inject
@@ -24,11 +26,18 @@ import javax.inject.Singleton
 @Singleton
 class DownloadSourceThrottler @Inject constructor(
 	@ApplicationContext private val context: Context,
+	private val appSettings: AppSettings,
 ) {
 
 	private val nextSlot = MutableObjectLongMap<MangaSource>()
 	private val semaphores = HashMap<MangaSource, Semaphore>()
 	private val settingsMap = HashMap<MangaSource, SourceSettings>()
+	private val novelPace = HashMap<MangaSource, NovelPace>()
+
+	private class NovelPace {
+		var used = 0
+		var nextFree = 0L
+	}
 
 	/**
 	 * Waits for [source]'s next slowdown slot without taking a request permit. For background work
@@ -48,6 +57,12 @@ class DownloadSourceThrottler @Inject constructor(
 	}
 
 	private suspend fun awaitSlot(source: MangaSource) {
+		// Novel sources use the Advanced novel settings: a burst of requests, then a delay (with
+		// per-source overrides). Everything else keeps the per-source slowdown below.
+		if (source.isNovelSource) {
+			awaitNovelSlot(source)
+			return
+		}
 		val settings = synchronized(settingsMap) {
 			settingsMap.getOrPut(source) { SourceSettings(context, source) }
 		}
@@ -64,6 +79,29 @@ class DownloadSourceThrottler @Inject constructor(
 			reserved
 		}
 		delay(slot - now)
+	}
+
+	private suspend fun awaitNovelSlot(source: MangaSource) {
+		if (!appSettings.isNovelThrottleEnabled) return
+		val delayMs = (appSettings.novelDelayOverrides[source.name] ?: appSettings.novelRequestDelayMs).toLong()
+		if (delayMs <= 0L) return
+		val burst = appSettings.novelRequestsBeforeDelay
+		val waitMs = synchronized(novelPace) {
+			val pace = novelPace.getOrPut(source) { NovelPace() }
+			val now = SystemClock.elapsedRealtime()
+			// The delay has passed while idle: the burst refills.
+			if (pace.used >= burst && now >= pace.nextFree) pace.used = 0
+			if (pace.used < burst) {
+				pace.used++
+				if (pace.used == burst) pace.nextFree = now + delayMs
+				0L
+			} else {
+				val slot = maxOf(pace.nextFree, now)
+				pace.nextFree = slot + delayMs
+				slot - now
+			}
+		}
+		if (waitMs > 0) delay(waitMs)
 	}
 
 	private companion object {

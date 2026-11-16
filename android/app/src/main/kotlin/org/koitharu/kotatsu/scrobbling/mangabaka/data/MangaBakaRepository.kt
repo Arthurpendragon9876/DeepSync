@@ -360,11 +360,12 @@ class MangaBakaRepository @Inject constructor(
 	 * MangaBaka's catalogue as [MetadataTitle]s: a search when [search] is given, otherwise its most popular
 	 * series. MangaBaka covers comics and novels only, so there is nothing for anime.
 	 */
-	suspend fun metaList(novel: Boolean, limit: Int, hideAdult: Boolean, search: String? = null): List<MetadataTitle> {
+	suspend fun metaList(novel: Boolean, limit: Int, hideAdult: Boolean, search: String? = null, page: Int = 1): List<MetadataTitle> {
 		val url = "$BASE_API_URL/series/search".toHttpUrl().newBuilder().apply {
 			if (search != null) addQueryParameter("q", search) else addQueryParameter("sort_by", "popularity_desc")
 			addQueryParameter(if (novel) "type" else "type_not", "novel")
 			addQueryParameter("limit", limit.toString())
+			if (page > 1) addQueryParameter("page", page.toString())
 		}.build()
 		val response = okHttp.newCall(Request.Builder().url(url).get().build()).await().parseJson()
 		check(response.has("data")) { "Invalid response: \"$response\"" }

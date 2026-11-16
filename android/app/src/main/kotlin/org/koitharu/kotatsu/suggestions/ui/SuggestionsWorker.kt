@@ -49,7 +49,7 @@ import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.exceptions.CloudFlareException
 import org.koitharu.kotatsu.core.exceptions.resolve.CaptchaHandler
 import org.koitharu.kotatsu.core.model.distinctById
-import org.koitharu.kotatsu.core.model.isNovelSource
+import org.koitharu.kotatsu.core.model.contentMode
 import org.koitharu.kotatsu.core.model.isNsfw
 import org.koitharu.kotatsu.core.nav.AppRouter
 import org.koitharu.kotatsu.core.nav.ReaderIntent
@@ -191,32 +191,16 @@ class SuggestionsWorker @AssistedInject constructor(
 			return 0
 		}
 		val tagsBlacklist = TagsBlacklist(appSettings.suggestionsTagsBlacklist, TAG_EQ_THRESHOLD)
-		val tags = seed.flatMap { it.tags.map { x -> x.title } }.takeMostFrequent(10)
-
-		val semaphore = Semaphore(MAX_PARALLELISM)
-		val producer = channelFlow {
-			for (it in sources) {
-				if (it.isNsfw() && appSettings.isNsfwContentDisabled) {
-					continue
-				}
-				launch {
-					semaphore.withPermit {
-						send(getList(it, tags, tagsBlacklist))
-					}
-				}
-			}
+		// Each mode (Manga, Anime, Novel) gets its own pool, learnt from what was read or watched in that mode
+		// (falling back to everything when the mode has no history yet). One shared pool let the slower anime
+		// and novel hosts lose the race to manga ones, so the Suggestions page of those modes came up empty.
+		val suggestions = org.koitharu.kotatsu.home.ui.model.HomeMode.entries.flatMap { mode ->
+			val modeSources = sources.filter { it.contentMode == mode }
+			if (modeSources.isEmpty()) return@flatMap emptyList()
+			val tags = seed.filter { it.source.contentMode == mode }.ifEmpty { seed }
+				.flatMap { it.tags.map { x -> x.title } }.takeMostFrequent(10)
+			suggestFor(modeSources, tags, tagsBlacklist)
 		}
-		val suggestions = producer
-			.flatten()
-			.take(MAX_RAW_RESULTS)
-			.map { manga ->
-				MangaSuggestion(
-					manga = manga,
-					relevance = computeRelevance(manga.tags, tags),
-				)
-			}.toList()
-			.sortedByDescending { it.relevance }
-			.take(MAX_RESULTS)
 		suggestionRepository.replace(suggestions)
 		setProgress(workDataOf(PROGRESS_SAVED to true))
 		if (appSettings.isSuggestionsNotificationAvailable
@@ -270,14 +254,39 @@ class SuggestionsWorker @AssistedInject constructor(
 		}
 	}
 
-	private suspend fun getSources(): List<MangaSource> {
-		val sources = sourcesRepository.getEnabledSources()
-		return if (appSettings.isSuggestionsExcludeNovels) {
-			sources.filterNot { it.isNovelSource }
-		} else {
-			sources
-		}.shuffled()
+	private suspend fun suggestFor(
+		sources: List<MangaSource>,
+		tags: List<String>,
+		tagsBlacklist: TagsBlacklist,
+	): List<MangaSuggestion> {
+		val semaphore = Semaphore(MAX_PARALLELISM)
+		val producer = channelFlow {
+			for (it in sources) {
+				if (it.isNsfw() && appSettings.isNsfwContentDisabled) {
+					continue
+				}
+				launch {
+					semaphore.withPermit {
+						send(getList(it, tags, tagsBlacklist))
+					}
+				}
+			}
+		}
+		return producer
+			.flatten()
+			.take(MAX_RAW_RESULTS)
+			.map { manga ->
+				MangaSuggestion(
+					manga = manga,
+					relevance = computeRelevance(manga.tags, tags),
+				)
+			}.toList()
+			.sortedByDescending { it.relevance }
+			.take(MAX_RESULTS)
 	}
+
+	private suspend fun getSources(): List<MangaSource> =
+		sourcesRepository.getEnabledSources().shuffled()
 
 	private suspend fun getList(
 		source: MangaSource,

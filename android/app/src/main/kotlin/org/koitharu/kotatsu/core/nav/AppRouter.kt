@@ -341,7 +341,18 @@ class AppRouter private constructor(
 
     fun openDirectoriesSettings() = startActivity(MangaDirectoriesActivity::class.java)
 
+    /** Opens [url] in the built-in WebView, or in the phone's browser when the user chose that in settings. */
     fun openBrowser(url: String, source: MangaSource?, title: String?) {
+        if (settings.isOpenInExternalBrowser && openExternalBrowser(url)) return
+        openWebView(url, source, title)
+    }
+
+    /** Always the phone's browser (it can upload images and GIFs for comments, which WebView cannot); WebView if none. */
+    fun openBrowserExternally(url: String, source: MangaSource?, title: String?) {
+        if (!openExternalBrowser(url)) openWebView(url, source, title)
+    }
+
+    private fun openWebView(url: String, source: MangaSource?, title: String?) {
         startActivity(browserIntent(contextOrNull() ?: return, url, source, title))
     }
 
@@ -440,7 +451,14 @@ class AppRouter private constructor(
 
 
 
-    fun openStatistic() = startActivity(StatsActivity::class.java)
+    fun openStatistic(mode: org.koitharu.kotatsu.home.ui.model.HomeMode? = null) {
+        val context = contextOrNull() ?: return
+        context.startActivity(
+            Intent(context, StatsActivity::class.java).apply {
+                if (mode != null) putExtra(StatsActivity.EXTRA_MODE, mode.name)
+            },
+        )
+    }
 
     @CheckResult
     fun openExternalBrowser(url: String, chooserTitle: CharSequence? = null): Boolean {

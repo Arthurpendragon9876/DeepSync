@@ -65,6 +65,7 @@ class AboutSettingsFragment : BaseComposeSettingsFragment(R.string.about) {
 					updateAvailable = update != null,
 					onUpdate = { router.openAppUpdate() },
 					onLicenses = ::showLicenses,
+					onDiscord = { open(R.string.url_discord_web) },
 					onSource = { open(R.string.url_github) },
 					onIssues = { open(R.string.url_deepsync_issues) },
 					onAuthor = { openUrl("https://github.com/Arthurpendragon9876") },
@@ -96,6 +97,7 @@ private fun AboutScreen(
 	updateAvailable: Boolean,
 	onUpdate: () -> Unit,
 	onLicenses: () -> Unit,
+	onDiscord: () -> Unit,
 	onSource: () -> Unit,
 	onIssues: () -> Unit,
 	onAuthor: () -> Unit,
@@ -175,6 +177,15 @@ private fun AboutScreen(
 		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
 		item {
 			SettingsGroup(title = stringResource(R.string.ds_about_section_links)) {
+				item { pos ->
+					ActionSettingsItem(
+						title = stringResource(R.string.discord),
+						subtitle = stringResource(R.string.url_discord_web),
+						icon = R.drawable.ic_discord,
+						shape = pos.shape,
+						onClick = onDiscord,
+					)
+				}
 				item { pos ->
 					ActionSettingsItem(
 						title = stringResource(R.string.ds_about_source),

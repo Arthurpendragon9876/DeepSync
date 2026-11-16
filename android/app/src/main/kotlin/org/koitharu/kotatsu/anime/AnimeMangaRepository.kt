@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.anime
 
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
+import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
@@ -14,6 +15,8 @@ import org.koitharu.kotatsu.parsers.InternalParsersApi
 import org.koitharu.kotatsu.parsers.model.ContentRating
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
+import org.koitharu.kotatsu.mihon.MihonFilterHost
+import org.koitharu.kotatsu.mihon.MihonFilterMapper
 import org.koitharu.kotatsu.parsers.model.MangaListFilter
 import org.koitharu.kotatsu.parsers.model.MangaListFilterCapabilities
 import org.koitharu.kotatsu.parsers.model.MangaListFilterOptions
@@ -44,7 +47,7 @@ class AnimeStream(
 class AnimeMangaRepository(
 	override val source: AnimeMangaSource,
 	cache: MemoryContentCache,
-) : CachingMangaRepository(cache) {
+) : CachingMangaRepository(cache), MihonFilterHost {
 
 	private val anime = source.catalogueSource
 
@@ -71,7 +74,7 @@ class AnimeMangaRepository(
 
 	override suspend fun getList(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> =
 		withContext(Dispatchers.IO) {
-			val key = "$order|${filter?.query}"
+			val key = "$order|${filter?.query}|${filter?.tags}|${filter?.tagsExclude}"
 			val state = paginationStates.getOrPut(key) { PaginationState() }
 			val page = synchronized(state) {
 				if (offset == 0) {
@@ -84,8 +87,12 @@ class AnimeMangaRepository(
 				state.currentPage
 			}
 			val query = filter?.query?.trim().orEmpty()
+			val hasFilters = filter?.let { it.tags.isNotEmpty() || it.tagsExclude.isNotEmpty() } ?: false
 			val result = when {
-				query.isNotEmpty() -> anime.getSearchAnime(page, query, AnimeFilterList())
+				// A search or any applied filter goes through the extension's search; Popular/Latest take none.
+				query.isNotEmpty() || hasFilters ->
+					anime.getSearchAnime(page, query, filter?.toAnimeFilterList() ?: AnimeFilterList())
+
 				order == SortOrder.UPDATED && source.supportsLatest -> anime.getLatestUpdates(page)
 				else -> anime.getPopularAnime(page)
 			}
@@ -114,6 +121,26 @@ class AnimeMangaRepository(
 	override suspend fun getPageUrl(page: MangaPage): String = page.url
 
 	override suspend fun getFilterOptions(): MangaListFilterOptions = MangaListFilterOptions()
+
+	// The extension's own filters (genre, year, status, ...) are shown by the dynamic filter sheet, like
+	// Mihon sources; whatever the extension does not declare simply is not offered.
+	override val supportsDynamicFilters: Boolean
+		get() = true
+
+	override val inAppListingsExclusive: Boolean
+		get() = true
+
+	override suspend fun loadDefaultFilterList(): FilterList = withContext(Dispatchers.IO) {
+		runCatching { AnimeFilterMapper.toFilterList(anime.getFilterList()) }.getOrDefault(FilterList())
+	}
+
+	private fun MangaListFilter.toAnimeFilterList(): AnimeFilterList {
+		val working = runCatching { anime.getFilterList() }.getOrElse { return AnimeFilterList() }
+		val mirror = AnimeFilterMapper.toFilterList(working)
+		MihonFilterMapper.decode(mirror, this)
+		AnimeFilterMapper.copyState(mirror, working)
+		return working
+	}
 
 	override suspend fun getChapterUrl(manga: Manga, chapter: MangaChapter): String? =
 		(anime as? AnimeHttpSource)?.runCatching { getEpisodeUrl(chapter.toSEpisode()) }?.getOrNull()
@@ -211,8 +238,11 @@ class AnimeMangaRepository(
 		it.scanlator = scanlator ?: branch
 	}
 
-	private fun stableId(type: String, value: String): Long =
-		"${source.name}|$type|$value".hashCode().toLong() and Long.MAX_VALUE
+	private fun stableId(type: String, value: String): Long = when (type) {
+		"manga" -> animeMangaId(source.name, value)
+		"episode" -> animeEpisodeId(source.name, value)
+		else -> "${source.name}|$type|$value".hashCode().toLong() and Long.MAX_VALUE
+	}
 
 	private companion object {
 		val ADULT_GENRES = setOf("adult", "hentai", "18+", "nsfw", "mature", "ecchi")

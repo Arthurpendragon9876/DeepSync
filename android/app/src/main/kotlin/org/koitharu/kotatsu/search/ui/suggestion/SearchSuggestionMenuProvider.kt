@@ -12,6 +12,7 @@ import org.koitharu.kotatsu.core.util.ext.setOptionalIconsVisibleCompat
 class SearchSuggestionMenuProvider(
 	private val context: Context,
 	private val viewModel: SearchSuggestionViewModel,
+	private val onSearchPreferences: () -> Unit,
 ) : MenuProvider {
 
 	override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
@@ -22,6 +23,11 @@ class SearchSuggestionMenuProvider(
 		return when (menuItem.itemId) {
 			R.id.action_clear -> {
 				clearSearchHistory()
+				true
+			}
+
+			R.id.action_search_preferences -> {
+				onSearchPreferences()
 				true
 			}
 

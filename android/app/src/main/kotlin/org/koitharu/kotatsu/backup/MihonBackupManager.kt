@@ -13,6 +13,9 @@ import kotlinx.serialization.protobuf.ProtoBuf
 import okio.buffer
 import okio.gzip
 import okio.source
+import org.koitharu.kotatsu.anime.AnimeExtensionManager
+import org.koitharu.kotatsu.anime.animeEpisodeId
+import org.koitharu.kotatsu.anime.animeMangaId
 import org.koitharu.kotatsu.backup.model.MihonBackup
 import org.koitharu.kotatsu.backup.model.MihonBackupCategory
 import org.koitharu.kotatsu.backup.model.MihonBackupChapter
@@ -63,6 +66,7 @@ class MihonBackupManager @Inject constructor(
     private val settings: AppSettings,
     private val mihonExtensionManager: MihonExtensionManager,
     private val mihonExtensionLoader: MihonExtensionLoader,
+    private val animeExtensionManager: AnimeExtensionManager,
     private val extensionStoreRegistry: ExtensionStoreRegistry,
 ) {
 
@@ -213,7 +217,13 @@ class MihonBackupManager @Inject constructor(
   private fun buildDiagnostics(backup: MihonBackup, options: Options): RestoreAccumulator {
     val missingSources = if (options.libraryEntries) {
       backup.backupSources
-        .filter { it.sourceId > 0L && mihonExtensionManager.getMihonMangaSourceById(it.sourceId) == null }
+        .filter {
+          it.sourceId > 0L && if (backup.isAnime) {
+            animeExtensionManager.getSource(it.sourceId) == null
+          } else {
+            mihonExtensionManager.getMihonMangaSourceById(it.sourceId) == null
+          }
+        }
         .map { source -> source.name.ifBlank { source.sourceId.toString() } }
     } else {
       emptyList()
@@ -245,6 +255,9 @@ class MihonBackupManager @Inject constructor(
                 else -> source.readByteArray()
             }
         } ?: throw BadBackupFormatException(null)
+
+        // Anikku (anime) backups use another field layout; check them first, Mihon ones decode to null here.
+        AnikkuBackupConverter.convert(proto, payload)?.let { return it }
 
         return try {
             proto.decodeFromByteArray(MihonBackup.serializer(), payload)
@@ -279,10 +292,14 @@ class MihonBackupManager @Inject constructor(
         val now = System.currentTimeMillis()
 
         val pending = backup.backupManga.map { item ->
-            val sourceName = resolveStoredSourceName(item.source, backup.backupSources)
+            val sourceName = if (backup.isAnime) {
+                "ANIME_${item.source}"
+            } else {
+                resolveStoredSourceName(item.source, backup.backupSources)
+            }
             // Use the same identities as the live Mihon adapter. Otherwise the first network
             // refresh replaces every restored chapter ID, losing the reading branch/checkpoint.
-            val mangaId = mihonMangaId(sourceName, item.url)
+            val mangaId = if (backup.isAnime) animeMangaId(sourceName, item.url) else mihonMangaId(sourceName, item.url)
             val tags = item.genre.mapNotNull { title ->
                 val clean = title.trim()
                 if (clean.isBlank()) {
@@ -305,7 +322,11 @@ class MihonBackupManager @Inject constructor(
             )
             val chapters = orderedBackupChapters.mapIndexed { index, chapter ->
                 ChapterEntity(
-                    chapterId = mihonChapterId(sourceName, chapter.url),
+                    chapterId = if (backup.isAnime) {
+                        animeEpisodeId(sourceName, chapter.url)
+                    } else {
+                        mihonChapterId(sourceName, chapter.url)
+                    },
                     mangaId = mangaId,
                     title = chapter.name,
                     number = chapter.chapterNumber,
@@ -461,7 +482,12 @@ class MihonBackupManager @Inject constructor(
                     authors = item.author,
                     description = item.description,
                     source = sourceName,
-                    sourceTitle = resolveSourceTitle(item.source, backup.backupSources),
+                    sourceTitle = if (backup.isAnime) {
+                        (animeExtensionManager.getSource(item.source)?.name
+                            ?: backup.backupSources.firstOrNull { it.sourceId == item.source }?.name)
+                    } else {
+                        resolveSourceTitle(item.source, backup.backupSources)
+                    },
                 ),
                 tags = tags,
                 chapters = chapters,

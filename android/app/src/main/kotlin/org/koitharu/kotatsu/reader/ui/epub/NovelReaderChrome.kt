@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package org.koitharu.kotatsu.reader.ui.epub
 
 import androidx.compose.animation.AnimatedVisibility
@@ -7,6 +9,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -112,6 +117,9 @@ class NovelChromeState {
 
 	/** Opens the chapter being read on the source's website in the built-in browser. */
 	var onWebClick: () -> Unit = {}
+
+	/** Holding the web button opens the same page in the phone's browser. */
+	var onWebLongClick: () -> Unit = {}
 	var canOpenWeb: () -> Boolean = { false }
 	var onChaptersClick: () -> Unit = {}
 	var onListenClick: () -> Unit = {}
@@ -295,10 +303,27 @@ private fun NovelTopBar(state: NovelChromeState) {
 					}
 				}
 				if (state.canOpenWeb()) {
-					IconButton(onClick = state.onWebClick, modifier = Modifier.size(48.dp)) {
+					Box(
+						modifier = Modifier
+							.size(48.dp)
+							.combinedClickable(
+								indication = null,
+								interactionSource = remember { MutableInteractionSource() },
+								onClick = state.onWebClick,
+								onLongClick = state.onWebLongClick,
+							),
+						contentAlignment = Alignment.Center,
+					) {
 						Icon(
 							painter = painterResource(R.drawable.ic_web),
 							contentDescription = stringResource(R.string.open_in_browser),
+							tint = Bar.textPrimary,
+						)
+					}
+					IconButton(onClick = state.onWebLongClick, modifier = Modifier.size(48.dp)) {
+						Icon(
+							painter = painterResource(R.drawable.ic_open_external),
+							contentDescription = stringResource(R.string.open_in_external_browser),
 							tint = Bar.textPrimary,
 						)
 					}

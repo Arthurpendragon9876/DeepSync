@@ -47,6 +47,7 @@ import org.koitharu.kotatsu.core.exceptions.CloudFlareException
 import org.koitharu.kotatsu.core.exceptions.resolve.CaptchaHandler
 import org.koitharu.kotatsu.core.model.ids
 import org.koitharu.kotatsu.core.nav.AppRouter
+import org.koitharu.kotatsu.core.model.isNovelSource
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.TriStateOption
 import org.koitharu.kotatsu.core.util.ext.awaitUniqueWorkInfoByName
@@ -120,6 +121,7 @@ class TrackWorker @AssistedInject constructor(
 	@CheckResult
 	private suspend fun checkUpdatesAsync(tracks: List<MangaTracking>) {
 		val semaphore = Semaphore(MAX_PARALLELISM)
+		val novelSemaphore = Semaphore(settings.novelParallelUpdates)
 		var hasAlerted = false
 		var failedChecks = 0
 		var isCancelled = false
@@ -131,7 +133,7 @@ class TrackWorker @AssistedInject constructor(
 				// request state and sites commonly rate-limit concurrent requests from one source.
 				for (sourceTracks in tracks.groupBy { it.manga.source.name }.values) {
 					launch {
-						semaphore.withPermit {
+						(if (sourceTracks.first().manga.source.isNovelSource) novelSemaphore else semaphore).withPermit {
 							for (track in sourceTracks) {
 								send(
 									runCatchingCancellable {

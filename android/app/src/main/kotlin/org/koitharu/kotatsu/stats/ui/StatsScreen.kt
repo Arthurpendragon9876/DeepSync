@@ -77,12 +77,14 @@ import androidx.compose.material3.SheetValue
 @Composable
 fun StatsScreen(
 	stats: ReadingStats,
+	genres: List<org.koitharu.kotatsu.stats.domain.GenreScore> = emptyList(),
 	isLoading: Boolean,
 	period: StatsPeriod,
 	categories: List<FavouriteCategory>,
 	selectedCategories: Set<Long>,
 	imageLoader: ImageLoader,
 	bottomInset: Dp,
+	mode: org.koitharu.kotatsu.home.ui.model.HomeMode? = null,
 	onPeriodChange: (StatsPeriod) -> Unit,
 	onCategoryToggle: (FavouriteCategory) -> Unit,
 	onCategoriesClear: () -> Unit,
@@ -91,6 +93,7 @@ fun StatsScreen(
 	val context = LocalContext.current
 	val resources = context.resources
 	val zone = remember { ZoneId.systemDefault() }
+	val isAnime = mode == org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME
 	// Selections are per-snapshot: an index means nothing once the period or filter changes.
 	var selectedBucket by remember(stats) { mutableIntStateOf(-1) }
 
@@ -167,7 +170,7 @@ fun StatsScreen(
 				}
 				StatsCard {
 					Text(
-						text = stringResource(R.string.total_read_time),
+						text = stringResource(if (isAnime) R.string.total_watch_time else R.string.total_read_time),
 						style = MaterialTheme.typography.labelLarge,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 					)
@@ -226,14 +229,14 @@ fun StatsScreen(
 					Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
 						StatTile(
 							value = stats.chapters.toString(),
-							label = stringResource(R.string.stats_chapters_read),
+							label = stringResource(if (isAnime) R.string.stats_episodes_watched else R.string.stats_chapters_read),
 							icon = painterResource(R.drawable.ic_auto_stories),
 							accent = MaterialTheme.colorScheme.primary,
 							modifier = Modifier.weight(1f),
 						)
 						StatTile(
 							value = stats.pages.toString(),
-							label = stringResource(R.string.stats_pages_read),
+							label = stringResource(if (isAnime) R.string.stats_sessions_watched else R.string.stats_pages_read),
 							icon = painterResource(R.drawable.ic_book_page),
 							accent = MaterialTheme.colorScheme.secondary,
 							modifier = Modifier.weight(1f),
@@ -245,7 +248,7 @@ fun StatsScreen(
 								R.string.minutes_per_chapter_short,
 								stats.minutesPerChapter.format(if (stats.minutesPerChapter < 10) 1 else 0),
 							),
-							label = stringResource(R.string.reading_rate),
+							label = stringResource(if (isAnime) R.string.watching_rate else R.string.reading_rate),
 							icon = painterResource(R.drawable.ic_timer),
 							accent = MaterialTheme.colorScheme.tertiary,
 							modifier = Modifier.weight(1f),
@@ -266,10 +269,15 @@ fun StatsScreen(
 				}
 			}
 
+			if (genres.isNotEmpty()) {
+				item("genres") { GenresSection(genres) }
+			}
+
 			if (stats.records.isNotEmpty()) {
 				item("top-manga") {
 					TopMangaSection(
 						stats = stats,
+						isAnime = isAnime,
 						imageLoader = imageLoader,
 						onMangaClick = onMangaClick,
 					)
@@ -279,10 +287,43 @@ fun StatsScreen(
 	}
 }
 
+@Composable
+private fun GenresSection(genres: List<org.koitharu.kotatsu.stats.domain.GenreScore>) {
+	Column {
+		StatsSectionHeader(title = "Genres you like")
+		StatsCard {
+			genres.forEachIndexed { index, genre ->
+				if (index > 0) Spacer(Modifier.height(10.dp))
+				Row(verticalAlignment = Alignment.CenterVertically) {
+					Text(
+						text = genre.genre,
+						style = MaterialTheme.typography.bodyMedium,
+						modifier = Modifier.weight(1f),
+					)
+					Text(
+						text = buildString {
+							append(genre.titles).append(if (genre.titles == 1) " title" else " titles")
+							if (genre.minutes > 0) append(" · ").append(genre.minutes / 60).append("h ").append(genre.minutes % 60).append("m")
+						},
+						style = MaterialTheme.typography.bodySmall,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+					)
+				}
+				Spacer(Modifier.height(4.dp))
+				LinearProgressIndicator(
+					progress = { genre.score },
+					modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+				)
+			}
+		}
+	}
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TopMangaSection(
 	stats: ReadingStats,
+	isAnime: Boolean,
 	imageLoader: ImageLoader,
 	onMangaClick: (Manga) -> Unit,
 ) {
@@ -295,7 +336,7 @@ private fun TopMangaSection(
 	}
 	var isOtherShown by remember(stats) { mutableStateOf(false) }
 	Column {
-		StatsSectionHeader(title = stringResource(R.string.stats_top_manga))
+		StatsSectionHeader(title = stringResource(if (isAnime) R.string.stats_top_anime else R.string.stats_top_manga))
 		StatsCard {
 			stats.records.forEachIndexed { index, record ->
 				if (index > 0) {

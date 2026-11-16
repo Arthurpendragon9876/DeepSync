@@ -12,8 +12,8 @@ object MetadataKinds {
 	const val NOVEL = "NOVEL"
 	const val ONE_SHOT = "ONE_SHOT"
 
-	private val bl = setOf("boys love", "boys' love", "boyslove", "bl", "yaoi", "shounen ai", "shonen ai", "danmei")
-	private val gl = setOf("girls love", "girls' love", "girlslove", "gl", "yuri", "shoujo ai", "shojo ai", "baihe")
+	val bl = setOf("boys love", "boys' love", "boyslove", "bl", "yaoi", "shounen ai", "shonen ai", "danmei")
+	val gl = setOf("girls love", "girls' love", "girlslove", "gl", "yuri", "shoujo ai", "shojo ai", "baihe")
 
 	/** [format] is the tracker's label, [country] the ISO country of origin; either may be null. */
 	fun kindOf(format: String?, country: String?): String? {

@@ -45,7 +45,12 @@ class StatsActivity : BaseActivity<ActivityStatsBinding>() {
 		super.onCreate(savedInstanceState)
 		setContentView(ActivityStatsBinding.inflate(layoutInflater))
 		setDisplayHomeAsUp(isEnabled = true, showUpAsClose = false)
-		setTitle(R.string.reading_stats)
+		setTitle(
+			when (viewModel.mode) {
+				org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME -> R.string.watching_stats
+				else -> R.string.reading_stats
+			},
+		)
 		viewBinding.composeView.setViewCompositionStrategy(
 			ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed,
 		)
@@ -53,6 +58,7 @@ class StatsActivity : BaseActivity<ActivityStatsBinding>() {
 			DropSauceTheme {
 				val density = LocalDensity.current
 				val stats by viewModel.stats.collectAsState()
+				val genres by viewModel.genres.collectAsState()
 				val isLoading by viewModel.isLoading.collectAsState()
 				val period by viewModel.period.collectAsState()
 				val selectedCategories by viewModel.selectedCategories.collectAsState()
@@ -60,11 +66,13 @@ class StatsActivity : BaseActivity<ActivityStatsBinding>() {
 
 				StatsScreen(
 					stats = stats,
+					genres = genres,
 					isLoading = isLoading,
 					period = period,
 					categories = categories,
 					selectedCategories = selectedCategories,
 					imageLoader = coil,
+					mode = viewModel.mode,
 					bottomInset = with(density) { bottomInset.intValue.toDp() },
 					onPeriodChange = { viewModel.period.value = it },
 					onCategoryToggle = viewModel::toggleCategory,
@@ -109,5 +117,11 @@ class StatsActivity : BaseActivity<ActivityStatsBinding>() {
 			setNegativeButton(android.R.string.cancel, null)
 			setPositiveButton(R.string.clear) { _, _ -> viewModel.clearStats() }
 		}.show()
+	}
+
+	companion object {
+
+		/** The [org.koitharu.kotatsu.home.ui.model.HomeMode] name this screen is limited to; absent = all. */
+		const val EXTRA_MODE = "stats_mode"
 	}
 }

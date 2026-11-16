@@ -80,7 +80,9 @@ class ChapterPagesMenuProvider(
 			},
 		)?.isChecked = true
 		menu.findItem(R.id.action_downloaded)?.let { item ->
-			item.isVisible = viewModel.mangaDetails.value?.local != null
+			// Always offered on the chapters tab (not only once a local copy is already resolved), so a source's
+			// downloaded chapters can be isolated from the sort/filter list like the library's downloaded filter.
+			item.isVisible = viewModel.mangaDetails.value != null
 			item.isChecked = viewModel.isDownloadedOnly.value
 		}
 		// only offer it when the source has more than one scanlator to merge (or unmerge)

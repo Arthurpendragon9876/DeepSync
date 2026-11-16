@@ -70,9 +70,16 @@
 
 	<item
 		android:id="@+id/action_browser"
-		android:icon="@drawable/ic_open_external"
+		android:icon="@drawable/ic_web"
 		android:orderInCategory="50"
 		android:title="@string/open_in_browser"
+		app:showAsAction="never" />
+
+	<item
+		android:id="@+id/action_external_browser"
+		android:icon="@drawable/ic_open_external"
+		android:orderInCategory="51"
+		android:title="@string/open_in_external_browser"
 		app:showAsAction="never" />
 
 	<item

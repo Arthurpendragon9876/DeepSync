@@ -75,6 +75,7 @@ import org.koitharu.kotatsu.core.util.ext.setOptionalIconsVisibleCompat
 import org.koitharu.kotatsu.core.util.ext.start
 import org.koitharu.kotatsu.databinding.ActivityMainBinding
 import org.koitharu.kotatsu.details.service.MangaPrefetchService
+import org.koitharu.kotatsu.explore.ui.ExploreFragment
 import org.koitharu.kotatsu.favourites.ui.container.FavouritesContainerFragment
 import org.koitharu.kotatsu.history.ui.HistoryListFragment
 import org.koitharu.kotatsu.local.ui.LocalIndexUpdateService
@@ -100,6 +101,11 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), AppBarOwner, BottomNav
 
 	@Inject
 	lateinit var settings: AppSettings
+
+	@Inject
+	lateinit var metadataRepository: org.koitharu.kotatsu.metadata.MetadataRepository
+
+	private lateinit var searchScopeBar: org.koitharu.kotatsu.search.ui.SearchScopeBar
 
 	private val viewModel by viewModels<MainViewModel>()
 	private val searchSuggestionViewModel by viewModels<SearchSuggestionViewModel>()
@@ -252,6 +258,13 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), AppBarOwner, BottomNav
 		if (fromUser) {
 			actionModeDelegate.finishActionMode()
 			viewBinding.appbar.setExpanded(true)
+		}
+	}
+
+	/** Opens the global search; used by Explore's header search icon. */
+	fun openSearch() {
+		if (!viewBinding.searchView.isShowing) {
+			viewBinding.searchView.show()
 		}
 	}
 
@@ -458,6 +471,9 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), AppBarOwner, BottomNav
 	// status bar clearance. Toggling fitsSystemWindows per-tab (as Favourites used to) left AppBarLayout
 	// with a stale pinned-inset region and scroll range after switching, randomly locking it expanded.
 	private fun adjustAppbar(topFragment: Fragment) {
+		// Explore draws its own single-row header (feed pill, search, filters, preferences), so the
+		// global gear / search field / overflow row is hidden there instead of stacking a second row.
+		viewBinding.layoutSearch.isVisible = topFragment !is ExploreFragment
 		if (topFragment is FavouritesContainerFragment) {
 			fadingAppbarMediator.bind()
 			topFragment.attachTabsToAppBar()
@@ -574,12 +590,27 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), AppBarOwner, BottomNav
 			viewModel = searchSuggestionViewModel,
 		)
 		val adapter = SearchSuggestionAdapter(listener)
+		// Where a search goes (Discover | Sources, which trackers or sources) is one sheet in the search bar's menu;
+		// the field's hint always names what a search will hit.
+		searchScopeBar = org.koitharu.kotatsu.search.ui.SearchScopeBar(this, settings, metadataRepository)
 		viewBinding.searchView.toolbar.addMenuProvider(
-			SearchSuggestionMenuProvider(this, searchSuggestionViewModel),
+			SearchSuggestionMenuProvider(this, searchSuggestionViewModel, searchScopeBar::showPreferences),
 		)
 		viewBinding.searchView.editText.addTextChangedListener(listener)
 		viewBinding.recyclerViewSearch.adapter = adapter
 		viewBinding.searchView.editText.setOnEditorActionListener(listener)
+
+		settings.observe(
+			AppSettings.KEY_GLOBAL_SEARCH_TRACKERS,
+			AppSettings.KEY_SEARCH_PINNED_ONLY,
+			AppSettings.KEY_SEARCH_LOCAL_ONLY,
+			AppSettings.KEY_HOME_MODE,
+			AppSettings.KEY_HOME_PROVIDER,
+			AppSettings.KEY_HOME_CATALOGUE,
+			AppSettings.KEY_HOME_METADATA,
+		).observe(this) {
+			viewBinding.searchBar.setHint(searchScopeBar.hint())
+		}
 
 		viewBinding.searchView.observeState()
 			.map { it >= SearchView.TransitionState.SHOWING }

@@ -17,7 +17,7 @@ class TagsBlacklist(
 		}
 		for (mangaTag in manga.tags) {
 			for (tagTitle in tags) {
-				if (mangaTag.title.almostEquals(tagTitle, threshold)) {
+				if (matches(mangaTag.title, tagTitle)) {
 					return true
 				}
 			}
@@ -25,7 +25,14 @@ class TagsBlacklist(
 		return false
 	}
 
-	operator fun contains(tag: MangaTag): Boolean = tags.any {
-		it.almostEquals(tag.title, threshold)
+	operator fun contains(tag: MangaTag): Boolean = tags.any { matches(tag.title, it) }
+
+	/** Short names (BL, GL) are compared exactly: fuzzy matching would take them for unrelated tags. */
+	private fun matches(title: String, blocked: String): Boolean =
+		if (blocked.length <= SHORT_NAME) title.equals(blocked, ignoreCase = true) else title.almostEquals(blocked, threshold)
+
+	private companion object {
+
+		const val SHORT_NAME = 3
 	}
 }

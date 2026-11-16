@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import org.koitharu.kotatsu.core.db.MangaDatabase
 import org.koitharu.kotatsu.core.db.entity.toManga
+import org.koitharu.kotatsu.core.model.contentMode
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.observeAsFlow
 import org.koitharu.kotatsu.stats.domain.StatsBucket
@@ -36,7 +37,11 @@ class StatsRepository @Inject constructor(
 	 * One-pass snapshot for the statistics screen: the per-title breakdown, the activity chart
 	 * buckets and every headline number, all derived from the same filtered set of sessions.
 	 */
-	suspend fun getStatsSnapshot(period: StatsPeriod, categories: Set<Long>): ReadingStats {
+	suspend fun getStatsSnapshot(
+		period: StatsPeriod,
+		categories: Set<Long>,
+		mode: org.koitharu.kotatsu.home.ui.model.HomeMode? = null,
+	): ReadingStats {
 		val zone = ZoneId.systemDefault()
 		// "All time" bars run from the very first session, which only the query itself knows, so its
 		// buckets are built after the sessions are loaded. Every other period is a fixed-length window.
@@ -45,7 +50,15 @@ class StatsRepository @Inject constructor(
 		// hours/days/weeks means a plain `now - N days` cutoff would pull in sessions that fall before
 		// bar zero, which then count towards the headline but have nowhere to be drawn.
 		val fromDate = boundedStarts?.second?.first() ?: 0L
+		// With a mode (Explore opens stats for the current Anime / Manga / Novel mode) only titles from sources of
+		// that mode count, so watching stats no longer include reading sessions
+		val modeIds: Set<Long>? = mode?.let {
+			db.getStatsDao().getDurationStats(0L, categories).keys
+				.filter { entity -> entity.toManga(emptySet(), null).source.contentMode == mode }
+				.mapTo(HashSet()) { entity -> entity.id }
+		}
 		val sessions = db.getStatsDao().getSessions(fromDate, categories)
+			.let { list -> if (modeIds == null) list else list.filter { it.mangaId in modeIds } }
 		val (unit, starts) = boundedStarts
 			?: bucketStarts(period, zone, sessions.firstOrNull()?.startedAt ?: System.currentTimeMillis())
 		val durations = LongArray(starts.size)
@@ -70,10 +83,11 @@ class StatsRepository @Inject constructor(
 				durations[index] += session.duration
 			}
 		}
-		val (records, others) = buildRecords(fromDate, categories, perManga, total)
+		val (records, others) = buildRecords(fromDate, categories, perManga, total, modeIds)
 		// Streaks are deliberately all-time — one that reset itself whenever you switch the period
 		// filter would be meaningless — but they still honour the category filter like everything else.
 		val allSessions = if (fromDate == 0L) sessions else db.getStatsDao().getSessions(0L, categories)
+			.let { list -> if (modeIds == null) list else list.filter { it.mangaId in modeIds } }
 		val (currentStreak, longestStreak) = calculateStreaks(allSessions, zone)
 		return ReadingStats(
 			period = period,
@@ -102,12 +116,14 @@ class StatsRepository @Inject constructor(
 		categories: Set<Long>,
 		perManga: Map<Long, MangaAggregate>,
 		total: Long,
+		modeIds: Set<Long>? = null,
 	): Pair<List<StatsRecord>, List<StatsRecord>> {
 		if (perManga.isEmpty()) {
 			return emptyList<StatsRecord>() to emptyList()
 		}
 		// Only this query knows the manga themselves; it is already ordered by time spent, descending.
 		val entities = db.getStatsDao().getDurationStats(fromDate, categories)
+			.let { map -> if (modeIds == null) map else map.filterKeys { it.id in modeIds } }
 		val result = ArrayList<StatsRecord>(entities.size)
 		val others = ArrayList<StatsRecord>()
 		var otherDuration = 0L

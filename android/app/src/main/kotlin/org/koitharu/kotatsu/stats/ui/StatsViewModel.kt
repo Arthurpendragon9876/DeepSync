@@ -20,8 +20,15 @@ import javax.inject.Inject
 @HiltViewModel
 class StatsViewModel @Inject constructor(
 	private val repository: StatsRepository,
+	private val genreAffinity: org.koitharu.kotatsu.stats.domain.GenreAffinityRepository,
 	favouritesRepository: FavouritesRepository,
+	savedStateHandle: androidx.lifecycle.SavedStateHandle,
 ) : BaseViewModel() {
+
+	/** The content mode the screen was opened for (null = everything, as from History). */
+	val mode: org.koitharu.kotatsu.home.ui.model.HomeMode? = savedStateHandle.get<String>(StatsActivity.EXTRA_MODE)
+		?.let { name -> org.koitharu.kotatsu.home.ui.model.HomeMode.entries.firstOrNull { it.name == name } }
+
 
 	val period = MutableStateFlow(StatsPeriod.ALL)
 	val selectedCategories = MutableStateFlow<Set<Long>>(emptySet())
@@ -30,10 +37,16 @@ class StatsViewModel @Inject constructor(
 
 	val stats = MutableStateFlow(ReadingStats())
 
+	/** The genres the user leans to, across the library, history and reading time. */
+	val genres = MutableStateFlow<List<org.koitharu.kotatsu.stats.domain.GenreScore>>(emptyList())
+
 	init {
 		launchJob(Dispatchers.Default) {
+			genres.value = genreAffinity.top(mode = mode, limit = 10)
+		}
+		launchJob(Dispatchers.Default) {
 			combine(period, selectedCategories, ::Pair).collectLatest { (p, categories) ->
-				stats.value = withLoading { repository.getStatsSnapshot(p, categories) }
+				stats.value = withLoading { repository.getStatsSnapshot(p, categories, mode) }
 			}
 		}
 	}

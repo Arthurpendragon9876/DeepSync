@@ -6,6 +6,7 @@
      NestedScrollView is the only scroller, which is what keeps the two sides in lockstep. -->
 <org.koitharu.kotatsu.core.ui.widgets.LoadingIndicatorSwipeRefreshLayout
 	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto"
 	android:id="@+id/swipeRefreshLayout"
 	android:layout_width="match_parent"
 	android:layout_height="match_parent">
@@ -22,6 +23,14 @@
 		android:layout_height="wrap_content"
 		android:orientation="vertical">
 
+		<!-- Explore's top: the feed pill, filters / quick preferences / settings buttons and the Sources / Discover
+		     switch, drawn in Compose (ExploreHeader). Switching tabs hides one half and shows the other inside
+		     this same scroller. -->
+		<androidx.compose.ui.platform.ComposeView
+			android:id="@+id/exploreHeader"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content" />
+
 		<include
 			android:id="@+id/header"
 			layout="@layout/layout_explore_header"
@@ -32,6 +41,12 @@
 			android:id="@+id/pager"
 			android:layout_width="match_parent"
 			android:layout_height="0dp" />
+
+		<androidx.compose.ui.platform.ComposeView
+			android:id="@+id/metadataCompose"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:visibility="gone" />
 
 	</LinearLayout>
 

@@ -99,11 +99,15 @@
     <string name="error">Error</string>
     <string name="clear_thumbs_cache">Clear thumbnails cache</string>
     <string name="clear_search_history">Clear search history</string>
+    <string name="search_preferences">Search preferences</string>
     <string name="search_history_cleared">Cleared</string>
     <string name="internal_storage">Internal storage</string>
     <string name="external_storage">External storage</string>
     <string name="app_update_available">A new version of the app is available</string>
     <string name="open_in_browser">Open WebView</string>
+    <string name="open_in_external_browser">Open in browser</string>
+    <string name="open_external_browser">Always open in browser</string>
+    <string name="open_external_browser_summary">Open chapter and title pages in your phone\'s browser instead of the built-in WebView. Use it to comment with images or GIFs, which WebView cannot upload</string>
     <string name="open_website">Open website</string>
     <string name="back_to_top">Back to top</string>
     <string name="notifications">Notifications</string>
@@ -198,8 +202,8 @@
     <string name="create_backup">Create data backup</string>
     <string name="restore_backup">Restore backup</string>
     <string name="create_backup_summary">Save your library, history and settings to a file</string>
-    <string name="restore_from_tachiyomi">Restore from Tachiyomi/Mihon</string>
-    <string name="restore_tachiyomi_summary">Import a backup created by Tachiyomi or Mihon</string>
+    <string name="restore_from_tachiyomi">Restore from Tachiyomi/Mihon/Anikku</string>
+    <string name="restore_tachiyomi_summary">Import a backup created by Tachiyomi, Mihon or Anikku (anime library, categories, progress, history and tracking)</string>
     <string name="periodic_backups_summary">Automatically create backups on a schedule</string>
     <string name="other_apps">Other apps</string>
     <string name="export_to_mihon">Export for Mihon</string>
@@ -269,8 +273,12 @@
     <string name="suggestions_summary">Suggest manga based on your preferences</string>
     <string name="suggestions_info">All data is only analyzed locally on this device and never sent anywhere.</string>
     <string name="text_suggestion_holder">Start reading manga and you will get personalized suggestions</string>
-    <string name="exclude_nsfw_from_suggestions">Do not suggest NSFW manga</string>
+    <string name="exclude_nsfw_from_suggestions">Do not suggest NSFW content</string>
     <string name="exclude_novels_from_suggestions">Do not suggest novels</string>
+    <string name="exclude_manga_from_suggestions">Do not suggest manga</string>
+    <string name="exclude_manga_from_suggestions_summary">Sources categorized as manga (including manhwa and manhua) will not be used for suggestions</string>
+    <string name="exclude_anime_from_suggestions">Do not suggest anime</string>
+    <string name="exclude_anime_from_suggestions_summary">Anime sources will not be used for suggestions</string>
     <string name="enabled">Enabled</string>
     <string name="disabled">Disabled</string>
     <string name="reset_filter">Reset filter</string>
@@ -292,7 +300,7 @@
     <string name="haptic_feedback_summary">Vibrate on taps, toggles, sliders and gestures</string>
     <string name="suggestions_updating">Suggestions updating</string>
     <string name="suggestions_excluded_genres">Exclude genres</string>
-    <string name="suggestions_excluded_genres_summary">Specify genres that you do not want to see in the suggestions</string>
+    <string name="suggestions_excluded_genres_summary">Genres and tags you do not want in the suggestions, such as BL, Yaoi or Reverse Harem</string>
     <string name="text_delete_local_manga_batch">Delete selected items from device permanently?</string>
     <string name="removal_completed">Removal completed</string>
     <string name="shikimori" translatable="false">Shikimori</string>
@@ -773,7 +781,7 @@
     <string name="onboarding_permission_notifications">Allow notifications</string>
     <string name="onboarding_permission_battery">Disable battery optimization</string>
     <string name="onboarding_finish_title">All set</string>
-    <string name="onboarding_finish_description">Join the Deepsync community and visit our website to stay up to date.</string>
+    <string name="onboarding_finish_description">Join our Discord community for help, updates and feedback. You can also check the source code and the website.</string>
     <string name="onboarding_sync_title">Restore</string>
     <string name="onboarding_sync_description">Restore a backup to pick up where you left off, or skip this step to start fresh.</string>
     <string name="onboarding_restore_dropsauce">Restore Kotatsu backup</string>
@@ -846,6 +854,12 @@
     <string name="single_cbz_file">Single CBZ file</string>
     <string name="multiple_cbz_files">Multiple CBZ files</string>
     <string name="reading_stats">Reading statistics</string>
+    <string name="watching_stats">Watching statistics</string>
+    <string name="watching_rate">Watching rate</string>
+    <string name="total_watch_time">Total watch time</string>
+    <string name="stats_episodes_watched">Episodes watched</string>
+    <string name="stats_sessions_watched">Sessions</string>
+    <string name="stats_top_anime">Top anime</string>
     <string name="total_chapters">Total chapters</string>
     <string name="latest_chapter">Latest chapter</string>
     <string name="total_read_time">Total read time</string>
@@ -922,7 +936,7 @@
     <string name="show_pages_thumbs">Show pages thumbnails</string>
     <string name="show_pages_thumbs_summary">Enable the \"Pages\" tab on the details screen</string>
     <string name="error_no_data_received">No data was received from server</string>
-    <string name="unsupported_backup_message">Please select a valid Deepsync or Mihon backup file</string>
+    <string name="unsupported_backup_message">Please select a valid Deepsync, Mihon or Anikku backup file</string>
     <string name="list_ellipsize_pattern" translatable="false">(+%d)</string>
     <!-- Short hours format pattern -->
     <string name="hours_short">%d h</string>
@@ -1177,7 +1191,7 @@
     <string name="clear_browser_data">Clear browser data</string>
     <string name="clear_browser_data_summary">Clear browser data such as cache and cookies. Warning: Authorization in manga sources may become invalid</string>
     <string name="no_write_permission_to_file">Does not have permission to write a file</string>
-    <string name="exclude_nsfw_from_suggestions_summary">Adult manga will not be shown in suggestions. This option may work inaccurate with some sources</string>
+    <string name="exclude_nsfw_from_suggestions_summary">Adult titles will not be shown in suggestions, including adult titles from sources that mix adult and regular content</string>
     <string name="exclude_novels_from_suggestions_summary">Sources categorized as novels will not be used for suggestions</string>
     <string name="error_non_file_uri">The selected path cannot be used because it does not denote a file or directory</string>
     <string name="manga_override_hint">These changes will affect how manga is displayed throughout the app. Discord Rich Presence can only show a custom cover set via an image URL; picked images fall back to the source cover.</string>
@@ -1495,6 +1509,7 @@
     <string name="novel_reader_text">Text</string>
     <string name="novel_reader_presets">Presets</string>
     <string name="novel_reader_background">Background</string>
+    <string name="advanced_novel_settings">Advanced novel settings</string>
 	<string name="ds_mode_anime">Anime</string>
 	<string name="ds_mode_switch">Switch mode</string>
 	<string name="watch">Watch</string>
@@ -1640,4 +1655,11 @@
     <string name="ds_player_vlc_summary">Uses the built-in player when VLC is not installed</string>
     <string name="ds_player_summary_streams">Streams</string>
     <string name="ds_player_summary_playback">Playback</string>
+    <string name="ds_player_group_subtitles">Subtitles</string>
+    <string name="ds_player_sub_font">Font</string>
+    <string name="ds_player_sub_size">Text size</string>
+    <string name="ds_player_sub_color">Text color</string>
+    <string name="ds_player_sub_edge">Edge style</string>
+    <string name="ds_player_sub_background">Background box</string>
+    <string name="ds_player_sub_position">Position</string>
 </resources>

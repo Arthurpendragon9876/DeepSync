@@ -24,7 +24,7 @@ android {
 		minSdk = 26
 		targetSdk = 37
 		versionCode = 3
-		versionName = '0.1.0'
+		versionName = '0.1.2-beta.1'
 		testInstrumentationRunner = 'org.koitharu.kotatsu.HiltTestRunner'
 		ksp {
 			arg('room.generateKotlin', 'true')

@@ -12,6 +12,7 @@ import org.koitharu.kotatsu.parsers.model.MangaTag
 import org.koitharu.kotatsu.parsers.util.runCatchingCancellable
 import org.koitharu.kotatsu.scrobbling.anilist.data.AniListRepository
 import org.koitharu.kotatsu.scrobbling.anilist.data.MetadataInfo
+import org.koitharu.kotatsu.scrobbling.anilist.data.MetadataPage
 import org.koitharu.kotatsu.scrobbling.anilist.data.MetadataTitle
 import org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerService
 import org.koitharu.kotatsu.scrobbling.mal.data.MALRepository
@@ -22,6 +23,59 @@ import javax.inject.Singleton
 
 /** The rows Home builds from the metadata source. */
 enum class MetaList { TRENDING, POPULAR, RECENT }
+
+/** Results per page on Explore's metadata tab. */
+const val DISCOVER_PAGE_SIZE = 24
+
+/** How Explore's metadata tab orders its results. */
+enum class DiscoverSort(val label: String, val anilist: String, val list: MetaList) {
+	TRENDING("Trending", "TRENDING_DESC", MetaList.TRENDING),
+	POPULAR("Popular", "POPULARITY_DESC", MetaList.POPULAR),
+	SCORE("Top rated", "SCORE_DESC", MetaList.POPULAR),
+	NEWEST("Newest", "START_DATE_DESC", MetaList.RECENT),
+	TITLE("Title A-Z", "TITLE_ROMAJI", MetaList.POPULAR),
+}
+
+/**
+ * What the metadata tab asks the provider for. [format] is a [DiscoverFormats] key; [status] is an AniList
+ * status (RELEASING, FINISHED, NOT_YET_RELEASED, HIATUS, CANCELLED) and is only applied where the provider
+ * can filter on it.
+ */
+data class DiscoverFilters(
+	val query: String = "",
+	val include: Set<String> = emptySet(),
+	val exclude: Set<String> = emptySet(),
+	val sort: DiscoverSort = DiscoverSort.POPULAR,
+	val status: String? = null,
+	val format: String? = null,
+	val year: Int? = null,
+	/** WINTER, SPRING, SUMMER or FALL; anime on AniList only. */
+	val season: String? = null,
+	val hideAdult: Boolean = true,
+) {
+	val isActive: Boolean
+		get() = query.isNotBlank() || include.isNotEmpty() || exclude.isNotEmpty() || status != null ||
+			format != null || year != null || season != null
+}
+
+/** The format choices per content mode, as (key, label); a key maps onto each provider's own filters. */
+object DiscoverFormats {
+	val manga = listOf("MANGA" to "Manga", "MANHWA" to "Manhwa", "MANHUA" to "Manhua", "ONE_SHOT" to "One-shot")
+	val novel = emptyList<Pair<String, String>>()
+	val anime = listOf("TV" to "TV", "MOVIE" to "Movie", "OVA" to "OVA", "ONA" to "ONA", "SPECIAL" to "Special")
+
+	fun of(mode: HomeMode) = when (mode) {
+		HomeMode.MANGA -> manga
+		HomeMode.NOVEL -> novel
+		HomeMode.ANIME -> anime
+	}
+}
+
+/** AniList's fixed genre list, the vocabulary the genre filter and the "genres you like" matching use. */
+val DISCOVER_GENRES = listOf(
+	"Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror", "Mahou Shoujo", "Mecha", "Music",
+	"Mystery", "Psychological", "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller",
+)
 
 /**
  * A tracker's catalogue used as the app's metadata source: Home's banner and rows, searching from Home, and
@@ -104,6 +158,78 @@ class MetadataRepository @Inject constructor(
 			HomeMetadata.MAL -> mal.metaList("", novel, anime, limit, hideAdult, search = query)
 			HomeMetadata.MANGABAKA -> if (anime) emptyList() else mangaBaka.metaList(novel, limit, hideAdult, search = query)
 		}
+	}
+
+	/**
+	 * One page of the metadata tab: search, filters and sort against [provider], with a flag saying whether
+	 * a next page exists. AniList filters everything server side; MAL and MangaBaka cannot filter by genre,
+	 * year or format in their list calls, so those are applied to what a page returns.
+	 */
+	suspend fun discover(
+		provider: HomeMetadata,
+		mode: HomeMode,
+		filters: DiscoverFilters,
+		page: Int,
+		perPage: Int = DISCOVER_PAGE_SIZE,
+	): MetadataPage {
+		val novel = mode == HomeMode.NOVEL
+		val anime = mode == HomeMode.ANIME
+		val query = filters.query.trim().takeIf { it.isNotEmpty() }
+		return when (provider) {
+			HomeMetadata.SOURCES -> MetadataPage(emptyList(), false)
+			HomeMetadata.ANILIST -> aniList.discover(
+				page = page,
+				perPage = perPage,
+				novel = novel,
+				anime = anime,
+				sort = filters.sort.anilist,
+				include = filters.include.filterNot { DiscoverTags.find(it) != null }.toSet(),
+				exclude = filters.exclude.filterNot { DiscoverTags.find(it) != null }.toSet(),
+				includeTags = filters.include.mapNotNull { DiscoverTags.find(it)?.anilist }.toSet(),
+				excludeTags = filters.exclude.mapNotNull { DiscoverTags.find(it)?.anilist }.toSet(),
+				status = filters.status,
+				format = when (filters.format) {
+					"MANHWA", "MANHUA", "MANGA" -> if (novel) null else "MANGA"
+					else -> filters.format
+				},
+				country = when (filters.format) {
+					"MANHWA" -> "KR"
+					"MANHUA" -> "CN"
+					"MANGA" -> "JP"
+					else -> null
+				},
+				year = filters.year,
+				season = filters.season.takeIf { anime },
+				search = query,
+				hideAdult = filters.hideAdult,
+			)
+
+			HomeMetadata.MAL -> {
+				val raw = mal.metaList(
+					kind = filters.sort.list.name,
+					novel = novel,
+					anime = anime,
+					limit = perPage,
+					hideAdult = filters.hideAdult,
+					search = query,
+					offset = (page - 1) * perPage,
+				)
+				MetadataPage(raw.filterLocally(filters), hasNext = raw.size >= perPage)
+			}
+
+			HomeMetadata.MANGABAKA -> {
+				if (anime) return MetadataPage(emptyList(), false)
+				val raw = mangaBaka.metaList(novel, perPage, filters.hideAdult, search = query, page = page)
+				MetadataPage(raw.filterLocally(filters), hasNext = raw.size >= perPage)
+			}
+		}
+	}
+
+	private fun List<MetadataTitle>.filterLocally(f: DiscoverFilters): List<MetadataTitle> = filter { t ->
+		f.include.all { g -> DiscoverTags.matches(g, t.genres, t.tags) } &&
+			f.exclude.none { g -> DiscoverTags.matches(g, t.genres, t.tags) } &&
+			(f.year == null || t.year == f.year) &&
+			(f.format == null || t.kind == f.format || t.format.equals(f.format, ignoreCase = true))
 	}
 
 	/**

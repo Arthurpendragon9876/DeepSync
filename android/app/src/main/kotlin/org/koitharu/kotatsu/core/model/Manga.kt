@@ -179,7 +179,14 @@ fun Manga.chaptersCount(): Int {
 	return max
 }
 
-fun Manga.isNsfw(): Boolean = contentRating == ContentRating.ADULT || source.isNsfw()
+/**
+ * An 18+ source counts as a whole. In a mixed source the rating is usually only known once the details are
+ * loaded, so a list item with no rating is also judged by its tags (Hentai, Adult, Erotica...).
+ */
+fun Manga.isNsfw(): Boolean = contentRating == ContentRating.ADULT || source.isNsfw() ||
+	(contentRating == null && tags.any { it.title.trim().lowercase() in ADULT_TAGS })
+
+private val ADULT_TAGS = setOf("hentai", "adult", "erotica", "smut", "18+", "nsfw", "pornographic", "porn", "explicit")
 
 fun MangaListFilter.getSummary() = buildSpannedString {
 	if (!query.isNullOrEmpty()) {

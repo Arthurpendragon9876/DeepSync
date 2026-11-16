@@ -36,6 +36,7 @@ import org.koitharu.kotatsu.history.data.HistoryRepository
 import org.koitharu.kotatsu.list.domain.MangaListMapper
 import org.koitharu.kotatsu.list.ui.model.EmptyState
 import org.koitharu.kotatsu.list.ui.model.ListModel
+import org.koitharu.kotatsu.list.ui.model.ListHeader
 import org.koitharu.kotatsu.list.ui.model.LoadingFooter
 import org.koitharu.kotatsu.list.ui.model.LoadingState
 import org.koitharu.kotatsu.parsers.model.Manga
@@ -68,24 +69,18 @@ class SearchViewModel @Inject constructor(
 	private val mode: org.koitharu.kotatsu.home.ui.model.HomeMode
 		get() = settings.homeMode
 
-	/** Trackers the user toggled on to be searched next to the sources (chips on this screen). */
-	val trackerScope = MutableStateFlow(readTrackers())
+	/** Trackers picked in the search preferences (the sheet in the search bar's menu). */
+	private val trackerScope = readTrackers()
 
-	/** Trackers that can serve the current mode, for the chip row. */
-	val availableTrackers: List<org.koitharu.kotatsu.home.ui.model.HomeMetadata> =
-		org.koitharu.kotatsu.home.ui.model.HomeMetadata.values()
-			.filter { it != org.koitharu.kotatsu.home.ui.model.HomeMetadata.SOURCES && metadataRepository.supports(it, mode) }
+	/**
+	 * True when this search goes to trackers only (Discover). Those results are one poster grid, not a row per
+	 * tracker with a "Show all" button; the screen builds its grid layout from this.
+	 */
+	val isTrackerGrid: Boolean = trackerScope.any { metadataRepository.supports(it, mode) }
 
 	private fun readTrackers() = settings.globalSearchTrackers.mapNotNull {
 		runCatching { org.koitharu.kotatsu.home.ui.model.HomeMetadata.valueOf(it) }.getOrNull()
 	}.toSet()
-
-	fun toggleTracker(provider: org.koitharu.kotatsu.home.ui.model.HomeMetadata) {
-		val next = trackerScope.value.let { if (provider in it) it - provider else it + provider }
-		settings.globalSearchTrackers = next.mapTo(HashSet()) { it.name }
-		trackerScope.value = next
-		retry()
-	}
 
 	private val pinnedOnly = MutableStateFlow(settings.isSearchPinnedOnly)
 	private val localOnly = MutableStateFlow(settings.isSearchLocalOnly)
@@ -112,6 +107,7 @@ class SearchViewModel @Inject constructor(
 	) { list, loading ->
 		// Sources with no results are always hidden.
 		val filteredList = list.filter { it.list.isNotEmpty() }
+		val shown: List<ListModel> = if (isTrackerGrid) flattenForGrid(filteredList) else filteredList
 		when {
 			filteredList.isEmpty() -> listOf(
 				when {
@@ -125,13 +121,22 @@ class SearchViewModel @Inject constructor(
 				},
 			)
 
-			loading -> filteredList + LoadingFooter()
-			else -> filteredList
+			loading -> shown + LoadingFooter()
+			else -> shown
 		}
 	}.stateIn(viewModelScope + Dispatchers.Default, SharingStarted.Eagerly, listOf(LoadingState))
 
 	init {
 		doSearch()
+	}
+
+	/** Posters of every searched tracker side by side; a small header only when more than one tracker answered. */
+	private fun flattenForGrid(sections: List<SearchResultsListModel>): List<ListModel> = buildList {
+		val titled = sections.size > 1
+		sections.forEach { section ->
+			if (titled && section.titleResId != 0) add(ListHeader(section.titleResId))
+			addAll(section.list)
+		}
 	}
 
 	fun getItems(ids: LongSet): Set<Manga> {
@@ -195,7 +200,7 @@ class SearchViewModel @Inject constructor(
 				val localDone = CompletableDeferred<Unit>()
 				// A tracker chip (AniList, MyAnimeList...) scopes the search to that tracker alone: no
 				// sources, favourites, history or local results next to it.
-				val activeTrackers = trackerScope.value.filter { metadataRepository.supports(it, mode) }
+				val activeTrackers = trackerScope.filter { metadataRepository.supports(it, mode) }
 				val trackersOnly = activeTrackers.isNotEmpty()
 				val remoteJobs = if (localOnly.value || trackersOnly) {
 					emptyList()
@@ -269,7 +274,12 @@ class SearchViewModel @Inject constructor(
 
 	private suspend fun searchTracker(provider: org.koitharu.kotatsu.home.ui.model.HomeMetadata): SearchResultsListModel? =
 		runCatchingCancellable {
-			metadataRepository.search(provider, query, mode, limit = 14, hideAdult = settings.isNsfwContentDisabled)
+			metadataRepository.search(
+				provider, query, mode,
+				// A grid shows the whole page; the old carousel only ever showed a taste
+				limit = if (isTrackerGrid) 30 else 14,
+				hideAdult = settings.isNsfwContentDisabled,
+			)
 		}.fold(
 			onSuccess = { titles ->
 				if (titles.isEmpty()) {

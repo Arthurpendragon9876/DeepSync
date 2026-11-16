@@ -2,6 +2,7 @@ package org.koitharu.kotatsu.backup.model
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.protobuf.ProtoNumber
 
 @Serializable
@@ -13,6 +14,8 @@ data class MihonBackup(
     @ProtoNumber(104) var backupPreferences: List<MihonBackupPreference> = emptyList(),
     @ProtoNumber(105) var backupSourcePreferences: List<MihonBackupSourcePreferences> = emptyList(),
     @ProtoNumber(106) var backupExtensionRepo: List<MihonBackupExtensionRepo> = emptyList(),
+    /** Not part of the file: set when this was converted from an Anikku (anime) backup. */
+    @Transient val isAnime: Boolean = false,
 )
 
 @Serializable

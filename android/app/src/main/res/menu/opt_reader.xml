@@ -25,6 +25,13 @@
 		app:showAsAction="always" />
 
 	<item
+		android:id="@+id/action_external_browser"
+		android:icon="@drawable/ic_open_external"
+		android:title="@string/open_in_external_browser"
+		android:visible="false"
+		app:showAsAction="ifRoom" />
+
+	<item
 		android:id="@+id/action_reader_menu"
 		android:icon="@drawable/ic_more_vert"
 		android:title="@string/options"

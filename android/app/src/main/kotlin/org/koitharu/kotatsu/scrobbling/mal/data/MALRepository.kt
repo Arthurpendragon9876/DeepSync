@@ -372,6 +372,7 @@ class MALRepository @Inject constructor(
 		limit: Int,
 		hideAdult: Boolean,
 		search: String? = null,
+		offset: Int = 0,
 	): List<MetadataTitle> {
 		val segment = if (anime) "anime" else "manga"
 		val base = when {
@@ -393,6 +394,7 @@ class MALRepository @Inject constructor(
 		}
 		val url = base
 			.addQueryParameter("limit", limit.coerceAtMost(100).toString())
+			.apply { if (offset > 0) addQueryParameter("offset", offset.toString()) }
 			.addQueryParameter("nsfw", (!hideAdult).toString())
 			.addQueryParameter("fields", "alternative_titles,synopsis,genres,mean,nsfw,media_type,start_date")
 			.build()

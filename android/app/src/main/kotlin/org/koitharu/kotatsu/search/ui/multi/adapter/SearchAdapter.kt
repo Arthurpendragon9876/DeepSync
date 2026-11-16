@@ -11,8 +11,10 @@ import org.koitharu.kotatsu.list.ui.adapter.MangaListListener
 import org.koitharu.kotatsu.list.ui.adapter.buttonFooterAD
 import org.koitharu.kotatsu.list.ui.adapter.emptyStateListAD
 import org.koitharu.kotatsu.list.ui.adapter.errorStateListAD
+import org.koitharu.kotatsu.list.ui.adapter.listHeaderAD
 import org.koitharu.kotatsu.list.ui.adapter.loadingFooterAD
 import org.koitharu.kotatsu.list.ui.adapter.loadingStateAD
+import org.koitharu.kotatsu.list.ui.adapter.mangaGridItemAD
 import org.koitharu.kotatsu.list.ui.model.ListModel
 import org.koitharu.kotatsu.list.ui.size.ItemSizeResolver
 import org.koitharu.kotatsu.search.ui.multi.SearchResultsListModel
@@ -21,6 +23,8 @@ class SearchAdapter(
 	listener: MangaListListener,
 	itemClickListener: OnListItemClickListener<SearchResultsListModel>,
 	sizeResolver: ItemSizeResolver,
+	/** Sizes the posters of the flat grid (Discover results): no fixed width, the grid cell sets it. */
+	gridSizeResolver: ItemSizeResolver,
 	selectionDecoration: MangaSelectionDecoration,
 ) : BaseListAdapter<ListModel>(), FastScroller.SectionIndexer {
 
@@ -36,6 +40,8 @@ class SearchAdapter(
 				itemClickListener = itemClickListener,
 			),
 		)
+		addDelegate(ListItemType.MANGA_GRID, mangaGridItemAD(gridSizeResolver, listener))
+		addDelegate(ListItemType.HEADER, listHeaderAD(listener))
 		addDelegate(ListItemType.STATE_LOADING, loadingStateAD())
 		addDelegate(ListItemType.FOOTER_LOADING, loadingFooterAD())
 		addDelegate(ListItemType.STATE_EMPTY, emptyStateListAD(listener))

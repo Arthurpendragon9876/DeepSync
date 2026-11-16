@@ -16,6 +16,8 @@ import coil3.request.Options
 import coil3.toAndroidUri
 import kotlinx.coroutines.runInterruptible
 import org.koitharu.kotatsu.R
+import org.koitharu.kotatsu.anime.AnimeExtensionManager
+import org.koitharu.kotatsu.anime.AnimeMangaSource
 import org.koitharu.kotatsu.core.model.MangaSource
 import org.koitharu.kotatsu.core.parser.EmptyMangaRepository
 import org.koitharu.kotatsu.core.parser.MangaRepository
@@ -54,6 +56,8 @@ class FaviconFetcher(
 			return imageLoader.fetch(icon, options)
 		}
 		resolveMihonSource(ssp)?.let { return fetchMihonIcon(it) }
+		// Aniyomi anime extensions: same package-icon route as Mihon ones, keyed by the ANIME_<id> source name.
+		resolveAnimeSource(mangaSource, ssp)?.let { return fetchPackageIcon(it.pkgName) }
 
 		return when (val repo = mangaRepositoryFactory.create(mangaSource)) {
 			is MihonMangaRepository -> fetchMihonIcon(repo)
@@ -95,8 +99,11 @@ class FaviconFetcher(
 		}.getOrNull() ?: runCatching {
 			runInterruptible {
 				val ctx = options.context
-				val extFile = File(MihonExtensionLoader.getPrivateExtensionDir(ctx), "$pkgName.ext")
-				if (!extFile.isFile) return@runInterruptible null
+				// Mihon keeps in-app extensions as <pkg>.ext, anime ones as anime-ext/<pkg>.apk.
+				val extFile = listOf(
+					File(MihonExtensionLoader.getPrivateExtensionDir(ctx), "$pkgName.ext"),
+					File(File(ctx.filesDir, "anime-ext"), "$pkgName.apk"),
+				).firstOrNull { it.isFile } ?: return@runInterruptible null
 				val pm = ctx.packageManager
 				@Suppress("DEPRECATION")
 				val pkgInfo = pm.getPackageArchiveInfo(extFile.absolutePath, PackageManager.GET_META_DATA) ?: return@runInterruptible null
@@ -128,6 +135,12 @@ class FaviconFetcher(
 			initialize()
 			getById(name.removePrefix("LN_"))
 		}
+	}
+
+	private fun resolveAnimeSource(mangaSource: ParsedMangaSource, name: String): AnimeMangaSource? {
+		(mangaSource as? AnimeMangaSource)?.let { return it }
+		if (!name.startsWith("ANIME_")) return null
+		return AnimeExtensionManager.getByName(name)
 	}
 
 	private suspend fun resolveMihonSource(name: String): MihonMangaSource? {

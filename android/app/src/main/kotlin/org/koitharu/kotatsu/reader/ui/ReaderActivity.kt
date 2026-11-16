@@ -268,17 +268,19 @@ class ReaderActivity :
                 isUpscaleActive = { UpscaleEffect.activePages.value.isNotEmpty() },
                 isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE,
                 canOpenWeb = { viewModel.getSourceMangaOrNull()?.isLocal == false },
-                onOpenWeb = { viewModel.getCurrentState()?.chapterId?.let(viewModel::openChapterInBrowser) },
+                onOpenWeb = { viewModel.getCurrentState()?.chapterId?.let { viewModel.openChapterInBrowser(it) } },
+                onOpenExternal = { viewModel.getCurrentState()?.chapterId?.let { viewModel.openChapterInBrowser(it, external = true) } },
             ),
         )
         UpscaleEffect.activePages.map { it.isNotEmpty() }.distinctUntilChanged()
             .observe(this, MenuInvalidator(this))
-        // Long-pressing the top bar offers the chapter currently being read in the built-in
-        // browser — the same action the chapters list already offers on a selected chapter.
-        viewBinding.toolbar.setOnLongClickListener(::onToolbarLongClick)
         viewModel.onOpenChapterInBrowser.observeEvent(this) { url ->
             val manga = viewModel.getMangaOrNull()
             router.openBrowser(url = url, source = manga?.source, title = manga?.title)
+        }
+        viewModel.onOpenChapterExternally.observeEvent(this) { url ->
+            val manga = viewModel.getMangaOrNull()
+            router.openBrowserExternally(url = url, source = manga?.source, title = manga?.title)
         }
 
         observeWindowLayout()
@@ -299,7 +301,11 @@ class ReaderActivity :
         novelChrome.onHighlightClick = ::onBookmarkClick
         novelChrome.canOpenWeb = { viewModel.getSourceMangaOrNull()?.isLocal == false }
         novelChrome.onWebClick = {
-            viewModel.getCurrentState()?.chapterId?.let(viewModel::openChapterInBrowser)
+            viewModel.getCurrentState()?.chapterId?.let { viewModel.openChapterInBrowser(it) }
+        }
+        // Holding the web button, or its sibling, opens the page in the phone's browser
+        novelChrome.onWebLongClick = {
+            viewModel.getCurrentState()?.chapterId?.let { viewModel.openChapterInBrowser(it, external = true) }
         }
         novelChrome.onChaptersClick = { router.showChapterPagesSheet() }
         novelChrome.onListenClick = ::onTextToSpeechClick
@@ -902,22 +908,6 @@ class ReaderActivity :
         val page = viewModel.getCurrentChapterPages()?.getOrNull(index) ?: return null
         val chapterId = viewModel.getCurrentState()?.chapterId ?: return null
         return ReaderPage(page, index, chapterId)
-    }
-
-    private fun onToolbarLongClick(view: View): Boolean {
-        val chapterId = viewModel.getCurrentState()?.chapterId ?: return false
-        if (viewModel.getSourceMangaOrNull()?.isLocal != false) return false // no online copy to open
-        view.hapticFeedback(HapticEffect.LONG_PRESS)
-        MenuPopup(view).run {
-            inflate(R.menu.opt_browser)
-            setOnMenuItemClickListener { item ->
-                (item.itemId == R.id.action_browser).also { isHandled ->
-                    if (isHandled) viewModel.openChapterInBrowser(chapterId)
-                }
-            }
-            show()
-        }
-        return true
     }
 
     private fun onReaderBarChanged(isBarEnabled: Boolean) {

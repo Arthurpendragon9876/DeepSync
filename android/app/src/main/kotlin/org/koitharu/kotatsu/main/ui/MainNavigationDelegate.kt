@@ -257,9 +257,13 @@ class MainNavigationDelegate(
 		// Favourites puts its category tabs into the activity's app bar, which makes the app bar taller
 		// and pushes the fragment container down by the tab strip's height. With a crossfade the still
 		// visible outgoing screen slides along with it, which reads as a flicker, so swap instantly here.
-		val involvesFavourites = fragmentClass == FavouritesContainerFragment::class.java ||
-			current is FavouritesContainerFragment
-		if (!involvesFavourites) {
+		// Explore does the same by hiding the global search row (see MainActivity.adjustAppbar): the app bar
+		// changes height on the way in and out, which shoved the fading screens around mid-transition.
+		val changesAppbar = fragmentClass == FavouritesContainerFragment::class.java ||
+			current is FavouritesContainerFragment ||
+			fragmentClass == ExploreFragment::class.java ||
+			current is ExploreFragment
+		if (!changesAppbar) {
 			transaction.setCustomAnimations(
 				R.anim.m3_fade_through_enter,
 				R.anim.m3_fade_through_exit,
@@ -297,10 +301,14 @@ class MainNavigationDelegate(
 		return true
 	}
 
+	/** The fragment's NestedScrollView, whether it is the root or sits inside a wrapper (Explore's pull-to-refresh). */
+	private fun View.findScroller(): NestedScrollView? =
+		this as? NestedScrollView ?: findViewById(R.id.scrollView)
+
 	private fun Fragment.resetContentToTop() {
 		// Explore scrolls its whole content in one NestedScrollView rather than exposing a list.
 		val recyclerView = (this as? RecyclerViewOwner)?.recyclerView ?: run {
-			(view as? NestedScrollView)?.scrollTo(0, 0)
+			view?.findScroller()?.scrollTo(0, 0)
 			return
 		}
 		when (val lm = recyclerView.layoutManager) {
@@ -339,7 +347,7 @@ class MainNavigationDelegate(
 	private fun onNavigationItemReselected() {
 		val fragment = primaryFragment
 		val recyclerView = (fragment as? RecyclerViewOwner)?.recyclerView ?: run {
-			(fragment?.view as? NestedScrollView)?.smoothScrollTo(0, 0)
+			fragment?.view?.findScroller()?.smoothScrollTo(0, 0)
 			return
 		}
 		recyclerView.smoothScrollToTop()
