@@ -1,0 +1,152 @@
+/* Yomi: Windows 11 (Fluent) shapes on the Android app's Material palettes. Same feel as the Linux build (Shinkai), different body:
+   an expandable navigation pane with an accent indicator bar, 4px controls, 8px cards and covers with the title below, underline tabs,
+   Windows-style settings cards and Segoe UI Variable. Loaded after app.css; colors come from theme.css. */
+
+:root, :is(.on-media, .hero, .d-hero, .cw-hero, .reader, .lightbox, .fan, .p-idle) {
+  --stroke: rgb(var(--fg) / .09);
+  --glass: rgb(255 255 255 / .09);
+  --flyout-shadow: 0 8px 28px rgb(0 0 0 / calc(.36 * var(--sk))), 0 0 0 1px var(--stroke);
+}
+:root { --sidebar-w: 56px; }
+body.nav-open { --sidebar-w: 244px; }
+html, body { font-size: 14px; font-weight: 400; }
+h1, h2, h3, .page-title, .section-head h2 { font-weight: 600; letter-spacing: 0; }
+
+/* ---- shell: Mica pane + rounded content layer (WinUI NavigationView) ---- */
+#app { grid-template-columns: var(--sidebar-w) 1fr; background: var(--bg-2); transition: grid-template-columns .24s cubic-bezier(.1, .9, .2, 1); }
+body.material #app { background: transparent; }
+#main { background: var(--bg); border-top-left-radius: 8px; box-shadow: inset 1px 1px 0 var(--stroke); }
+body.material #main { background: color-mix(in srgb, var(--bg) 80%, transparent); }
+body[data-material='acrylic'] #main { background: color-mix(in srgb, var(--bg) 66%, transparent); }
+.win #titlebar { background: var(--bg-2); } body.material #titlebar { background: transparent; }
+#sidebar { align-items: stretch; padding: 6px 0 8px; gap: 2px; background: transparent; border: 0; overflow: hidden auto; scrollbar-width: none; }
+body.material #sidebar { background: transparent; }
+#sidebar .logo { width: 30px; height: 30px; border-radius: 7px; margin: 4px 0 6px 13px; align-self: flex-start; flex: none; }
+.nav { width: auto; height: 40px; margin: 0 4px; padding: 0 13px; display: flex; align-items: center; justify-content: flex-start; gap: 16px; border-radius: 4px; color: var(--text); flex: none; }
+.nav .ico { flex: none; }
+.nav:hover { background: rgb(var(--fg) / .05); color: var(--text); }
+.nav.active { background: rgb(var(--fg) / .07); }
+.nav::before { content: ''; position: absolute; left: 0; top: 50%; width: 3px; height: 16px; margin-top: -8px; border-radius: 2px; background: rgb(var(--accent)); transform: scaleY(0); transition: transform .2s cubic-bezier(.1, .9, .2, 1); }
+.nav.active::before { transform: scaleY(1); }
+.nav.on { color: rgb(var(--accent)); }
+.nav .badge { top: 4px; left: 26px; right: auto; background: rgb(var(--danger)); color: var(--md-on-error); }
+.nav .dot-i { flex: none; width: 20px; height: 20px; margin: 0 1px; } /* 22px like the other icons, so the labels line up */
+.avatar { margin: 4px 0 0 12px; width: 32px; height: 32px; align-self: flex-start; flex: none; }
+.avatar img { border-radius: 50%; }
+/* compact: hover tooltip. open: the label sits inside the item. */
+.nav[data-tip]:hover::after { left: 60px; background: var(--surface-3); color: var(--text); border: 1px solid var(--stroke); border-radius: 4px; padding: 5px 10px; font-size: 12px; font-weight: 400; box-shadow: var(--flyout-shadow); }
+body.nav-open .nav[data-tip]::after, body.nav-open .nav[data-tip]:hover::after { content: attr(data-tip); position: static; transform: none; background: transparent; border: 0; box-shadow: none; padding: 0; color: inherit; font-size: 14px; font-weight: 400; white-space: nowrap; pointer-events: none; }
+body.nav-open .nav .badge { left: auto; right: 12px; top: 12px; }
+.burger { margin-bottom: 4px; }
+
+/* ---- buttons, chips, inputs (Fluent) ---- */
+.btn { height: 32px; padding: 0 16px; border-radius: 4px; background: rgb(var(--fg) / .06); border: 1px solid var(--stroke); font-weight: 400; font-size: 14px; }
+.btn:hover { background: rgb(var(--fg) / .09); } .btn:active { transform: none; background: rgb(var(--fg) / .04); color: var(--muted); }
+.btn.primary, .btn.light { background: rgb(var(--accent)); color: var(--on-accent); border-color: rgb(var(--fg) / .08); font-weight: 600; }
+.btn.primary:hover, .btn.light:hover { background: rgb(var(--accent) / .9); } .btn.primary:active, .btn.light:active { background: rgb(var(--accent) / .8); color: var(--on-accent); }
+.btn.ghost { background: var(--glass); border-color: transparent; backdrop-filter: blur(14px); }
+.btn.ghost:hover { background: rgb(255 255 255 / .15); }
+.btn.sm { height: 28px; padding: 0 12px; font-size: 13px; }
+.ibtn { border-radius: 4px; }
+.ibtn.round, .squircle { border-radius: 4px; }
+.chip { height: 26px; padding: 0 10px; border-radius: 4px; background: rgb(var(--fg) / .07); border: 1px solid var(--stroke); font-size: 12.5px; font-weight: 400; backdrop-filter: none; }
+.chip.acc { background: rgb(var(--accent) / .16); border-color: rgb(var(--accent) / .25); color: rgb(var(--accent)); }
+.src-chip, .pill, .pillchip { border-radius: 4px; }
+.chips-row { justify-content: flex-start; gap: 8px; padding: 18px var(--pad) 2px; }
+.chips-row a { padding: 6px 14px; border-radius: 4px; background: rgb(var(--fg) / .06); border: 1px solid var(--stroke); font-size: 13.5px; color: var(--text); }
+.chips-row a:hover { background: rgb(var(--fg) / .1); color: var(--text); }
+.input, select.input { height: 32px; padding: 0 10px; border-radius: 4px; background: rgb(var(--fg) / .05); border: 1px solid var(--stroke); border-bottom-color: rgb(var(--fg) / .5); }
+.input:hover { background: rgb(var(--fg) / .07); }
+.input:focus { background: var(--surface); border-color: var(--stroke); border-bottom-color: rgb(var(--accent)); box-shadow: inset 0 -1px 0 rgb(var(--accent)); }
+textarea.input { height: auto; padding: 8px 10px; }
+.switch { width: 40px; height: 20px; border-radius: 10px; background: transparent; box-shadow: inset 0 0 0 1px rgb(var(--fg) / .55); }
+.switch::after { left: 4px; top: 4px; width: 12px; height: 12px; background: rgb(var(--fg) / .8); transition: transform .2s cubic-bezier(.1, .9, .2, 1), width .2s, height .2s, background .2s, left .2s, top .2s; }
+.switch:hover::after { width: 14px; height: 14px; top: 3px; left: 3px; }
+.switch.on { background: rgb(var(--accent)); box-shadow: none; }
+.switch.on::after { left: 4px; top: 3px; width: 14px; height: 14px; transform: translateX(20px); background: var(--on-accent); }
+.seg { padding: 2px; border-radius: 4px; background: rgb(var(--fg) / .06); border: 1px solid var(--stroke); backdrop-filter: none; }
+.seg button { height: 28px; border-radius: 3px; font-weight: 400; color: var(--text); }
+.seg button.on { background: var(--surface-3); color: var(--text); box-shadow: inset 0 0 0 1px var(--stroke), 0 1px 2px rgb(0 0 0 / calc(.25 * var(--sk))); }
+.tabs { gap: 2px; border-bottom: 1px solid var(--stroke); }
+.tab { position: relative; padding: 8px 14px; border-radius: 4px 4px 0 0; background: transparent; font-weight: 400; color: var(--muted); }
+.tab:hover { background: rgb(var(--fg) / .05); color: var(--text); }
+.tab.on { background: transparent; color: var(--text); font-weight: 600; }
+.tab.on::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px; border-radius: 2px; background: rgb(var(--accent)); }
+.offline-pill { border-radius: 4px; background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); border: 0; }
+
+.wide-btn, .list-pill { height: 34px; border-radius: 4px; background: var(--glass); color: var(--text); }
+.wide-btn:hover, .list-pill:hover { background: rgb(255 255 255 / .17); } .wide-btn.on { background: rgb(var(--accent) / .22); }
+
+/* ---- cards and covers (title stays below the cover) ---- */
+.card, .yt-card, .yt-side { background: rgb(var(--fg) / .04); border: 1px solid var(--stroke); border-radius: 8px; }
+.card { padding: 18px; }
+.day { border-radius: 8px; border: 1px solid var(--stroke); background: rgb(var(--fg) / .03); }
+.poster .cover { border-radius: 8px; background: var(--surface); box-shadow: 0 0 0 1px var(--stroke); transition: transform .18s cubic-bezier(.1, .9, .2, 1), box-shadow .18s; }
+.poster:hover .cover { transform: scale(1.025); box-shadow: 0 0 0 1px var(--stroke), 0 10px 26px rgb(0 0 0 / calc(.4 * var(--sk))); }
+.poster .name { font-size: 13.5px; font-weight: 600; }
+.poster .tag, .poster .score { border-radius: 4px; background: rgb(0 0 0 / .6); backdrop-filter: blur(8px); color: #fff; }
+.poster .score { color: #ffd978; }
+.wide .thumb { border-radius: 8px; }
+.cc-poster { border-radius: 6px; }
+.car .arrow { background: var(--surface-3); border: 1px solid var(--stroke); color: var(--text); border-radius: 4px; }
+.grid { gap: 20px 16px; }
+.skeleton { border-radius: 8px; }
+.style-card { border-radius: 8px; border: 1px solid var(--stroke); background: rgb(var(--fg) / .04); } .style-card.on { border-color: rgb(var(--accent)); } .style-card .pv { border-radius: 6px; }
+
+/* ---- banners: rounded layer cards, text on a dark scrim in light mode too ---- */
+.hero { margin: 12px var(--pad) 4px; height: 380px; border-radius: 8px; box-shadow: 0 0 0 1px var(--stroke); }
+.hero::before { background: linear-gradient(to top, rgb(0 0 0 / .88) 0%, rgb(0 0 0 / .38) 44%, rgb(0 0 0 / .04) 80%), linear-gradient(to right, rgb(0 0 0 / .4), transparent 55%); }
+.hero .copy { left: 30px; bottom: 28px; } .hero .tools { top: 14px; right: 16px; } .hero .dots { right: 22px; bottom: 26px; }
+.hero .title { font-weight: 600; }
+.hero.card { height: 320px; margin: 12px var(--pad) 4px; border-radius: 8px; }
+.hero .tools .ibtn, .hero .tools .btn.ghost { height: 34px; border-radius: 4px; background: var(--glass); color: #fff; border: 0; }
+.hero .tools .ibtn { width: 34px; } .hero .tools .ibtn:hover, .hero .tools .btn.ghost:hover { background: rgb(255 255 255 / .17); }
+.mode-pill { height: 34px; border-radius: 4px; background: var(--glass); color: #fff; font-weight: 600; letter-spacing: .06em; }
+.mode-pill:hover { background: rgb(255 255 255 / .17); }
+.d-hero { margin: 12px var(--pad) 0; padding: 0 28px 28px; min-height: 400px; border-radius: 8px; overflow: hidden; box-shadow: 0 0 0 1px var(--stroke); }
+.d-hero::before { background: linear-gradient(to top, rgb(0 0 0 / .9) 3%, rgb(0 0 0 / .6) 45%, rgb(0 0 0 / .3)); }
+.d-hero .back { left: 20px; top: 14px; }
+.d-cover { border-radius: 8px; }
+.d-info h1 { font-weight: 600; } .d-info .alt { color: rgb(var(--accent)); font-weight: 600; }
+.cw-hero { margin: 12px var(--pad) 0; border: 0; border-radius: 8px; box-shadow: 0 0 0 1px var(--stroke); }
+.cw-hero::after { background: radial-gradient(ellipse 65% 85% at 22% 35%, rgb(var(--accent) / .16), rgb(0 0 0 / .55) 55%, rgb(0 0 0 / .9)); }
+.cw-hero-in { padding: 30px 28px; } .cw-cover { border-radius: 8px; }
+.cw-work, .cw-insp { border: 1px solid var(--stroke); border-radius: 8px; box-shadow: none; }
+.cw-start, .cta, .split, .split .main, .split .drop { border-radius: 4px; }
+.split .main { border-radius: 4px 0 0 4px; } .split .drop { border-radius: 0 4px 4px 0; }
+.cw-tab, .gp, .cw-sort { border-radius: 4px; } .cw-tab.on { background: rgb(var(--fg) / .08); color: var(--text); }
+
+/* ---- flyouts: sheets, menus, toasts ---- */
+.sheet { background: var(--md-surface-container-low); border: 1px solid var(--stroke); box-shadow: var(--flyout-shadow); }
+.scrim.bottom .sheet { border-radius: 8px 8px 0 0; } .scrim.center .sheet { border-radius: 8px; } .scrim.right .sheet { border-radius: 8px 0 0 8px; }
+.menu { background: var(--surface-2); border: 1px solid var(--stroke); border-radius: 8px; padding: 4px; box-shadow: var(--flyout-shadow); }
+.menu .mi { border-radius: 4px; } .menu .mi:hover { background: rgb(var(--fg) / .07); }
+.toast { background: var(--surface-3); color: var(--text); border: 1px solid var(--stroke); border-radius: 8px; box-shadow: var(--flyout-shadow); }
+.toast.err { background: var(--md-error-container); color: var(--md-on-error-container); }
+.opt, .pf-card, .qs-card, .qs-wide { border-radius: 8px; } .opt.on { border-color: rgb(var(--accent)); }
+.ep-row, .yt-ep { border-radius: 6px; } .ep-row .th, .yt-th { border-radius: 4px; } .qs { border-radius: 8px; }
+.path-item, .note code { border-radius: 4px; }
+
+/* ---- settings: Windows 11 Settings look (plain icons, selected item with indicator, stacked cards) ---- */
+.settings { grid-template-columns: 290px 1fr; }
+.s-menu { gap: 2px; }
+.s-item { position: relative; padding: 9px 12px; border-radius: 4px; background: transparent; }
+.s-item:hover { background: rgb(var(--fg) / .05); }
+.s-item.on { background: rgb(var(--fg) / .07); color: var(--text); }
+.s-item.on::before { content: ''; position: absolute; left: 0; top: 50%; width: 3px; height: 16px; margin-top: -8px; border-radius: 2px; background: rgb(var(--accent)); }
+.s-item .ib { width: 28px; height: 28px; background: transparent; color: var(--text); }
+.s-item small { font-weight: 400; }
+.s-pane h2 { font-size: 28px; font-weight: 600; }
+.s-row { margin-bottom: 2px; padding: 14px 16px; border-radius: 4px; background: rgb(var(--fg) / .045); border: 1px solid var(--stroke); }
+.s-row:not(.s-row + .s-row) { border-top-left-radius: 8px; border-top-right-radius: 8px; }
+.s-row:not(:has(+ .s-row)) { border-bottom-left-radius: 8px; border-bottom-right-radius: 8px; margin-bottom: 12px; }
+.theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 8px; margin: 6px 0 16px; }
+.tcard { display: grid; gap: 7px; padding: 8px; border-radius: 8px; background: rgb(var(--fg) / .045); border: 1px solid var(--stroke); text-align: left; }
+.tcard:hover { background: rgb(var(--fg) / .08); } .tcard.on { border-color: rgb(var(--accent)); box-shadow: inset 0 0 0 1px rgb(var(--accent)); }
+.tcard b { font-size: 13px; font-weight: 600; padding: 0 2px 1px; }
+.tpv { position: relative; display: block; height: 58px; border-radius: 5px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--stroke); }
+.tpv i { position: absolute; left: 9px; top: 11px; width: 34px; height: 34px; border-radius: 50%; }
+.tpv em { position: absolute; right: 9px; bottom: 10px; width: 32px; height: 12px; border-radius: 3px; opacity: .55; }
+
+/* banners / readers / players re-resolve the text color with the dark palette (otherwise they inherit the page's light-mode color) */
+:is(.on-media, .hero, .d-hero, .cw-hero, .reader, .lightbox, .fan, .p-idle) { color: var(--text); }

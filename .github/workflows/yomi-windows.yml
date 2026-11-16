@@ -1,0 +1,90 @@
+name: Yomi Windows installer
+
+# Yomi is the Windows build. Its own workflow and its own tag prefix (yomi-v*), so it never runs for Android or Shinkai.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['yomi-v*']
+    # Test trigger for the experiment branch. Remove after the branch is merged.
+    branches: [desktop]
+    paths: ['desktop/yomi/**', '.github/workflows/yomi-windows.yml']
+
+concurrency:
+  group: yomi-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: desktop/yomi
+
+jobs:
+  # The test suite fakes mpv, pactl and java with shell scripts, so it runs on Linux.
+  # (On a Windows runner those three tests cannot start the fake programs and fail for that reason only.)
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/yomi/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/yomi/package-lock.json
+      - name: Read version (and check the tag matches it)
+        id: ver
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/yomi-v* && "$GITHUB_REF_NAME" != "yomi-v$VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION"; exit 1
+          fi
+      - run: npm ci
+      # Downloads the bundled Java runtime and extension bridge, then builds the installer.
+      - run: npm run dist:win
+        env:
+          YOMI_UPDATE_URL: ${{ vars.YOMI_UPDATE_URL }} # optional auto-update feed
+          # CSC_LINK / CSC_KEY_PASSWORD: add as repository secrets to code-sign the installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Yomi-Windows-${{ steps.ver.outputs.version }}
+          path: |
+            desktop/yomi/dist/Yomi-Setup-*.exe
+            desktop/yomi/dist/Yomi-Setup-*.exe.blockmap
+            desktop/yomi/dist/latest.yml
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/yomi-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Yomi-Windows-${{ needs.build.outputs.version }}
+          path: dist
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Yomi ${{ needs.build.outputs.version }} (Windows)" \
+            --notes "Windows installer (unsigned: Windows SmartScreen may warn on first run)."
+        working-directory: .

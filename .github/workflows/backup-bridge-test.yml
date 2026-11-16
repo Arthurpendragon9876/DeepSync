@@ -1,0 +1,17 @@
+name: Backup bridge tests
+
+# Cheap check that the Android -> Shinkai backup converter still works (no dependencies needed).
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['desktop/shinkai/main/android-backup.js', 'desktop/shinkai/test/android-backup.test.js', 'docs/BACKUP.md']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test desktop/shinkai/test/android-backup.test.js

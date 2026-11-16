@@ -1,0 +1,26 @@
+/* Yomi startup screen: Windows-style. Soft glow, logo eases in, letters fade up one by one, and the O is a progress ring that spins while the
+   app loads and closes into a full circle when it is ready. Always dark. Plays once per launch; any key or click skips it. */
+@font-face { font-family: 'Google Sans Flex'; font-weight: 1 1000; font-style: normal; font-display: swap; src: url('../assets/fonts/GoogleSansFlex-variable.ttf') format('truetype'); }
+#splash { position: fixed; inset: 0; z-index: 2147483000; display: grid; place-items: center; overflow: hidden; color: #fff; cursor: default;
+  background: radial-gradient(60% 52% at 50% 44%, rgb(125 208 255 / .11), transparent 72%), #0c0e11;
+  font-family: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', 'Google Sans Flex', system-ui, sans-serif; }
+#splash.out { opacity: 0; transition: opacity .35s ease; pointer-events: none; }
+html[data-splash='off'] #splash { display: none; }
+@media (prefers-reduced-motion: reduce) { #splash { display: none; } }
+
+.sp-center { display: grid; justify-items: center; gap: 34px; transform: translateY(-10px); }
+.sp-logo { width: 208px; height: auto; display: block; opacity: 0; transform: scale(.92); animation: sp-logo .65s cubic-bezier(.1, .9, .2, 1) .15s forwards; }
+@keyframes sp-logo { to { opacity: 1; transform: none; } }
+
+/* the wordmark is a centred flex row (gap, not trailing letter-spacing), so it sits exactly under the logo */
+.sp-word { position: relative; left: 1.2px; display: flex; justify-content: center; align-items: baseline; gap: .46em; font-size: 38px; font-weight: 300; line-height: 1.2; }
+.sp-word .c { display: block; opacity: 0; transform: translateY(9px); animation: sp-c .55s cubic-bezier(.1, .9, .2, 1) calc(.6s + var(--i) * .1s) forwards; }
+@keyframes sp-c { to { opacity: 1; transform: none; } }
+.sp-ring { display: inline-block; vertical-align: baseline; width: .9em; height: .9em; margin-bottom: -.087em; overflow: visible; } /* ink is 83.5% of the box: the ring is the capital height plus a hair of optical overshoot, on the baseline */
+.sp-ring circle { fill: none; stroke: currentColor; stroke-width: 3.4; stroke-linecap: round; transform-origin: 20px 20px; stroke-dasharray: 10 90;
+  animation: sp-spin 1.25s cubic-bezier(.45, .1, .4, .9) 1.1s infinite; }
+@keyframes sp-spin { 0% { stroke-dasharray: 6 94; transform: rotate(-90deg); } 50% { stroke-dasharray: 60 40; } 100% { stroke-dasharray: 6 94; transform: rotate(270deg); } }
+#splash.done .sp-ring circle { animation: none; transform: rotate(-90deg); stroke-dasharray: 100 0; transition: stroke-dasharray .3s ease; }
+#splash.done .sp-ring { animation: sp-pop .32s cubic-bezier(.1, .9, .2, 1); }
+@keyframes sp-pop { 40% { transform: scale(1.16); } }
+.sp-skip { position: absolute; right: 22px; bottom: 20px; font-size: 12px; color: rgb(255 255 255 / .28); opacity: 0; animation: sp-c .4s ease 1.2s forwards; transform: none; }

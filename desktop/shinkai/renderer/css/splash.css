@@ -1,0 +1,28 @@
+/* Shinkai startup screen: a terminal-style boot. Always dark (like the Android splash), plays once per launch, any key/click skips it. */
+@font-face { font-family: 'DejaVu Sans Mono'; src: url('../assets/fonts/DejaVuSansMono.ttf') format('truetype'); font-display: block; }
+#splash { position: fixed; inset: 0; z-index: 2147483000; background: #0d0e11; color: #fff; display: grid; place-items: center; overflow: hidden;
+  font-family: 'DejaVu Sans Mono', ui-monospace, 'Liberation Mono', monospace; cursor: default; }
+#splash.out { opacity: 0; transition: opacity .35s ease; pointer-events: none; }
+html[data-splash='off'] #splash { display: none; }
+@media (prefers-reduced-motion: reduce) { #splash { display: none; } }
+
+.sp-center { display: grid; justify-items: center; gap: 30px; transform: translateY(-14px); }
+.sp-logo { width: 214px; height: auto; display: block; clip-path: inset(0 0 100% 0); animation: sp-reveal .85s steps(18, end) .25s forwards; }
+@keyframes sp-reveal { to { clip-path: inset(0 0 0 0); } }
+
+/* wordmark: letters are typed one by one; the I is a torii gate, like the gate that replaces a letter in the Android wordmark */
+.sp-word { --ls: .42em; position: relative; left: .8px; font-size: 34px; line-height: 1.25; width: calc(7ch + 6 * var(--ls)); } /* exactly the visible letters, so the name is centred under the logo */
+.sp-type { display: block; overflow: hidden; white-space: nowrap; letter-spacing: var(--ls); width: 0; animation: sp-type .9s steps(7, end) 1.1s forwards; }
+@keyframes sp-type { to { width: calc(7ch + 6 * var(--ls)); } }
+.sp-torii { display: inline-block; width: 1ch; height: .74em; margin-right: var(--ls); vertical-align: baseline; fill: currentColor; }
+/* the cursor is positioned outside the layout: it follows the typing and then rests just past the last letter without shifting the centring */
+.sp-cur { position: absolute; left: 0; bottom: .26em; margin-left: .14ch; width: .62ch; height: .74em; background: #fff; opacity: 0;
+  animation: sp-in 1ms steps(1) 1.05s forwards, sp-blink 1.05s steps(1) 1.1s infinite, sp-cur-move .9s steps(7, end) 1.1s forwards; }
+@keyframes sp-cur-move { to { left: calc(7ch + 6 * var(--ls)); } }
+@keyframes sp-in { to { opacity: 1; } }
+@keyframes sp-blink { 50% { opacity: 0; } }
+
+.sp-log { position: absolute; left: 28px; bottom: 24px; margin: 0; font: 12px/1.75 inherit; font-family: inherit; color: rgb(255 255 255 / .42); white-space: pre; }
+.sp-log .l { display: block; opacity: 0; animation: sp-in 1ms steps(1) var(--d) forwards; }
+.sp-log .ok { color: #6ee7a0; }
+.sp-skip { position: absolute; right: 24px; bottom: 24px; font-size: 11.5px; color: rgb(255 255 255 / .26); opacity: 0; animation: sp-in 1ms steps(1) 1s forwards; }
