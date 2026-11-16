@@ -5,17 +5,17 @@
 </p>
 
 <p align="center">
-  <img alt="Version 0.1.0" src="https://img.shields.io/badge/version-0.1.0-blue?style=for-the-badge">
-  <img alt="Android: Yugen" src="https://img.shields.io/badge/Android-Yugen-brightgreen?style=for-the-badge">
-  <img alt="Linux: Shinkai, coming soon" src="https://img.shields.io/badge/Linux-Shinkai%20soon-lightgrey?style=for-the-badge">
-  <img alt="Windows: Yomi, coming soon" src="https://img.shields.io/badge/Windows-Yomi%20soon-lightgrey?style=for-the-badge">
-  <a href="LICENSE"><img alt="GPLv3 license" src="https://img.shields.io/badge/license-GPLv3-green?style=for-the-badge"></a>
+  <a href="https://github.com/Arthurpendragon9876/DeepSync/releases?q=android-v&expanded=true"><img alt="Latest Yugen release" src="https://img.shields.io/github/v/release/Arthurpendragon9876/DeepSync?filter=android-v*&include_prereleases&style=for-the-badge&logo=github&label=latest"></a>
+  <a href="https://github.com/Arthurpendragon9876/DeepSync/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/Arthurpendragon9876/DeepSync/total?style=for-the-badge&logo=github&label=downloads"></a>
+  <a href="https://github.com/Arthurpendragon9876/DeepSync/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/Arthurpendragon9876/DeepSync?style=for-the-badge&logo=github"></a>
+  <a href="https://discord.gg/ydkG7qAG3B"><img alt="Join the Discord" src="https://img.shields.io/badge/discord-join-5865F2?style=for-the-badge&logo=discord&logoColor=white"></a>
+  <a href="../LICENSE"><img alt="GPLv3 license" src="https://img.shields.io/github/license/Arthurpendragon9876/DeepSync?style=for-the-badge"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Arthurpendragon9876/DeepSync"><strong>GitHub</strong></a>
+  <a href=".."><strong>DeepSync</strong></a>
   |
-  <a href="https://github.com/Arthurpendragon9876/DeepSync/releases/latest"><strong>Latest release</strong></a>
+  <a href="https://github.com/Arthurpendragon9876/DeepSync/releases?q=android-v&expanded=true"><strong>Releases</strong></a>
   |
   <a href="CHANGELOG.md"><strong>Changelog</strong></a>
   |
@@ -32,11 +32,11 @@
 
 | App | Platform | Status |
 | --- | --- | --- |
-| **Yugen** | Android | Available now (v0.1.0) |
-| **Shinkai** | Linux | Coming soon |
-| **Yomi** | Windows | Coming soon |
+| **Yugen** | Android | Beta (0.1.0 is the stable release) |
+| **Shinkai** | Linux | Beta, in [`desktop/shinkai`](../desktop/shinkai) |
+| **Yomi** | Windows | Beta, in [`desktop/yomi`](../desktop/yomi) |
 
-This repository currently holds **Yugen**, the Android app. Shinkai and Yomi will be released under the same DeepSync project.
+This folder holds **Yugen**, the Android app. Shinkai and Yomi live next to it in the same DeepSync repository.
 
 Yugen is a fork of [DropSauce](https://github.com/HuzaifaKhalid1311/DropSauce) by HuzaifaKhalid1311, which is the **main branch** this project is built on. On top of it, Yugen adds:
 
@@ -47,7 +47,7 @@ Yugen is a fork of [DropSauce](https://github.com/HuzaifaKhalid1311/DropSauce) b
 - an anime watch page with notes, auto-picked streams and a Player settings page,
 - a pulse touch feedback instead of ripples, and a new Yugen identity.
 
-The Android app installs as `com.kotatsu.deepsync` (debug builds add `.debug`, preview builds `.preview`), so it sits next to DropSauce rather than replacing it. See the [changelog](CHANGELOG.md) for everything that changed since the 0.0.1 beta.
+The Android app installs as `com.kotatsu.deepsync` (debug builds add `.debug`, preview builds `.preview`), so it sits next to DropSauce rather than replacing it. See the [changelog](CHANGELOG.md) for everything that changed in each release.
 
 ## Screenshots
 
@@ -99,19 +99,19 @@ The Android app installs as `com.kotatsu.deepsync` (debug builds add `.debug`, p
 
 ## Install (Android)
 
-1. Open the [latest GitHub release](https://github.com/Arthurpendragon9876/DeepSync/releases/latest).
+1. Open the [Android releases](https://github.com/Arthurpendragon9876/DeepSync/releases?q=android-v&expanded=true). Releases marked **Pre-release** are betas.
 2. Download the newest `Yugen` APK.
 3. Install it on a compatible Android device.
 4. Add your preferred source or extension repository, then start reading.
 
 Android may ask you to allow installs from your browser or file manager. That is normal for APKs downloaded outside the Play Store.
 
-Shinkai (Linux) and Yomi (Windows) are not released yet. Watch the repository to be notified when they are.
+Shinkai (Linux) and Yomi (Windows) have their own releases in the same repository.
 
 ## FAQ
 
 ### What is the difference between DeepSync and Yugen?
-> DeepSync is the project. Yugen is its Android app. The Linux app will be called Shinkai and the Windows app Yomi, and both will come out under DeepSync.
+> DeepSync is the project. Yugen is its Android app, Shinkai its Linux app and Yomi its Windows app.
 
 ### Does Yugen include manga, novels or anime?
 > No. Yugen does not include built-in content. Sources are provided through external libraries, JS plugins or repositories added by users.
@@ -160,10 +160,10 @@ app/src/main/
 
 ## Releasing
 
-Releases are built by the **Build and Release** workflow (Actions tab, *Run workflow*, enter a version such as `0.1.1`). The release notes come from the changelog files in this repository, not from git history:
+Releases are built by the **Android release** workflow (Actions tab, *Run workflow*, enter a version such as `0.1.2` or `0.1.2-beta.1`). A version with a suffix is published as a **pre-release**; the tag is `android-v<version>`. The release notes come from the changelog files in this folder, not from git history:
 
 1. Add a `## [x.y.z] - date` section to [`CHANGELOG.md`](CHANGELOG.md), or create `changelogs/vx.y.z.md`.
-2. Push to the branch you will run the workflow on.
+2. Merge it to the branch you will run the workflow on (the workflow only appears in the Actions tab once it is on the default branch).
 3. Run the workflow with the same version. It uses `changelogs/vx.y.z.md` first, then the matching `CHANGELOG.md` section, and only falls back to the git log if neither exists.
 
 ## Contribute
@@ -172,7 +172,7 @@ You can send a Pull Request for your patches, fixes, or new features here.
 
 1. Fork the repository.
 2. Create a focused branch for your change.
-3. Build locally with `./gradlew :app:assembleDebug`.
+3. Build locally from this folder with `./gradlew :app:assembleDebug`.
 4. Add a line to the unreleased section of `CHANGELOG.md` for user-visible changes.
 5. Open a Pull Request with a short explanation of what changed.
 

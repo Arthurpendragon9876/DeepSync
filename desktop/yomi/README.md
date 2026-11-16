@@ -42,7 +42,7 @@ npm install
 npm run dist:win          :: dist\Yomi-Setup-<version>-x64.exe
 ```
 
-A GitHub Actions workflow (`.github/workflows/build-windows.yml`) does the same on `windows-latest` for every `v*` tag.
+The repository's GitHub Actions workflow (`.github/workflows/yomi-windows.yml`) does the same on `windows-latest` for every `yomi-v*` tag, after running the tests on Linux.
 
 ## What makes it Windows
 
