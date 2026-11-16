@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="android/assets/app-icon-dark.svg" alt="DeepSync app icon" width="112" />
+  <img src="android/assets/app-icon.png" alt="DeepSync app icon" width="112" />
 </p>
 
 <h1 align="center">DeepSync</h1>
@@ -58,14 +58,22 @@ Please give the repo a star if you like the project. It helps more people find i
 ## Screenshots
 
 <p align="center">
-  <img src="android/assets/main_favorites-preview.webp" alt="Yugen favorites" width="23%" />
-  <img src="android/assets/manga_details_page-preview.webp" alt="Yugen details" width="23%" />
-  <img src="android/assets/reading_ui-preview.webp" alt="Yugen manga reader" width="23%" />
-  <img src="android/assets/novel_reading_ui-preview.webp" alt="Yugen novel reader" width="23%" />
+  <img src="android/assets/home_card_banner-preview.webp" alt="Yugen Home with the card banner" width="23%" />
+  <img src="android/assets/details_tracker_metadata-preview.webp" alt="Yugen Home with the panels banner" width="23%" />
+  <img src="android/assets/home_metadata_sheet-preview.webp" alt="Yugen metadata source picker" width="23%" />
+  <img src="android/assets/novel_listen_tts-preview.webp" alt="Yugen novel reader with text-to-speech" width="23%" />
 </p>
 
 <p align="center">
-  <sub>Yugen (Android): Favorites | Details | Manga/Webtoon Reader | Novel Reader</sub>
+  <sub>Yugen (Android): Home (card banner) | Home (panels banner) | Metadata source | Novel reader with text-to-speech</sub>
+</p>
+
+<p align="center">
+  <img src="android/assets/anime_player-preview.webp" alt="Yugen anime player" width="70%" />
+</p>
+
+<p align="center">
+  <sub>Yugen (Android): anime player</sub>
 </p>
 
 <p align="center">

@@ -52,16 +52,24 @@ The Android app installs as `com.kotatsu.deepsync` (debug builds add `.debug`, p
 ## Screenshots
 
 <p align="center">
-  <img src="assets/main_favorites-preview.webp" alt="Favorites screen" width="31%" />
-  <img src="assets/manga_details_page-preview.webp" alt="Details screen" width="31%" />
-  <img src="assets/reading_ui-preview.webp" alt="Manga reading screen" width="31%" />
-  <img src="assets/novel_reading_ui-preview.webp" alt="Novel reading screen" width="31%" />
-  <img src="assets/extension_page-preview.webp" alt="Extensions screen" width="31%" />
-  <img src="assets/settings-preview.webp" alt="Settings screen" width="31%" />
+  <img src="assets/home_card_banner-preview.webp" alt="Home with the card banner" width="31%" />
+  <img src="assets/details_tracker_metadata-preview.webp" alt="Home with the panels banner" width="31%" />
+  <img src="assets/home_metadata_sheet-preview.webp" alt="Metadata source picker" width="31%" />
+  <img src="assets/global_search-preview.webp" alt="Mode button fan: Continue, Anime, Manga, Novel" width="31%" />
+  <img src="assets/novel_listen_tts-preview.webp" alt="Novel reader with text-to-speech" width="31%" />
+  <img src="assets/novel_settings-preview.webp" alt="Novel reader settings" width="31%" />
 </p>
 
 <p align="center">
-  <sub>Favorites | Details | Manga/Webtoon Reader | Novel Reader | Extensions | Settings</sub>
+  <sub>Home (card banner) | Home (panels banner) | Metadata source | Mode button | Novel text-to-speech | Novel reader settings</sub>
+</p>
+
+<p align="center">
+  <img src="assets/anime_player-preview.webp" alt="Anime player" width="70%" />
+</p>
+
+<p align="center">
+  <sub>Anime player</sub>
 </p>
 
 ## Highlights
