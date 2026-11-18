@@ -312,8 +312,10 @@ class AnimeExtensionManager @Inject constructor(
 	}
 
 	private fun rootMessage(t: Throwable): String {
-		val root = generateSequence(t) { it.cause }.last()
-		return "${root::class.java.simpleName}: ${root.message}"
+		// Keep the whole cause chain: a LinkageError's useful detail is often in the outer exception.
+		return generateSequence(t) { it.cause }.joinToString("\n  caused by ") {
+			"${it::class.java.simpleName}: ${it.message}"
+		}
 	}
 
 	companion object {
