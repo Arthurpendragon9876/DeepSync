@@ -25,6 +25,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -89,7 +90,13 @@ private val LocalMetaMode = androidx.compose.runtime.compositionLocalOf { HomeMo
  */
 @Composable
 fun ExploreMetadataScreen(state: ExploreMetaState, imageLoader: ImageLoader, actions: ExploreMetaActions) {
-	androidx.compose.runtime.CompositionLocalProvider(LocalMetaMode provides state.mode) {
+	// This screen is hosted in a bare ComposeView with no Surface/Scaffold above it, so nothing provides a
+	// content colour and every Text without an explicit colour (poster titles, section titles) falls back to
+	// black. Provide the theme's onSurface so they follow dark mode.
+	androidx.compose.runtime.CompositionLocalProvider(
+		LocalMetaMode provides state.mode,
+		LocalContentColor provides MaterialTheme.colorScheme.onSurface,
+	) {
 		ExploreMetadataContent(state, imageLoader, actions)
 	}
 }
