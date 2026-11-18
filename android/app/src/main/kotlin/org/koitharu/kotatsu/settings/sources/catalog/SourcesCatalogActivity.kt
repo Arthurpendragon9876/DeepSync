@@ -673,11 +673,15 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 				val errors = animeExtensionManager.errors.value
 				val loadError = errors[requestModel.packageName] ?: errors["${requestModel.packageName}.apk"]
 				if (loadError != null) {
-					Toast.makeText(
-						this@SourcesCatalogActivity,
-						getString(R.string.anime_extension_load_failed, loadError),
-						Toast.LENGTH_LONG,
-					).show()
+					// A toast truncates long LinkageError messages; a dialog shows the whole text.
+					MaterialAlertDialogBuilder(this@SourcesCatalogActivity)
+						.setMessage(getString(R.string.anime_extension_load_failed, loadError))
+						.setPositiveButton(android.R.string.ok, null)
+						.setNeutralButton(android.R.string.copy) { _, _ ->
+							val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+							cm.setPrimaryClip(android.content.ClipData.newPlainText("error", loadError))
+						}
+						.show()
 				} else {
 					viewModel.onPrivateExtensionChanged()
 					viewModel.notifyExtensionInstalled(requestModel.packageName)
