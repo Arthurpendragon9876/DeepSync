@@ -17,6 +17,13 @@ class ChildFirstPathClassLoader(
 	override fun loadClass(name: String, resolve: Boolean): Class<*> {
 		var loadedClass = findLoadedClass(name)
 
+		// Host-owned ABI (animesource, network, okhttp, kotlin, ...) must resolve to the host's single copy.
+		// Pure child-first lets a duplicate inside the extension APK win, which produces LinkageErrors
+		// (two loaders, same class). Everything else stays child-first. Mirrors Kototoro's loader policy.
+		if (loadedClass == null && shouldDelegateToParent(name)) {
+			loadedClass = runCatching { parent.loadClass(name) }.getOrNull()
+		}
+
 		val systemLoader = systemClassLoader
 		if (loadedClass == null && systemLoader != null) {
 			loadedClass = runCatching {
@@ -37,6 +44,12 @@ class ChildFirstPathClassLoader(
 		}
 
 		return loadedClass
+	}
+
+	private fun shouldDelegateToParent(name: String): Boolean {
+		// D8 desugaring artifacts travel inside the extension APK and have no host equivalent.
+		if (name.endsWith("\$-CC") || name.contains("\$DefaultImpls")) return false
+		return PARENT_PACKAGES.any(name::startsWith)
 	}
 
 	override fun getResource(name: String): URL? {
@@ -76,5 +89,15 @@ class ChildFirstPathClassLoader(
 		} catch (_: IOException) {
 			null
 		}
+	}
+
+	private companion object {
+		val PARENT_PACKAGES = arrayOf(
+			"java.", "javax.", "kotlin.", "kotlinx.", "android.", "androidx.",
+			"org.json.", "org.jsoup.", "okhttp3.", "okio.", "rx.",
+			"eu.kanade.tachiyomi.animesource.", "eu.kanade.tachiyomi.source.",
+			"eu.kanade.tachiyomi.network.", "eu.kanade.tachiyomi.util.",
+			"uy.kohesive.injekt.",
+		)
 	}
 }
