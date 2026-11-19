@@ -154,6 +154,7 @@ class AnimeStreamPickerActivity : AppCompatActivity() {
 				val probe = stream.probe ?: AnimeStreamProbe.probe(stream).also { stream.probe = it }
 				if (probe.kind == StreamKind.ERROR) continue
 				val snapshot = manga.copy(chapters = chapters)
+				AnimePlaybackSession.explicitPick = false
 				AnimePlayerLauncher.play(this@AnimeStreamPickerActivity, snapshot, chapters, index, list, i)
 				finish()
 				return@launch
@@ -182,6 +183,7 @@ class AnimeStreamPickerActivity : AppCompatActivity() {
 				return@launch
 			}
 			val snapshot = manga.copy(chapters = chapters)
+			AnimePlaybackSession.explicitPick = true
 			AnimePlayerLauncher.play(this@AnimeStreamPickerActivity, snapshot, chapters, index, streams, which)
 			finish()
 		}

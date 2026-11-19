@@ -378,7 +378,7 @@ class ReaderViewModel @Inject constructor(
             prevJob?.cancelAndJoin()
             val prevState = readingState.requireValue()
             val newChapterId = if (delta != 0) {
-                val allChapters = mangaDetails.requireValue().allChapters
+                val allChapters = chaptersLoader.navigableChapters(mangaDetails.requireValue(), prevState.chapterId)
                 var index = allChapters.indexOfFirst { x -> x.id == prevState.chapterId }
                 if (index < 0) {
                     return@launchLoadingJob

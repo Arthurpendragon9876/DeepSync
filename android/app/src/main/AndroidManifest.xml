@@ -94,6 +94,30 @@
 				android:name="android.app.default_searchable"
 				android:value="org.koitharu.kotatsu.search.ui.multi.MultiSearchActivity" />
 		</activity>
+		<!-- Ends an OAuth sign-in: the browser redirects to db-<app key>://oauth (Dropbox) or msal<client id>://auth (OneDrive). No UI. -->
+		<activity
+			android:name="org.koitharu.kotatsu.sync.ui.SyncAuthRedirectActivity"
+			android:exported="true"
+			android:launchMode="singleTask"
+			android:excludeFromRecents="true"
+			android:theme="@android:style/Theme.Translucent.NoTitleBar">
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<category android:name="android.intent.category.BROWSABLE" />
+				<data
+					android:host="oauth"
+					android:scheme="${dropboxRedirectScheme}" />
+			</intent-filter>
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<category android:name="android.intent.category.BROWSABLE" />
+				<data
+					android:host="auth"
+					android:scheme="${onedriveRedirectScheme}" />
+			</intent-filter>
+		</activity>
 		<activity
 			android:name="org.koitharu.kotatsu.main.ui.welcome.OnboardingActivity"
 			android:exported="false" />

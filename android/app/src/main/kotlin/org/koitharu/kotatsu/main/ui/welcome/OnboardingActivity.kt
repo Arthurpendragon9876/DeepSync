@@ -87,13 +87,20 @@ class OnboardingActivity : BaseActivity<ActivityOnboardingBinding>() {
         viewModel.onGoogleSignInLaunch.observeEvent(this) { consent ->
             googleSignInLauncher.launch(IntentSenderRequest.Builder(consent).build())
         }
-        viewModel.onGoogleSignInCompleted.observeEvent(this) { success ->
+        viewModel.onSignInCompleted.observeEvent(this) { success ->
             Toast.makeText(
                 this,
                 if (success) R.string.sync_completed else R.string.sync_error,
                 Toast.LENGTH_LONG,
             ).show()
             if (success) syncStepDone++
+        }
+        viewModel.onOpenUrl.observeEvent(this) { url ->
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                .onFailure { Toast.makeText(this, R.string.sync_error, Toast.LENGTH_LONG).show() }
+        }
+        viewModel.onSignInError.observeEvent(this) { message ->
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
         viewModel.onBackupRestored.observeEvent(this) { result ->
             val text = if (result.error != null) {
@@ -125,6 +132,7 @@ class OnboardingActivity : BaseActivity<ActivityOnboardingBinding>() {
 
     override fun onResume() {
         super.onResume()
+        viewModel.onResumed() // a browser sign-in (Dropbox, OneDrive) may have finished meanwhile
         viewModel.refreshStorageSummary()
         refreshPermissionStates()
         clearAmoledIfLightMode()
@@ -146,6 +154,7 @@ class OnboardingActivity : BaseActivity<ActivityOnboardingBinding>() {
                 val amoled by viewModel.isAmoledEnabled.collectAsState()
                 val storage by viewModel.storageSummary.collectAsState()
                 val loading by viewModel.isLoading.collectAsState()
+                val githubChallenge by viewModel.githubChallenge.collectAsState()
                 OnboardingScreen(
                     selectedTheme = theme,
                     selectedColorScheme = colorScheme,
@@ -154,6 +163,8 @@ class OnboardingActivity : BaseActivity<ActivityOnboardingBinding>() {
                     isLoading = loading,
                     permissions = permissionStates,
                     syncStepDone = syncStepDone,
+                    syncProviders = viewModel.availableProviders,
+                    githubChallenge = githubChallenge,
                     actions = OnboardingActions(
                         onThemeChange = { mode ->
                             viewModel.setTheme(mode)
@@ -175,7 +186,10 @@ class OnboardingActivity : BaseActivity<ActivityOnboardingBinding>() {
                         onPermissionInstall = ::requestInstallPermission,
                         onPermissionNotifications = ::requestNotificationsPermission,
                         onPermissionBattery = ::requestBatteryOptimizationPermission,
-                        onSignInGoogle = { viewModel.launchGoogleSignIn() },
+                        onSignInProvider = viewModel::signInWith,
+                        onConnectWebDav = viewModel::connectWebDav,
+                        webDavPrefill = viewModel::webDavPrefill,
+                        onCancelGithub = viewModel::cancelGithubSignIn,
                         onRestoreDropSauce = {
                             restoreDropSauceLauncher.launch(arrayOf("application/*", "*/*"))
                         },

@@ -30,7 +30,7 @@ import org.koitharu.kotatsu.core.util.ext.awaitUniqueWorkInfoByName
 import org.koitharu.kotatsu.core.util.ext.checkNotificationPermission
 import org.koitharu.kotatsu.settings.work.PeriodicWorkScheduler
 import org.koitharu.kotatsu.sync.data.SyncSettings
-import org.koitharu.kotatsu.sync.domain.GoogleDriveSyncRepository
+import org.koitharu.kotatsu.sync.domain.SyncRepository
 import org.koitharu.kotatsu.sync.domain.SyncResult
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -40,7 +40,7 @@ import javax.inject.Inject
 class SyncWorker @AssistedInject constructor(
 	@Assisted context: Context,
 	@Assisted workerParams: WorkerParameters,
-	private val repository: GoogleDriveSyncRepository,
+	private val repository: SyncRepository,
 	private val syncSettings: SyncSettings,
 ) : CoroutineWorker(context, workerParams) {
 

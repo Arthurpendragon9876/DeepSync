@@ -53,9 +53,10 @@ data class DiscoverFilters(
 	val season: String? = null,
 	val hideAdult: Boolean = true,
 ) {
+	/** A non-default sort counts too: picking only "Trending" in the sheet must show a result list. */
 	val isActive: Boolean
 		get() = query.isNotBlank() || include.isNotEmpty() || exclude.isNotEmpty() || status != null ||
-			format != null || year != null || season != null
+			format != null || year != null || season != null || sort != DiscoverSort.POPULAR
 }
 
 /** The format choices per content mode, as (key, label); a key maps onto each provider's own filters. */
@@ -204,25 +205,52 @@ class MetadataRepository @Inject constructor(
 				hideAdult = filters.hideAdult,
 			)
 
-			HomeMetadata.MAL -> {
-				val raw = mal.metaList(
+			HomeMetadata.MAL -> pagedLocally(page, perPage, filters) { raw ->
+				mal.metaList(
 					kind = filters.sort.list.name,
 					novel = novel,
 					anime = anime,
 					limit = perPage,
 					hideAdult = filters.hideAdult,
 					search = query,
-					offset = (page - 1) * perPage,
+					offset = (raw - 1) * perPage,
 				)
-				MetadataPage(raw.filterLocally(filters), hasNext = raw.size >= perPage)
 			}
 
 			HomeMetadata.MANGABAKA -> {
 				if (anime) return MetadataPage(emptyList(), false)
-				val raw = mangaBaka.metaList(novel, perPage, filters.hideAdult, search = query, page = page)
-				MetadataPage(raw.filterLocally(filters), hasNext = raw.size >= perPage)
+				pagedLocally(page, perPage, filters) { raw ->
+					mangaBaka.metaList(novel, perPage, filters.hideAdult, search = query, page = raw)
+				}
 			}
 		}
+	}
+
+	/**
+	 * MAL and MangaBaka cannot filter by genre / year / format server side, so a single raw page often has no
+	 * match at all ("Nothing matched"). When such a filter is set, one result page is built from up to
+	 * [LOCAL_FILTER_PAGES] raw pages, so filters actually find things. Result page N covers raw pages
+	 * (N-1)*span+1..N*span, which keeps Next / Previous consistent.
+	 */
+	private suspend fun pagedLocally(
+		page: Int,
+		perPage: Int,
+		filters: DiscoverFilters,
+		fetchRaw: suspend (rawPage: Int) -> List<MetadataTitle>,
+	): MetadataPage {
+		val hasLocal = filters.include.isNotEmpty() || filters.exclude.isNotEmpty() ||
+			filters.year != null || filters.format != null
+		val span = if (hasLocal) LOCAL_FILTER_PAGES else 1
+		val first = (page - 1) * span + 1
+		val out = ArrayList<MetadataTitle>()
+		var hasNext = false
+		for (raw in first until first + span) {
+			val chunk = fetchRaw(raw)
+			out += chunk.filterLocally(filters)
+			hasNext = chunk.size >= perPage
+			if (!hasNext) break
+		}
+		return MetadataPage(out.distinctBy { it.id }, hasNext)
 	}
 
 	private fun List<MetadataTitle>.filterLocally(f: DiscoverFilters): List<MetadataTitle> = filter { t ->
@@ -361,6 +389,7 @@ class MetadataRepository @Inject constructor(
 
 	private companion object {
 		const val SEARCH_NAMES = 3
+		const val LOCAL_FILTER_PAGES = 4
 	}
 }
 

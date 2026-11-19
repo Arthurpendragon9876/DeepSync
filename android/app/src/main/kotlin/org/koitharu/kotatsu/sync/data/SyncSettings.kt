@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.sync.data
 import android.content.Context
 import androidx.core.content.edit
 import dagger.hilt.android.qualifiers.ApplicationContext
+import org.koitharu.kotatsu.sync.backend.SyncProvider
 import org.koitharu.kotatsu.sync.data.model.SyncContent
 import java.io.File
 import java.util.UUID
@@ -10,8 +11,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Persistent settings for Google Drive sync, in their own prefs file so they never travel with the
- * synced or backed-up app settings. No OAuth tokens are stored here — Play Services manages those.
+ * Persistent settings for cloud sync, in their own prefs file so they never travel with the
+ * synced or backed-up app settings. No credentials are stored here: Play Services holds Google's, the rest live in SecretStore.
  */
 @Singleton
 class SyncSettings @Inject constructor(@ApplicationContext context: Context) {
@@ -45,6 +46,30 @@ class SyncSettings @Inject constructor(@ApplicationContext context: Context) {
 	var isEmailHidden: Boolean
 		get() = prefs.getBoolean(KEY_EMAIL_HIDDEN, false)
 		set(value) = prefs.edit { putBoolean(KEY_EMAIL_HIDDEN, value) }
+
+	/** The one active storage provider. Installs from before GitHub existed only know Drive. */
+	var provider: SyncProvider?
+		get() = SyncProvider.fromKey(prefs.getString(KEY_PROVIDER, null))
+			?: if (accountEmail.isNullOrEmpty()) null else SyncProvider.DRIVE
+		set(value) = prefs.edit { putString(KEY_PROVIDER, value?.key) }
+
+	/**
+	 * Small per-provider values (GitHub repo and branch, WebDAV url and user, an in-flight OAuth
+	 * state...), namespaced so providers can't collide and all of them vanish on [clearAccount].
+	 * Secrets never go here: use [org.koitharu.kotatsu.sync.backend.SecretStore].
+	 */
+	fun providerValue(provider: SyncProvider, key: String): String? =
+		prefs.getString(providerKey(provider, key), null)
+
+	/** A null [value] removes the entry. */
+	fun setProviderValue(provider: SyncProvider, key: String, value: String?) = prefs.edit {
+		if (value == null) remove(providerKey(provider, key)) else putString(providerKey(provider, key), value)
+	}
+
+	/** True once the storage refused our credentials; cleared by a successful sign-in or sync. */
+	var needsReauth: Boolean
+		get() = prefs.getBoolean(KEY_NEEDS_REAUTH, false)
+		set(value) = prefs.edit { putBoolean(KEY_NEEDS_REAUTH, value) }
 
 	val isSignedIn: Boolean
 		get() = !accountEmail.isNullOrEmpty()
@@ -104,18 +129,21 @@ class SyncSettings @Inject constructor(@ApplicationContext context: Context) {
 		get() = prefs.getLong(KEY_LEGACY_WRITER, 0L)
 		set(value) = prefs.edit { putLong(KEY_LEGACY_WRITER, value) }
 
-	/** Forget everything tied to the Drive account (not user preferences like interval or content). */
+	/** Forget everything tied to the signed-in account (not user preferences like interval or content). */
 	fun clearAccount() {
 		prefs.edit {
 			remove(KEY_ACCOUNT_EMAIL)
 			remove(KEY_ACCOUNT_NAME)
 			remove(KEY_ACCOUNT_PHOTO)
 			remove(KEY_LAST_ERROR)
+			remove(KEY_PROVIDER)
+			remove(KEY_NEEDS_REAUTH)
+			prefs.all.keys.filter { it.startsWith(PROVIDER_PREFIX) }.forEach { remove(it) }
 		}
 		clearRemoteState()
 	}
 
-	/** Forget what is in Drive, so the next sync re-reads and re-uploads everything. */
+	/** Forget what is in the cloud, so the next sync re-reads and re-uploads everything. */
 	fun clearRemoteState() = prefs.edit {
 		remove(KEY_LAST_SYNC)
 		remove(KEY_UPLOAD_HASH)
@@ -126,9 +154,14 @@ class SyncSettings @Inject constructor(@ApplicationContext context: Context) {
 		remove(KEY_REPLICA_SINCE) // the next sync joins that cloud again
 	}
 
+	private fun providerKey(provider: SyncProvider, key: String) = "$PROVIDER_PREFIX${provider.key}_$key"
+
 	companion object {
 
 		private const val PREFS_NAME = "sync"
+		private const val KEY_PROVIDER = "provider"
+		private const val KEY_NEEDS_REAUTH = "needs_reauth"
+		private const val PROVIDER_PREFIX = "p_"
 		private const val KEY_ACCOUNT_EMAIL = "account_email"
 		private const val KEY_ACCOUNT_NAME = "account_name"
 		private const val KEY_ACCOUNT_PHOTO = "account_photo"

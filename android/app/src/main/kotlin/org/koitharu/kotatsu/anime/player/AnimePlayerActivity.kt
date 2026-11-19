@@ -128,6 +128,9 @@ import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.core.parser.MangaRepository
 import org.koitharu.kotatsu.history.data.HistoryRepository
+import org.koitharu.kotatsu.core.db.MangaDatabase
+import org.koitharu.kotatsu.core.prefs.AppSettings
+import org.koitharu.kotatsu.stats.data.StatsEntity
 import org.koitharu.kotatsu.settings.compose.DropSauceTheme
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -155,6 +158,15 @@ class AnimePlayerActivity : AppCompatActivity() {
 
 	@Inject lateinit var repositoryFactory: MangaRepository.Factory
 	@Inject lateinit var history: HistoryRepository
+	@Inject lateinit var db: MangaDatabase
+	@Inject lateinit var appSettings: AppSettings
+
+	// watch-time bookkeeping for the watching stats (one stats row per viewing session, like the reader does)
+	private var watchSessionStart = 0L
+	private var watchAccumulatedMs = 0L
+	private var playingSinceRealtime = 0L
+	private var watchedEpisodes = 0
+	private val countedEpisodes = HashSet<Long>()
 	@Inject lateinit var coil: ImageLoader
 	@Inject lateinit var injektBridge: dagger.Lazy<KotoInjektBridge>
 
@@ -205,6 +217,23 @@ class AnimePlayerActivity : AppCompatActivity() {
 	private var historyPercent by mutableFloatStateOf(0f)
 	private var notes by mutableStateOf<List<AnimeNote>>(emptyList())
 	private var audioPreset by mutableStateOf("sub")
+
+	/**
+	 * Sub / Dub chosen for this player session only, by picking a stream or an audio track. The saved preset
+	 * (Settings, or the toggle on the watch page) is never touched; it applies again next time the player opens.
+	 */
+	private var tempPreset: String? = null
+
+	/** The user chose this episode's stream, so the preset must not quietly swap it for another one. */
+	private var userPickedStream = false
+
+	private val activePreset: String
+		get() = tempPreset ?: AnimePlaybackSession.audioPreset(this)
+
+	private fun setTempPreset(preset: String?) {
+		tempPreset = preset
+		audioPreset = activePreset
+	}
 	private var skipSeconds = 85
 
 	/** Streams are resolved but auto-pick is off: waiting for the user to choose a server. */
@@ -268,6 +297,12 @@ class AnimePlayerActivity : AppCompatActivity() {
 			// Hand-off from the stream chooser (VLC fallback): streams are already resolved, play straight away.
 			index = AnimePlaybackSession.index
 			streamIndex = AnimePlaybackSession.streamIndex
+			if (AnimePlaybackSession.explicitPick) {
+				// Picked by hand in the stream picker: that stream's Sub / Dub wins over the saved preset, for now
+				AnimePlaybackSession.explicitPick = false
+				userPickedStream = true
+				AnimeStreamAutoPicker.explicitPresetOf(AnimePlaybackSession.streams.getOrNull(streamIndex))?.let { setTempPreset(it) }
+			}
 			pageManga = AnimePlaybackSession.manga
 			pageChapters = AnimePlaybackSession.chapters
 		}
@@ -404,11 +439,16 @@ class AnimePlayerActivity : AppCompatActivity() {
 		val saved = AnimePlaybackSession.rememberedServer(this, manga)
 		// Sub / Dub also ranks streams: an explicit remembered server still wins, the previous episode's
 		// server only stays first while it matches the preset (see AnimeStreamAutoPicker).
-		val order = AnimeStreamAutoPicker.order(this, list, saved ?: lastServerTitle, preferStrict = saved != null)
+		val order = AnimeStreamAutoPicker.order(this, list, saved ?: lastServerTitle, preferStrict = saved != null, preset = activePreset)
 		val rememberedHere = saved != null && list.any { it.video.videoTitle == saved }
 		val automatic = rememberedHere || list.size == 1 || AnimePlayerPrefs.isAutoPick(this)
 		streamIndex = order.first()
 		AnimePlaybackSession.begin(manga, chapters, index, list, streamIndex)
+		if (rememberedHere) {
+			// "Remember server" is an explicit pick too: its audio wins over the preset
+			userPickedStream = true
+			AnimeStreamAutoPicker.explicitPresetOf(list[streamIndex])?.let { setTempPreset(it) }
+		}
 		if (automatic) {
 			autoPicked = true
 			autoOrder = order
@@ -453,6 +493,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 		releasePlayer()
 		index = newIndex
 		autoPicked = false
+		userPickedStream = false
 		// Streams belong to one episode: drop them so nothing can replay the previous episode's by mistake.
 		AnimePlaybackSession.begin(manga, chapters, newIndex, emptyList(), 0)
 		startEpisode(resolveStreams = true)
@@ -587,7 +628,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 			.setEnableDecoderFallback(true)
 		// Sub / Dub is set on the selector before prepare(), so the right audio and subtitles are chosen
 		// straight away instead of starting on the default track and switching after the tracks load.
-		val presetDub = AnimePlaybackSession.audioPreset(this) == "dub"
+		val presetDub = activePreset == "dub"
 		val trackSelector = DefaultTrackSelector(this).apply {
 			setParameters(
 				buildUponParameters()
@@ -604,6 +645,17 @@ class AnimePlayerActivity : AppCompatActivity() {
 			.setSeekForwardIncrementMs(10_000)
 			.build()
 		exo.addListener(object : Player.Listener {
+			override fun onIsPlayingChanged(playing: Boolean) {
+				val now = android.os.SystemClock.elapsedRealtime()
+				if (playing) {
+					if (playingSinceRealtime == 0L) playingSinceRealtime = now
+					if (watchSessionStart == 0L) watchSessionStart = System.currentTimeMillis()
+				} else if (playingSinceRealtime != 0L) {
+					watchAccumulatedMs += now - playingSinceRealtime
+					playingSinceRealtime = 0L
+				}
+			}
+
 			override fun onPlaybackStateChanged(state: Int) {
 				isBuffering = state == Player.STATE_BUFFERING
 				if (state == Player.STATE_ENDED && index + 1 in chapters.indices && AnimePlayerPrefs.isAutoPlayNext(this@AnimePlayerActivity)) go(index + 1)
@@ -612,10 +664,10 @@ class AnimePlayerActivity : AppCompatActivity() {
 			override fun onTracksChanged(t: Tracks) {
 				tracks = t
 				val wasApplied = presetApplied
-				if (!applyAudioPreset(t) && !wasApplied) {
+				if (!applyAudioPreset(t) && !wasApplied && !userPickedStream) {
 					// Single-audio stream of the wrong kind: use a matching stream when this episode has one.
 					// Posted: the player must not be released from inside its own listener callback.
-					window.decorView.post { switchStreamForPreset(AnimePlaybackSession.audioPreset(this@AnimePlayerActivity)) }
+					window.decorView.post { switchStreamForPreset(activePreset) }
 					return
 				}
 				// Say so when audio exists but nothing playable is selected, instead of staying silent.
@@ -697,7 +749,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 		val text = t.groups.filter { it.type == C.TRACK_TYPE_TEXT }
 		if (audio.isEmpty() && text.isEmpty()) return true
 		presetApplied = true
-		val presetName = AnimePlaybackSession.audioPreset(this)
+		val presetName = activePreset
 		val dub = presetName == "dub"
 		val wanted = if (dub) listOf("en", "eng", "english") else listOf("ja", "jpn", "jp", "japanese")
 
@@ -756,7 +808,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 		val current = streams.getOrNull(streamIndex) ?: return
 		val currentScore = AnimeStreamAutoPicker.variantScore(current, preset)
 		if (currentScore == 0) return
-		val order = AnimeStreamAutoPicker.order(this, streams, null)
+		val order = AnimeStreamAutoPicker.order(this, streams, null, preset = preset)
 		val best = order.firstOrNull { it != streamIndex && AnimeStreamAutoPicker.variantScore(streams[it], preset) < currentScore }
 			?: return
 		saveProgress()
@@ -786,8 +838,18 @@ class AnimePlayerActivity : AppCompatActivity() {
 		historyChapterId = chapter.id
 		historyPercent = percent
 		val snapshot = manga.copy(chapters = chapters)
+		if (finished && countedEpisodes.add(chapter.id)) watchedEpisodes++
+		val watchedMs = watchAccumulatedMs +
+			if (playingSinceRealtime != 0L) android.os.SystemClock.elapsedRealtime() - playingSinceRealtime else 0L
+		val stats = if (appSettings.isWatchStatsEnabled && watchSessionStart != 0L && watchedMs > 0L) {
+			StatsEntity(snapshot.id, watchSessionStart, watchedMs, pages = 0, chapters = watchedEpisodes)
+		} else {
+			null
+		}
 		CoroutineScope(Dispatchers.IO + NonCancellable).launch {
 			runCatching { history.addOrUpdate(snapshot, chapter.id, 0, 0, percent, force = false) }
+			// After the history row exists: the stats table references it
+			if (stats != null) runCatching { db.getStatsDao().upsert(stats) }
 		}
 	}
 
@@ -822,7 +884,37 @@ class AnimePlayerActivity : AppCompatActivity() {
 						.setTrackTypeDisabled(type, false)
 						.setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, i))
 						.build()
+					// Choosing the English / Japanese track is a temporary Dub / Sub too, so the next episode keeps it
+					if (type == C.TRACK_TYPE_AUDIO) presetOfFormat(f)?.let { setTempPreset(it) }
 				}
+			}
+		}
+		return out
+	}
+
+	private fun presetOfFormat(f: androidx.media3.common.Format): String? {
+		val lang = f.language?.lowercase()
+		val label = f.label?.lowercase()
+		return when {
+			(lang != null && (lang == "en" || lang == "eng" || lang.startsWith("en-"))) || label?.contains("english") == true -> "dub"
+			(lang != null && (lang == "ja" || lang == "jp" || lang == "jpn" || lang.startsWith("ja-"))) || label?.contains("japanese") == true -> "sub"
+			else -> null
+		}
+	}
+
+	/**
+	 * The Audio menu: the audio tracks inside the playing stream, plus the Sub / Dub twin streams of it
+	 * (many extensions list Sub and Dub as separate streams). Picking a twin switches the stream, keeping
+	 * the position, so the audio is chosen here without opening the server list.
+	 */
+	private fun audioOptions(): List<TrackOption> {
+		val out = ArrayList(trackOptions(C.TRACK_TYPE_AUDIO))
+		val streams = AnimePlaybackSession.streams
+		AnimeStreamAutoPicker.audioAlternatives(streams, streamIndex).forEach { alt ->
+			val name = if (alt.variant == AnimeStreamAutoPicker.Variant.DUB) "English dub" else "Japanese sub"
+			val title = streams[alt.index].video.videoTitle.takeIf { it.isNotBlank() }
+			out += TrackOption(if (title != null) "$name · $title" else name, false) {
+				switchStream(alt.index, fromAudio = true)
 			}
 		}
 		return out
@@ -1218,7 +1310,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 						PlayerDialog.SUBTITLES, PlayerDialog.AUDIO -> {
 							val isText = dialog == PlayerDialog.SUBTITLES
 							DialogTitle(if (isText) "Subtitles" else "Audio track")
-							val options = trackOptions(if (isText) C.TRACK_TYPE_TEXT else C.TRACK_TYPE_AUDIO)
+							val options = if (isText) trackOptions(C.TRACK_TYPE_TEXT) else audioOptions()
 							if (options.isEmpty()) {
 								Text("None available", color = Color.Gray, modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
 							} else {
@@ -1348,22 +1440,31 @@ class AnimePlayerActivity : AppCompatActivity() {
 	}
 
 	/** Switches to another server / quality of the same episode; the position is saved first and restored on start. */
-	private fun switchStream(i: Int) {
+	/**
+	 * @param fromAudio the stream was chosen as an audio option (the Sub / Dub twin of the playing one), so
+	 * the "Remember for this anime" server is left alone.
+	 */
+	private fun switchStream(i: Int, fromAudio: Boolean = false) {
 		dialog = PlayerDialog.NONE
 		val choosing = chooseServer
 		if (i == streamIndex && !choosing) return
 		saveProgress()
 		chooseServer = false
-		// The user took control: no more quiet server fallbacks for this episode.
+		// The user took control: no more quiet server fallbacks, and the preset no longer swaps this stream.
 		autoPicked = false
+		userPickedStream = true
+		// Picking a Dub stream means Dub, for now; the saved preset stays as it is
+		AnimeStreamAutoPicker.explicitPresetOf(AnimePlaybackSession.streams.getOrNull(i))?.let { setTempPreset(it) }
 		streamIndex = i
 		AnimePlaybackSession.streamIndex = i
 		val title = AnimePlaybackSession.streams.getOrNull(i)?.video?.videoTitle
 		lastServerTitle = title
-		if (rememberPick) {
-			AnimePlaybackSession.setRememberedServer(this, manga, title)
-		} else if (choosing) {
-			AnimePlaybackSession.setRememberedServer(this, manga, null)
+		if (!fromAudio) {
+			if (rememberPick) {
+				AnimePlaybackSession.setRememberedServer(this, manga, title)
+			} else if (choosing) {
+				AnimePlaybackSession.setRememberedServer(this, manga, null)
+			}
 		}
 		attempts.clear()
 		triedProxy = false
@@ -1403,6 +1504,9 @@ class AnimePlayerActivity : AppCompatActivity() {
 	}
 
 	private fun changeAudioPreset(preset: String) {
+		// An explicit choice of the preset itself replaces any temporary one and lets streams follow it again
+		tempPreset = null
+		userPickedStream = false
 		audioPreset = preset
 		AnimePlaybackSession.setAudioPreset(this, preset)
 		// Apply to what is playing right now as well, not only to the next episode.

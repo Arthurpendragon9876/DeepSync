@@ -92,7 +92,7 @@ class HistoryListViewModel @Inject constructor(
 	val isStatsEnabled = settings.observeAsStateFlow(
 		scope = viewModelScope + Dispatchers.Default,
 		key = AppSettings.KEY_STATS_ENABLED,
-		valueProducer = { isStatsEnabled },
+		valueProducer = { isStatsEnabled || isWatchStatsEnabled },
 	)
 
 	override val content = combine(

@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -119,12 +121,12 @@ private fun ExploreMetadataContent(state: ExploreMetaState, imageLoader: ImageLo
 		} else {
 			ForYouSection(state, imageLoader, actions)
 			SamplesSection(state, imageLoader, actions)
-			// Plain text with a diagonal arrow: no background, but it still reads as a link to another screen
-			TextButton(onClick = actions.onOpenStats, modifier = Modifier.padding(horizontal = 4.dp)) {
-				Text(if (state.mode == HomeMode.ANIME) "See your watching stats" else "See your reading stats")
-				Spacer(Modifier.width(8.dp))
-				Icon(painterResource(R.drawable.ic_arrow_outward), contentDescription = null, modifier = Modifier.size(18.dp))
-			}
+		}
+		// Always shown (also while a search / filter is active) so the stats are one tap away
+		TextButton(onClick = actions.onOpenStats, modifier = Modifier.padding(horizontal = 4.dp)) {
+			Text(if (state.mode == HomeMode.ANIME) "See your watching stats" else "See your reading stats")
+			Spacer(Modifier.width(8.dp))
+			Icon(painterResource(R.drawable.ic_arrow_outward), contentDescription = null, modifier = Modifier.size(18.dp))
 		}
 	}
 }
@@ -151,7 +153,8 @@ private fun UnavailableCard(actions: ExploreMetaActions) {
 
 // ---- filters ----------------------------------------------------------------------------------------------
 
-internal fun DiscoverFilters.activeCount(): Int = include.size + exclude.size + listOf(status, format, year, season).count { it != null }
+internal fun DiscoverFilters.activeCount(): Int = include.size + exclude.size + listOf(status, format, year, season).count { it != null } +
+	(if (sort != DiscoverSort.POPULAR) 1 else 0)
 
 /**
  * What the current search / filter is made of. Genres the user picked in the filter sheet show as removable
@@ -259,6 +262,11 @@ internal fun FiltersSheet(
 			verticalArrangement = Arrangement.spacedBy(10.dp),
 		) {
 			Text("Filters", style = MaterialTheme.typography.titleLarge)
+			// The options scroll; Reset / Apply stay pinned below so they can never be pushed off screen
+			Column(
+				modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
+				verticalArrangement = Arrangement.spacedBy(10.dp),
+			) {
 
 			SheetLabel("Sort by")
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -344,6 +352,7 @@ internal fun FiltersSheet(
 				keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
 				modifier = Modifier.fillMaxWidth(),
 			)
+			}
 
 			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
 				OutlinedButton(

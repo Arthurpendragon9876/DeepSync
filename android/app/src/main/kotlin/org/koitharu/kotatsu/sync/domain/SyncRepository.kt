@@ -11,10 +11,17 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.backup.local.data.model.MangaBackup
 import org.koitharu.kotatsu.core.db.MangaDatabase
 import org.koitharu.kotatsu.parsers.util.runCatchingCancellable
+import org.koitharu.kotatsu.sync.backend.CanonicalJson
+import org.koitharu.kotatsu.sync.backend.RemoteFile
+import org.koitharu.kotatsu.sync.backend.ReplicaFormat
+import org.koitharu.kotatsu.sync.backend.SyncBackend
+import org.koitharu.kotatsu.sync.backend.SyncProvider
+import org.koitharu.kotatsu.sync.backend.SyncSession
 import org.koitharu.kotatsu.sync.data.GoogleDriveApi
 import org.koitharu.kotatsu.sync.data.GoogleDriveAuth
 import org.koitharu.kotatsu.sync.data.SyncSettings
@@ -42,17 +49,18 @@ sealed interface SyncResult {
 }
 
 /**
- * Two-way Google Drive sync. Every device publishes its own replica file and merges everyone
+ * Two-way sync on the one active [SyncBackend] (Google Drive, GitHub, Dropbox or WebDAV). Every device publishes its own replica file and merges everyone
  * else's; per record the newest version wins (see [ReplicaMerger]). Only this device's file is ever
  * written, so devices can't overwrite each other, and only replicas that changed are downloaded.
  */
 @Singleton
-class GoogleDriveSyncRepository @Inject constructor(
+class SyncRepository @Inject constructor(
 	@ApplicationContext private val context: Context,
 	private val database: MangaDatabase,
 	private val syncSettings: SyncSettings,
 	private val auth: GoogleDriveAuth,
 	private val api: GoogleDriveApi,
+	private val backends: @JvmSuppressWildcards Map<SyncProvider, SyncBackend>,
 	private val builder: ReplicaBuilder,
 	private val applier: ReplicaApplier,
 	private val syncPrefs: SyncPrefs,
@@ -68,6 +76,32 @@ class GoogleDriveSyncRepository @Inject constructor(
 	/** Whether a sync is currently running (so the UI can show progress). */
 	val isSyncing = MutableStateFlow(false)
 	private val syncMutex = Mutex()
+
+	/** Only one provider is ever active: two would each keep their own cursors and fight. */
+	private val backend: SyncBackend?
+		get() = syncSettings.provider?.let { backends[it] }?.takeIf { it.isConfigured }
+
+	/** Providers this build can offer, in the order the sign-in screen lists them. */
+	val availableProviders: List<SyncProvider>
+		get() = SyncProvider.entries.filter { backends[it]?.isConfigured == true }
+
+	/**
+	 * Records a finished sign-in. Signing in to a different provider or account means other files:
+	 * the merge cursors and join state of the old one must not leak into it.
+	 */
+	suspend fun completeSignIn(provider: SyncProvider, accountId: String, name: String?, photoUrl: String?) {
+		if (syncSettings.provider != provider || syncSettings.accountEmail != accountId) {
+			syncSettings.clearRemoteState()
+			database.getSyncDao().clearRemote()
+		}
+		syncSettings.provider = provider
+		syncSettings.accountEmail = accountId
+		syncSettings.accountName = name
+		syncSettings.accountPhotoUrl = photoUrl
+		syncSettings.needsReauth = false
+		syncSettings.lastSyncError = null
+		Log.i(TAG, "signed in to ${provider.key} as $accountId")
+	}
 
 	/**
 	 * Starts connecting Drive: returns the account chooser / consent screen to launch (then pass its
@@ -86,10 +120,7 @@ class GoogleDriveSyncRepository @Inject constructor(
 	private suspend fun onAuthorized(result: AuthorizationResult) {
 		val token = result.accessToken ?: throw SyncSignInRequiredException()
 		val user = api.userInfo(token)
-		syncSettings.accountEmail = user.email?.ifBlank { null } ?: "Google Drive"
-		syncSettings.accountName = user.name
-		syncSettings.accountPhotoUrl = user.picture
-		Log.i(TAG, "signed in as ${syncSettings.accountEmail}")
+		completeSignIn(SyncProvider.DRIVE, user.email?.ifBlank { null } ?: "Google Drive", user.name, user.picture)
 	}
 
 	/**
@@ -97,18 +128,23 @@ class GoogleDriveSyncRepository @Inject constructor(
 	 * that is already running makes this a no-op.
 	 */
 	suspend fun sync(force: Boolean = false): SyncResult {
-		if (!syncSettings.isSignedIn) return SyncResult.SignInRequired
+		val backend = backend
+		if (!syncSettings.isSignedIn || backend == null) return SyncResult.SignInRequired
+		// Credentials were refused: don't hammer the server from every app start until the user signs in again.
+		if (syncSettings.needsReauth && !force) return SyncResult.SignInRequired
 		if (force) syncMutex.lock() else if (!syncMutex.tryLock()) return SyncResult.Success
 		isSyncing.value = true
 		return try {
-			auth.withToken { token -> performSync(token) }
+			backend.session { session -> performSync(backend, session) }
 			syncSettings.lastSyncTimestamp = System.currentTimeMillis()
 			syncSettings.lastSyncError = null
+			syncSettings.needsReauth = false
 			SyncResult.Success
 		} catch (e: SyncSignInRequiredException) {
 			Log.w(TAG, "sign-in required", e)
 			// Persist it like any failure, or a revoked grant kills background sync silently.
 			syncSettings.lastSyncError = context.getString(R.string.sync_sign_in_required)
+			syncSettings.needsReauth = true
 			SyncResult.SignInRequired
 		} catch (e: SyncSchemaException) {
 			Log.e(TAG, "remote schema too new", e)
@@ -125,11 +161,11 @@ class GoogleDriveSyncRepository @Inject constructor(
 		}
 	}
 
-	private suspend fun performSync(token: String) {
+	private suspend fun performSync(backend: SyncBackend, session: SyncSession) {
 		val contentKeys = syncSettings.enabledContent
 		val content = SyncContent.fromKeys(contentKeys)
 		val syncDao = database.getSyncDao()
-		val ownName = REPLICA_PREFIX + syncSettings.deviceId + REPLICA_SUFFIX
+		val ownName = REPLICA_PREFIX + syncSettings.deviceId + backend.replicaSuffix
 		// Joining an account's cloud (first sync of this install/account) adopts it on unknown-age ties.
 		val isJoining = syncSettings.replicaSince == 0L
 		if (syncSettings.lastSyncedContent != contentKeys) {
@@ -138,7 +174,7 @@ class GoogleDriveSyncRepository @Inject constructor(
 			syncSettings.lastBuildFingerprint = null
 		}
 
-		val files = api.listAppData(token)
+		val files = session.list()
 		// A create retried after a timeout that actually succeeded leaves duplicates; keep the newest.
 		val ownFiles = files.filter { it.name == ownName }
 		val own = ownFiles.maxByOrNull { it.modifiedAt }
@@ -146,12 +182,12 @@ class GoogleDriveSyncRepository @Inject constructor(
 		// Our own last upload too: it's what a wiped or corrupted database is restored from.
 		val others = files.filter { (it.name.startsWith(REPLICA_PREFIX) && it.name != ownName) || it.name == LEGACY_NAME } +
 			listOfNotNull(own)
-		val changed = others.filter { it.md5 == null || merged[it.id] != it.md5 }
+		val changed = others.filter { it.checksum == null || merged[it.id] != it.checksum }
 
 		// Download failures throw: a transient error must never look like "nothing remote".
-		val remotes = ArrayList<Pair<GoogleDriveApi.DriveFile, Replica>>(changed.size)
+		val remotes = ArrayList<Pair<RemoteFile, Replica>>(changed.size)
 		for (file in changed) {
-			val replica = decode(file, api.download(token, file.id)) ?: continue
+			val replica = decode(file, session.download(file)) ?: continue
 			remotes += file to replica
 		}
 		noteLegacyWriter(files.firstOrNull { it.name == LEGACY_NAME })
@@ -161,7 +197,7 @@ class GoogleDriveSyncRepository @Inject constructor(
 		var fingerprint = syncDao.fingerprint()
 		if (remotes.isEmpty() && own != null && fingerprint == syncSettings.lastBuildFingerprint) {
 			Log.i(TAG, "nothing changed")
-			housekeeping(token, files)
+			housekeeping(backend, session, files)
 			return
 		}
 
@@ -185,12 +221,12 @@ class GoogleDriveSyncRepository @Inject constructor(
 				}
 				val coverFiles = files.filter { it.name.startsWith(COVER_PREFIX) }.associateBy { it.name }
 				applier.apply(changes, manga, categoryUids) { hash ->
-					coverFiles[COVER_PREFIX + hash]?.let { api.download(token, it.id) }
+					coverFiles[COVER_PREFIX + hash]?.let { session.download(it) }
 				}
 			}
 			if (complete) {
 				for ((file, _) in remotes) {
-					file.md5?.let { syncDao.upsertRemote(SyncRemoteEntity(file.id, it)) }
+					file.checksum?.let { syncDao.upsertRemote(SyncRemoteEntity(file.id, it)) }
 				}
 			}
 			Log.i(TAG, "merged ${remotes.size} replica(s), changes=${!changes.isEmpty}, complete=$complete")
@@ -213,34 +249,34 @@ class GoogleDriveSyncRepository @Inject constructor(
 			val name = COVER_PREFIX + cover.hash
 			if (name in existingCovers) continue
 			val raw = builder.coverBytes(cover) ?: continue
-			api.create(token, name, GoogleDriveApi.body(raw))
+			session.create(name, raw)
 		}
 
-		val payload = json.encodeToString(Replica.serializer(), local.replica).encodeToByteArray()
+		val payload = encode(backend, local.replica)
 		val hash = sha1(payload)
 		var ownId = own?.id
 		if (own == null || hash != syncSettings.lastUploadHash) {
-			val body = GoogleDriveApi.body(gzip(payload))
+			val body = if (backend.replicaFormat.isGzip) gzip(payload) else payload
 			val uploaded = if (own == null) {
-				api.create(token, ownName, body)
+				session.create(ownName, body)
 			} else {
-				api.update(token, own.id, body)
+				session.update(own, body)
 			}
 			ownId = uploaded.id
 			syncSettings.lastUploadHash = hash
 			// Our own upload is already in the database: don't download it back next time.
-			uploaded.md5?.let { syncDao.upsertRemote(SyncRemoteEntity(uploaded.id, it)) }
+			uploaded.checksum?.let { syncDao.upsertRemote(SyncRemoteEntity(uploaded.id, it)) }
 			Log.i(TAG, "uploaded replica (${payload.size} bytes raw) to ${uploaded.id}")
 		}
 		for (duplicate in ownFiles) {
-			if (duplicate.id != ownId) runCatchingCancellable { api.delete(token, duplicate.id) }
+			if (duplicate.id != ownId) runCatchingCancellable { session.delete(duplicate) }
 		}
 		syncSettings.lastBuildFingerprint = fingerprint
 		syncSettings.lastSyncedContent = contentKeys
 		if (syncSettings.replicaSince == 0L) {
 			syncSettings.replicaSince = System.currentTimeMillis()
 		}
-		housekeeping(token, files)
+		housekeeping(backend, session, files)
 	}
 
 	private fun merge(local: Replica, remotes: List<Replica>, content: Set<SyncContent>, isJoining: Boolean): SyncChanges {
@@ -331,7 +367,7 @@ class GoogleDriveSyncRepository @Inject constructor(
 	 * deleted). Throws [SyncSchemaException] for a newer format so this build never merges data it
 	 * doesn't understand.
 	 */
-	private fun decode(file: GoogleDriveApi.DriveFile, bytes: ByteArray): Replica? {
+	private fun decode(file: RemoteFile, bytes: ByteArray): Replica? {
 		if (file.name == LEGACY_NAME) {
 			return runCatching {
 				json.decodeFromString(LegacySnapshot.serializer(), bytes.decodeToString()).toReplica()
@@ -353,7 +389,7 @@ class GoogleDriveSyncRepository @Inject constructor(
 	}
 
 	/** Remembers when a device on the old version last wrote the old single-file format. */
-	private fun noteLegacyWriter(legacy: GoogleDriveApi.DriveFile?) {
+	private fun noteLegacyWriter(legacy: RemoteFile?) {
 		val since = syncSettings.replicaSince
 		val modifiedAt = legacy?.modifiedAt ?: 0L
 		if (since != 0L && modifiedAt > since) {
@@ -362,7 +398,7 @@ class GoogleDriveSyncRepository @Inject constructor(
 	}
 
 	/** Daily: GC old tombstones locally, drop files of long-gone devices and stale merge cursors. */
-	private suspend fun housekeeping(token: String, files: List<GoogleDriveApi.DriveFile>) {
+	private suspend fun housekeeping(backend: SyncBackend, session: SyncSession, files: List<RemoteFile>) {
 		val now = System.currentTimeMillis()
 		if (now - syncSettings.lastHousekeeping < DAY_MS) return
 		val cutoff = now - TOMBSTONE_TTL_MS
@@ -376,22 +412,23 @@ class GoogleDriveSyncRepository @Inject constructor(
 			for (cursor in database.getSyncDao().findRemote()) {
 				if (cursor.fileId !in ids) database.getSyncDao().deleteRemote(cursor.fileId)
 			}
-			val ownName = REPLICA_PREFIX + syncSettings.deviceId + REPLICA_SUFFIX
+			val ownName = REPLICA_PREFIX + syncSettings.deviceId + backend.replicaSuffix
 			for (file in files) {
 				if (file.name.startsWith(REPLICA_PREFIX) && file.name != ownName && file.modifiedAt in 1 until cutoff) {
-					Log.i(TAG, "removing replica of a device unseen since ${file.modifiedTime}: ${file.name}")
-					api.delete(token, file.id)
+					Log.i(TAG, "removing replica of a device unseen since ${file.modifiedAt}: ${file.name}")
+					session.delete(file)
 				}
 			}
 			syncSettings.lastHousekeeping = now
 		}.onFailure { Log.w(TAG, "housekeeping failed", it) }
 	}
 
-	/** Deletes the synced data from Drive and forgets local sync bookkeeping. */
+	/** Deletes the synced data from the cloud and forgets local sync bookkeeping. */
 	suspend fun deleteRemoteData(): SyncResult = try {
-		auth.withToken { token ->
-			for (file in api.listAppData(token)) {
-				api.delete(token, file.id)
+		val backend = backend ?: return SyncResult.SignInRequired
+		backend.session { session ->
+			for (file in session.list()) {
+				session.delete(file)
 			}
 		}
 		database.getSyncDao().clearRemote()
@@ -405,12 +442,25 @@ class GoogleDriveSyncRepository @Inject constructor(
 	}
 
 	suspend fun signOut() {
-		// signOut + revokeAccess so the next sign-in shows the account chooser / consent again.
-		auth.signOut()
+		// Drive: signOut + revokeAccess so the next sign-in shows the account chooser / consent again.
+		// Switching provider is exactly this: disconnect, forget cursors (clearRemote) and the join state
+		// (replicaSince), then sign in elsewhere, whose first sync uploads everything.
+		backend?.signOut()
 		syncSettings.clearAccount()
 		// Another account means other files: forget which ones were already merged.
 		database.getSyncDao().clearRemote()
 	}
+
+	/**
+	 * Compact JSON for gzip providers (gzipped by the caller); canonical, line-per-record JSON for
+	 * git-backed ones so successive commits delta-compress. Equal data always encodes to equal bytes.
+	 */
+	private fun encode(backend: SyncBackend, replica: Replica): ByteArray =
+		if (backend.replicaFormat == ReplicaFormat.CANONICAL_JSON) {
+			CanonicalJson.encode(json.encodeToJsonElement(Replica.serializer(), replica) as JsonObject).encodeToByteArray()
+		} else {
+			json.encodeToString(Replica.serializer(), replica).encodeToByteArray()
+		}
 
 	private fun gzip(bytes: ByteArray): ByteArray = ByteArrayOutputStream(bytes.size / 4).also { out ->
 		GZIPOutputStream(out).use { it.write(bytes) }
@@ -425,9 +475,8 @@ class GoogleDriveSyncRepository @Inject constructor(
 
 	private companion object {
 
-		const val TAG = "GDriveSync"
+		const val TAG = "Sync"
 		const val REPLICA_PREFIX = "replica_"
-		const val REPLICA_SUFFIX = ".json.gz"
 		const val COVER_PREFIX = "cover_"
 		const val LEGACY_NAME = "dropsauce_sync.json"
 		const val PREFS = "prefs"
