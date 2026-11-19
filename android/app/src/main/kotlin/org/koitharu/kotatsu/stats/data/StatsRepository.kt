@@ -2,6 +2,7 @@ package org.koitharu.kotatsu.stats.data
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -52,11 +53,13 @@ class StatsRepository @Inject constructor(
 		val fromDate = boundedStarts?.second?.first() ?: 0L
 		// With a mode (Explore opens stats for the current Anime / Manga / Novel mode) only titles from sources of
 		// that mode count, so watching stats no longer include reading sessions
-		val modeIds: Set<Long>? = mode?.let {
-			db.getStatsDao().getDurationStats(0L, categories).keys
-				.filter { entity -> entity.toManga(emptySet(), null).source.contentMode == mode }
-				.mapTo(HashSet()) { entity -> entity.id }
-		}
+		// With no mode (History, Settings) anime sessions are left out, so the reading statistics only count reading.
+		val modeIds: Set<Long>? = db.getStatsDao().getDurationStats(0L, categories).keys
+			.filter { entity ->
+				val entityMode = entity.toManga(emptySet(), null).source.contentMode
+				if (mode == null) entityMode != org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME else entityMode == mode
+			}
+			.mapTo(HashSet()) { entity -> entity.id }
 		val sessions = db.getStatsDao().getSessions(fromDate, categories)
 			.let { list -> if (modeIds == null) list else list.filter { it.mangaId in modeIds } }
 		val (unit, starts) = boundedStarts
@@ -231,9 +234,10 @@ class StatsRepository @Inject constructor(
 		db.getStatsDao().clear()
 	}
 
-	fun observeHasStats(mangaId: Long): Flow<Boolean> = settings.observeAsFlow(AppSettings.KEY_STATS_ENABLED) {
-		isStatsEnabled
-	}.flatMapLatest { isEnabled ->
+	fun observeHasStats(mangaId: Long): Flow<Boolean> = combine(
+		settings.observeAsFlow(AppSettings.KEY_STATS_ENABLED) { isStatsEnabled },
+		settings.observeAsFlow(AppSettings.KEY_WATCH_STATS_ENABLED) { isWatchStatsEnabled },
+	) { reading, watching -> reading || watching }.flatMapLatest { isEnabled ->
 		if (isEnabled) {
 			db.getStatsDao().observeRowCount(mangaId).map { it > 0 }
 		} else {

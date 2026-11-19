@@ -3,6 +3,7 @@ package org.koitharu.kotatsu.reader.domain
 import android.util.LongSparseArray
 import androidx.annotation.CheckResult
 import dagger.hilt.android.scopes.ViewModelScoped
+import org.koitharu.kotatsu.core.prefs.AppSettings
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.koitharu.kotatsu.core.parser.MangaRepository
@@ -18,6 +19,7 @@ private const val PAGES_TRIM_THRESHOLD = 120
 @ViewModelScoped
 class ChaptersLoader @Inject constructor(
 	private val mangaRepositoryFactory: MangaRepository.Factory,
+	private val settings: AppSettings,
 ) {
 
 	private val chapters = LongSparseArray<MangaChapter>()
@@ -38,8 +40,16 @@ class ChaptersLoader @Inject constructor(
 		}
 	}
 
+	/** The chapters Next / Previous moves through: all of them, or fewer when the skip options are on. */
+	fun navigableChapters(manga: MangaDetails, currentId: Long): List<MangaChapter> = ChapterSkipper.navigable(
+		chapters = manga.allChapters,
+		currentId = currentId,
+		skipDuplicates = settings.isSkipDuplicateChaptersEnabled,
+		skipDecimals = settings.isSkipDecimalChaptersEnabled,
+	)
+
 	suspend fun loadPrevNextChapter(manga: MangaDetails, currentId: Long, isNext: Boolean): Boolean {
-		val chapters = manga.allChapters
+		val chapters = navigableChapters(manga, currentId)
 		val predicate: (MangaChapter) -> Boolean = { it.id == currentId }
 		val index = if (isNext) chapters.indexOfFirst(predicate) else chapters.indexOfLast(predicate)
 		if (index == -1) return false

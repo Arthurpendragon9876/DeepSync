@@ -12,7 +12,7 @@ import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.core.util.ext.connectivityManager
 import org.koitharu.kotatsu.core.util.ext.processLifecycleScope
 import org.koitharu.kotatsu.sync.data.SyncSettings
-import org.koitharu.kotatsu.sync.domain.GoogleDriveSyncRepository
+import org.koitharu.kotatsu.sync.domain.SyncRepository
 import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
@@ -27,7 +27,7 @@ class SyncTrigger @Inject constructor(
 	@ApplicationContext private val context: Context,
 	// Built at app start on the main thread, so the sync engine (and the OkHttp client behind it,
 	// which must not be created on the main thread) is only resolved inside the background sync.
-	private val repositoryProvider: Provider<GoogleDriveSyncRepository>,
+	private val repositoryProvider: Provider<SyncRepository>,
 	private val syncSettings: SyncSettings,
 	private val scheduler: SyncWorker.Scheduler,
 ) : DefaultLifecycleObserver {

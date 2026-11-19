@@ -89,7 +89,7 @@ Please give the repo a star if you like the project. It helps more people find i
 
 - Manga, webtoon, light-novel and anime in one project, with the same Home layout, themes and tracker behaviour on every platform.
 - Tracking with AniList, MyAnimeList and MangaBaka. Progress is never moved backwards, so syncing twice or from two devices is safe.
-- **Yugen:** extension engine for Mihon, Tsundoku and Aniyomi APK extensions and LNReader JS plugins, EPUB import, Google Drive sync, local backup and restore (Kotatsu, Mihon and Anikku backups), widgets and app lock.
+- **Yugen:** extension engine for Mihon, Tsundoku and Aniyomi APK extensions and LNReader JS plugins, EPUB import, GitHub, Dropbox and WebDAV sync, local backup and restore (Kotatsu, Mihon and Anikku backups), widgets and app lock.
 - **Shinkai:** Seanime-style layout, 13 colour themes (light and dark), local library scanner, built-in player or mpv, EPUB and manga readers.
 - **Yomi:** Windows 11 look (Mica backdrop, native caption buttons), per-user installer with Java and the extension bridge bundled, taskbar progress, jump list and tray.
 - Free and open source under the GPLv3 license.

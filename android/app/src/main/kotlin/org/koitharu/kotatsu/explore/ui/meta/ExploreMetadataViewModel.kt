@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.util.ext.MutableEventFlow
@@ -117,6 +118,10 @@ class ExploreMetadataViewModel @Inject constructor(
 	private val mutableQuickPrefs = MutableStateFlow(readQuickPrefs())
 	val quickPrefs: StateFlow<ExploreQuickPrefs> = mutableQuickPrefs.asStateFlow()
 
+	/** True while a pull-to-refresh is reloading the page; the fragment shows it on the swipe layout. */
+	private val mutableRefreshing = MutableStateFlow(false)
+	val isRefreshing: StateFlow<Boolean> = mutableRefreshing.asStateFlow()
+
 	private var resultsJob: Job? = null
 	private var forYouJob: Job? = null
 	private var samplesJob: Job? = null
@@ -152,6 +157,34 @@ class ExploreMetadataViewModel @Inject constructor(
 		}
 	}
 
+	/**
+	 * Pull-to-refresh: reloads what the page is showing (the search / filter results, or the feed and the
+	 * samples) and the user's top genres. Unlike [sync] it does not skip when nothing changed.
+	 */
+	fun refresh() {
+		val s = mutableState.value
+		if (!s.isAvailable || mutableRefreshing.value) return
+		mutableRefreshing.value = true
+		viewModelScope.launch {
+			try {
+				mutableQuickPrefs.value = readQuickPrefs()
+				val top = runCatching { affinity.top(s.mode, limit = 10) }.getOrDefault(s.topGenres)
+				mutableState.update { it.copy(topGenres = top) }
+				if (s.filters.isActive) {
+					mutableState.update { it.copy(results = MetaListing()) }
+					loadResults(page = 1)
+				} else {
+					mutableState.update { it.copy(forYou = MetaListing()) }
+					loadForYou(page = 1)
+					loadSamples(s.forYouGenre)
+				}
+				listOfNotNull(resultsJob, forYouJob, samplesJob).joinAll()
+			} finally {
+				mutableRefreshing.value = false
+			}
+		}
+	}
+
 	// ---- search & filters ----------------------------------------------------------------------
 
 	fun setFilters(filters: DiscoverFilters) {
@@ -161,7 +194,7 @@ class ExploreMetadataViewModel @Inject constructor(
 
 	fun search(query: String) = setFilters(mutableState.value.filters.copy(query = query))
 
-	fun clearFilters() = setFilters(DiscoverFilters(sort = mutableState.value.filters.sort))
+	fun clearFilters() = setFilters(DiscoverFilters())
 
 	fun nextResultsPage() {
 		val r = mutableState.value.results
@@ -268,7 +301,7 @@ class ExploreMetadataViewModel @Inject constructor(
 		// A feed replaces any search or filter result the page was showing
 		if (mutableState.value.filters.isActive) {
 			resultsJob?.cancel()
-			mutableState.update { it.copy(filters = DiscoverFilters(sort = it.filters.sort), results = MetaListing()) }
+			mutableState.update { it.copy(filters = DiscoverFilters(), results = MetaListing()) }
 		}
 		loadForYou(page = 1)
 	}

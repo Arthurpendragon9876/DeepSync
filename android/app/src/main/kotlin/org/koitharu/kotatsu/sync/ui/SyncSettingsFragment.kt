@@ -4,6 +4,8 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.text.format.DateUtils
 import android.view.LayoutInflater
@@ -25,7 +27,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import org.koitharu.kotatsu.sync.backend.SyncProvider
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -65,6 +77,7 @@ import org.koitharu.kotatsu.settings.compose.PlainInfoSettingsItem
 import org.koitharu.kotatsu.settings.compose.SettingsGroup
 import org.koitharu.kotatsu.settings.compose.SettingsScaffold
 import org.koitharu.kotatsu.settings.compose.SwitchSettingsItem
+import org.koitharu.kotatsu.sync.backend.github.GithubDeviceChallenge
 import org.koitharu.kotatsu.sync.data.model.SyncContent
 import javax.inject.Inject
 
@@ -92,11 +105,16 @@ class SyncSettingsFragment : BaseComposeSettingsFragment(R.string.google_drive_s
 			DropSauceTheme {
 				val state by viewModel.uiState.collectAsState()
 				val isSyncing by viewModel.isSyncing.collectAsState()
+				val githubChallenge by viewModel.githubChallenge.collectAsState()
 				SyncScreen(
 					state = state,
 					isSyncing = isSyncing,
 					imageLoader = coilImageLoader,
-					onSignIn = viewModel::signIn,
+					onSignInWith = viewModel::signInWith,
+					webDavPrefill = viewModel::webDavPrefill,
+					onConnectWebDav = viewModel::connectWebDav,
+					githubChallenge = githubChallenge,
+					onCancelGithub = viewModel::cancelGithubSignIn,
 					onSignOut = viewModel::signOut,
 					onSyncNow = viewModel::syncNow,
 					onIntervalChange = viewModel::setInterval,
@@ -109,11 +127,20 @@ class SyncSettingsFragment : BaseComposeSettingsFragment(R.string.google_drive_s
 		}
 	}
 
+	override fun onResume() {
+		super.onResume()
+		viewModel.refresh() // an OAuth redirect may have signed us in while we were in the background
+	}
+
 	override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
 		super.onViewCreated(view, savedInstanceState)
 		viewModel.events.observeEvent(viewLifecycleOwner) { event ->
 			when (event) {
 				is SyncEvent.LaunchSignIn -> signInLauncher.launch(IntentSenderRequest.Builder(event.consent).build())
+
+				is SyncEvent.OpenUrl -> runCatching {
+					startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(event.url)))
+				}.onFailure { showErrorDialog(event.url) }
 
 				is SyncEvent.Message ->
 					Snackbar.make(requireView(), event.resId, Snackbar.LENGTH_SHORT).show()
@@ -142,7 +169,11 @@ private fun SyncScreen(
 	state: SyncUiState,
 	isSyncing: Boolean,
 	imageLoader: ImageLoader,
-	onSignIn: () -> Unit,
+	onSignInWith: (SyncProvider) -> Unit,
+	webDavPrefill: () -> Pair<String?, String?>,
+	onConnectWebDav: (String, String, String) -> Unit,
+	githubChallenge: GithubDeviceChallenge?,
+	onCancelGithub: () -> Unit,
 	onSignOut: () -> Unit,
 	onSyncNow: () -> Unit,
 	onIntervalChange: (Int) -> Unit,
@@ -153,6 +184,10 @@ private fun SyncScreen(
 ) {
 	val colors = CategoryPalette.forKey("sync")
 	var showDeleteConfirm by remember { mutableStateOf(false) }
+	var showWebDav by remember { mutableStateOf(false) }
+	val signInWith: (SyncProvider) -> Unit = { provider ->
+		if (provider == SyncProvider.WEBDAV) showWebDav = true else onSignInWith(provider)
+	}
 
 	val freqValues = listOf("0", "360", "720", "1440", "10080")
 	val freqEntries = listOf(
@@ -181,6 +216,18 @@ private fun SyncScreen(
 							onToggleHidden = onToggleEmailHidden,
 						)
 					}
+					if (state.needsReauth && state.provider != null) {
+						item { pos ->
+							ActionSettingsItem(
+								title = stringResource(R.string.sync_sign_in_again),
+								subtitle = stringResource(R.string.sync_sign_in_again_summary),
+								icon = R.drawable.ic_cloud_sync,
+								iconColors = colors,
+								shape = pos.shape,
+								onClick = { signInWith(state.provider) },
+							)
+						}
+					}
 					item { pos ->
 						ActionSettingsItem(
 							title = stringResource(R.string.sync_sign_out),
@@ -190,15 +237,17 @@ private fun SyncScreen(
 						)
 					}
 				} else {
-					item { pos ->
-						ActionSettingsItem(
-							title = stringResource(R.string.sync_sign_in),
-							subtitle = stringResource(R.string.sync_sign_in_summary),
-							icon = R.drawable.ic_cloud_sync,
-							iconColors = colors,
-							shape = pos.shape,
-							onClick = onSignIn,
-						)
+					for (provider in state.availableProviders) {
+						item { pos ->
+							ActionSettingsItem(
+								title = stringResource(provider.titleRes()),
+								subtitle = stringResource(provider.summaryRes()),
+								icon = R.drawable.ic_cloud_sync,
+								iconColors = colors,
+								shape = pos.shape,
+								onClick = { signInWith(provider) },
+							)
+						}
 					}
 				}
 			}
@@ -304,6 +353,21 @@ private fun SyncScreen(
 		item { Spacer(Modifier.height(24.dp).fillMaxWidth()) }
 	}
 
+	if (showWebDav) {
+		WebDavDialog(
+			prefill = remember { webDavPrefill() },
+			onConnect = { address, user, password ->
+				showWebDav = false
+				onConnectWebDav(address, user, password)
+			},
+			onDismiss = { showWebDav = false },
+		)
+	}
+
+	if (githubChallenge != null) {
+		GithubCodeDialog(challenge = githubChallenge, onCancel = onCancelGithub)
+	}
+
 	if (showDeleteConfirm) {
 		ConfirmDialog(
 			title = stringResource(R.string.sync_delete_data),
@@ -404,6 +468,8 @@ private fun AccountAvatar(photoUrl: String?, imageLoader: ImageLoader) {
 	}
 }
 
+
+
 private fun SyncContent.titleRes(): Int = when (this) {
 	SyncContent.FAVOURITES -> R.string.sync_content_favourites
 	SyncContent.HISTORY -> R.string.sync_content_history
@@ -414,3 +480,5 @@ private fun SyncContent.titleRes(): Int = when (this) {
 	SyncContent.SETTINGS -> R.string.sync_content_settings
 	SyncContent.CUSTOM_COVERS -> R.string.sync_content_covers
 }
+
+

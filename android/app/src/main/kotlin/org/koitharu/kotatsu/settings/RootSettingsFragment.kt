@@ -5,6 +5,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import org.koitharu.kotatsu.settings.compose.BaseComposeSettingsFragment
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -20,9 +23,13 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -53,6 +60,9 @@ import org.koitharu.kotatsu.settings.compose.SettingsItem
 import org.koitharu.kotatsu.settings.compose.SettingsScaffold
 import org.koitharu.kotatsu.settings.sources.ExtensionsSettingsFragment
 import org.koitharu.kotatsu.settings.tracker.TrackerSettingsFragment
+import org.koitharu.kotatsu.sync.backend.SyncProvider
+import org.koitharu.kotatsu.sync.data.SyncSettings
+import org.koitharu.kotatsu.sync.ui.SyncSettingsFragment
 import javax.inject.Inject
 
 /**
@@ -69,7 +79,14 @@ class RootSettingsFragment : BaseComposeSettingsFragment(R.string.settings) {
 	@Inject
 	lateinit var appUpdateRepository: AppUpdateRepository
 
+	@Inject
+	lateinit var syncSettings: SyncSettings
+
 	private val searchViewModel: SettingsSearchViewModel by activityViewModels()
+
+	// SyncSettings is plain SharedPreferences, so re-read it whenever the screen comes back
+	// (the sync screen is one tap away and changes the account).
+	private val syncProfile = mutableStateOf<SyncProfile?>(null)
 
 	override fun onCreateView(
 		inflater: LayoutInflater,
@@ -83,6 +100,8 @@ class RootSettingsFragment : BaseComposeSettingsFragment(R.string.settings) {
 				RootSettingsContent(
 					appVersion = BuildConfig.VERSION_NAME,
 					updateAvailable = update != null,
+					syncProfile = syncProfile,
+					onSyncClick = ::openSync,
 					onSectionClick = { section -> openSection(section) },
 					onUpdateClick = { router.openAppUpdate() },
 					onOpenGithub = ::openGithub,
@@ -99,6 +118,21 @@ class RootSettingsFragment : BaseComposeSettingsFragment(R.string.settings) {
 			SettingsSearchMenuProvider(searchViewModel),
 			viewLifecycleOwner,
 		)
+	}
+
+	override fun onResume() {
+		super.onResume()
+		syncProfile.value = SyncProfile(
+			provider = syncSettings.provider.takeIf { syncSettings.isSignedIn },
+			account = syncSettings.accountName?.takeIf { it.isNotBlank() } ?: syncSettings.accountEmail,
+			needsReauth = syncSettings.needsReauth,
+			isEmailHidden = syncSettings.isEmailHidden,
+		)
+	}
+
+	private fun openSync() {
+		val activity = activity as? SettingsActivity ?: return
+		activity.openFragment(SyncSettingsFragment::class.java, null, isFromRoot = true)
 	}
 
 	private fun openGithub() {
@@ -185,6 +219,8 @@ private enum class SettingsSection(
 private fun RootSettingsContent(
 	appVersion: String,
 	updateAvailable: Boolean,
+	syncProfile: State<SyncProfile?>,
+	onSyncClick: () -> Unit,
 	onSectionClick: (SettingsSection) -> Unit,
 	onUpdateClick: () -> Unit,
 	onOpenGithub: () -> Unit,
@@ -197,6 +233,8 @@ private fun RootSettingsContent(
 			}
 			item { Spacer(Modifier.height(12.dp).fillMaxWidth()) }
 		}
+		item { CloudSyncProfileCard(profile = syncProfile.value, onClick = onSyncClick) }
+		item { Spacer(Modifier.height(12.dp).fillMaxWidth()) }
 		item {
 			SettingsGroup {
 				// SettingsGroup's DSL block is NOT @Composable — @Composable calls
@@ -295,6 +333,93 @@ private fun UpdateBanner(onClick: () -> Unit) {
 				contentDescription = null,
 				tint = cs.onPrimaryContainer,
 				modifier = Modifier.size(22.dp),
+			)
+		}
+	}
+}
+
+/** What the Cloud sync card needs to know about the sync account; null until first read. */
+private data class SyncProfile(
+	val provider: SyncProvider?,
+	val account: String?,
+	val needsReauth: Boolean,
+	val isEmailHidden: Boolean,
+)
+
+@Composable
+private fun SyncProvider.displayName(): String = stringResource(
+	when (this) {
+		SyncProvider.DRIVE -> R.string.sync_provider_drive
+		SyncProvider.GITHUB -> R.string.sync_provider_github
+		SyncProvider.DROPBOX -> R.string.sync_provider_dropbox
+		SyncProvider.ONEDRIVE -> R.string.sync_provider_onedrive
+		SyncProvider.WEBDAV -> R.string.sync_provider_webdav
+	},
+)
+
+/**
+ * Profile-style entry at the top of Settings: a round accent avatar, the title, a one-line status
+ * (provider and account, or "Not signed in") and a chevron. Opens the Cloud sync screen.
+ */
+@Composable
+private fun CloudSyncProfileCard(profile: SyncProfile?, onClick: () -> Unit) {
+	val cs = MaterialTheme.colorScheme
+	val provider = profile?.provider
+	val account = profile?.account
+	val subtitle = when {
+		profile == null || provider == null -> stringResource(R.string.cloud_sync_profile_not_signed_in)
+		profile.needsReauth -> stringResource(R.string.cloud_sync_profile_reauth, provider.displayName())
+		account.isNullOrBlank() || profile.isEmailHidden -> provider.displayName()
+		else -> stringResource(R.string.cloud_sync_profile_signed_in, provider.displayName(), account)
+	}
+	Surface(
+		modifier = Modifier.fillMaxWidth(),
+		shape = RoundedCornerShape(28.dp),
+		color = cs.surfaceContainer,
+		onClick = onClick,
+	) {
+		Row(
+			modifier = Modifier
+				.fillMaxWidth()
+				.padding(horizontal = 16.dp, vertical = 16.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			Box(
+				modifier = Modifier
+					.size(56.dp)
+					.clip(CircleShape)
+					.background(cs.primary),
+				contentAlignment = Alignment.Center,
+			) {
+				Icon(
+					painter = painterResource(R.drawable.ic_cloud_sync),
+					contentDescription = null,
+					tint = cs.onPrimary,
+					modifier = Modifier.size(28.dp),
+				)
+			}
+			Spacer(Modifier.width(16.dp))
+			Column(modifier = Modifier.weight(1f)) {
+				Text(
+					text = stringResource(R.string.cloud_sync_profile),
+					style = MaterialTheme.typography.titleMedium,
+					fontWeight = FontWeight.Bold,
+					color = cs.onSurface,
+				)
+				Text(
+					text = subtitle,
+					style = MaterialTheme.typography.bodyMedium,
+					color = if (profile?.needsReauth == true) cs.error else cs.onSurfaceVariant,
+					maxLines = 1,
+					overflow = TextOverflow.Ellipsis,
+				)
+			}
+			Spacer(Modifier.width(8.dp))
+			Icon(
+				painter = painterResource(R.drawable.ic_chevron_right),
+				contentDescription = null,
+				tint = cs.onSurfaceVariant,
+				modifier = Modifier.size(24.dp),
 			)
 		}
 	}

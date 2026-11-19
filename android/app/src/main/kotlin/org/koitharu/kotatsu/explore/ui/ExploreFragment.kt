@@ -158,9 +158,19 @@ class ExploreFragment :
 		viewModel.onShowSuggestionsTip.observeEvent(viewLifecycleOwner) {
 			showSuggestionsTip()
 		}
-		binding.swipeRefreshLayout.setOnRefreshListener { viewModel.refresh() }
+		// Pull-to-refresh works on both halves: Sources regenerates its suggestions, Discover reloads the feed
+		binding.swipeRefreshLayout.setOnRefreshListener {
+			if (metaViewModel.selectedTab.value == 1) {
+				if (metaViewModel.state.value.isAvailable) metaViewModel.refresh() else binding.swipeRefreshLayout.isRefreshing = false
+			} else {
+				viewModel.refresh()
+			}
+		}
 		viewModel.isLoading.observe(viewLifecycleOwner) { isLoading ->
-			binding.swipeRefreshLayout.isRefreshing = isLoading
+			if (metaViewModel.selectedTab.value == 0) binding.swipeRefreshLayout.isRefreshing = isLoading
+		}
+		metaViewModel.isRefreshing.observe(viewLifecycleOwner) { isRefreshing ->
+			if (metaViewModel.selectedTab.value == 1) binding.swipeRefreshLayout.isRefreshing = isRefreshing
 		}
 	}
 
@@ -291,8 +301,7 @@ class ExploreFragment :
 		binding.header.root.isVisible = !isMetadata
 		binding.pager.isVisible = !isMetadata
 		binding.metadataCompose.isVisible = isMetadata
-		// Pull-to-refresh regenerates the source suggestions, which the Discover tab does not show.
-		binding.swipeRefreshLayout.isEnabled = !isMetadata
+		binding.swipeRefreshLayout.isRefreshing = false
 		if (isMetadata) metaViewModel.sync() else binding.pager.post(::updatePagerHeight)
 	}
 

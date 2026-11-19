@@ -20,6 +20,9 @@ object AnimePlaybackSession {
 	/** Incognito watching: nothing is saved - no history, no resume position, no tracker update. */
 	@Volatile var incognito: Boolean = false
 
+	/** The stream in this session was picked by the user (not auto-picked), so the player keeps its Sub / Dub. */
+	@Volatile var explicitPick: Boolean = false
+
 	fun begin(manga: Manga, chapters: List<MangaChapter>, index: Int, streams: List<AnimeStream>, streamIndex: Int) {
 		this.manga = manga
 		this.chapters = chapters

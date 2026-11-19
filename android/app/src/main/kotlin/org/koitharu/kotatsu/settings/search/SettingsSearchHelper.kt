@@ -298,6 +298,7 @@ class SettingsSearchHelper @Inject constructor(
 				addItem(AppSettings.KEY_SUGGESTIONS_EXCLUDE_NSFW, R.string.exclude_nsfw_from_suggestions, R.string.exclude_nsfw_from_suggestions_summary, crumbs + ctx.getString(R.string.suggestions), SuggestionsSettingsFragment::class.java)
 				addItem(AppSettings.KEY_RELATED_MANGA, R.string.related_manga, R.string.related_manga_summary, crumbs, ServicesSettingsFragment::class.java)
 				addItem(AppSettings.KEY_STATS_ENABLED, R.string.reading_stats, breadcrumbs = crumbs, fragmentClass = ServicesSettingsFragment::class.java)
+				addItem(AppSettings.KEY_WATCH_STATS_ENABLED, R.string.watching_stats, breadcrumbs = crumbs, fragmentClass = ServicesSettingsFragment::class.java)
 				addItem(AppSettings.KEY_READING_TIME, R.string.reading_time_estimation, R.string.reading_time_estimation_summary, crumbs, ServicesSettingsFragment::class.java)
 				addItem(AppSettings.KEY_EYE_REMINDER, R.string.eye_reminder, breadcrumbs = crumbs, fragmentClass = ServicesSettingsFragment::class.java)
 			}

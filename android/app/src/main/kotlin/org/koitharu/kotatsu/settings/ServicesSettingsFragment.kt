@@ -96,6 +96,7 @@ class ServicesSettingsFragment : BaseComposeSettingsFragment(R.string.services) 
 						)
 					},
 					onOpenStatistics = router::openStatistic,
+					onOpenWatchStatistics = { router.openStatistic(org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME) },
 					onScrobblerClick = ::handleScrobblerClick,
 					onOpenDiscord = {
 						(activity as? SettingsActivity)?.openFragment(
@@ -220,12 +221,14 @@ private fun ServicesScreen(
 	onSyncTrackers: () -> Unit,
 	onOpenSuggestions: () -> Unit,
 	onOpenStatistics: () -> Unit,
+	onOpenWatchStatistics: () -> Unit,
 	onScrobblerClick: (ScrobblerService) -> Unit,
 	onOpenDiscord: () -> Unit,
 ) {
 	var suggestionsEnabled by rememberBooleanPref(AppSettings.KEY_SUGGESTIONS, false)
 	var relatedManga by rememberBooleanPref(AppSettings.KEY_RELATED_MANGA, true)
 	var statsEnabled by rememberBooleanPref(AppSettings.KEY_STATS_ENABLED, true)
+	var watchStatsEnabled by rememberBooleanPref(AppSettings.KEY_WATCH_STATS_ENABLED, true)
 	var readingTime by rememberBooleanPref(AppSettings.KEY_READING_TIME, true)
 	var syncTrackingProgress by rememberBooleanPref(AppSettings.KEY_SCROBBLING_PROGRESS_SYNC, true)
 	var autoLinkTracking by rememberBooleanPref(AppSettings.KEY_SCROBBLING_AUTO_LINK, true)
@@ -303,6 +306,26 @@ private fun ServicesScreen(
 								Switch(
 									checked = statsEnabled,
 									onCheckedChange = { statsEnabled = it },
+								)
+							}
+						},
+					)
+				}
+				item { pos ->
+					// Same split row for anime: tap opens the watching statistics, the switch toggles recording.
+					SettingsItem(
+						title = stringResource(R.string.watching_stats),
+						subtitle = if (watchStatsEnabled) enabledLabel else disabledLabel,
+						icon = R.drawable.ic_timelapse,
+						shape = pos.shape,
+						onClick = onOpenWatchStatistics,
+						trailing = {
+							Row(verticalAlignment = Alignment.CenterVertically) {
+								VerticalDivider(modifier = Modifier.height(32.dp))
+								Spacer(Modifier.width(14.dp))
+								Switch(
+									checked = watchStatsEnabled,
+									onCheckedChange = { watchStatsEnabled = it },
 								)
 							}
 						},

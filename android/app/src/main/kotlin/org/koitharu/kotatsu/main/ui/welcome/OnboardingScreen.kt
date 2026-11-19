@@ -11,6 +11,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -43,6 +44,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -54,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.clip
@@ -63,9 +66,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.prefs.ColorScheme
+import org.koitharu.kotatsu.sync.backend.SyncProvider
+import org.koitharu.kotatsu.sync.backend.github.GithubDeviceChallenge
+import org.koitharu.kotatsu.sync.ui.GithubCodeDialog
+import org.koitharu.kotatsu.sync.ui.WebDavDialog
+import org.koitharu.kotatsu.sync.ui.summaryRes
+import org.koitharu.kotatsu.sync.ui.titleRes
 import org.koitharu.kotatsu.settings.compose.ColorSchemePickerRow
 
 private const val PAGE_COUNT = 4
@@ -93,7 +103,10 @@ data class OnboardingActions(
     val onPermissionInstall: () -> Unit,
     val onPermissionNotifications: () -> Unit,
     val onPermissionBattery: () -> Unit,
-    val onSignInGoogle: () -> Unit,
+    val onSignInProvider: (SyncProvider) -> Unit,
+    val onConnectWebDav: (address: String, user: String, password: String) -> Unit,
+    val webDavPrefill: () -> Pair<String?, String?>,
+    val onCancelGithub: () -> Unit,
     val onRestoreDropSauce: () -> Unit,
     val onRestoreTachiyomi: () -> Unit,
     val onOpenGithub: () -> Unit,
@@ -111,6 +124,8 @@ fun OnboardingScreen(
     isLoading: Boolean,
     permissions: OnboardingPermissions,
     syncStepDone: Int,
+    syncProviders: List<SyncProvider>,
+    githubChallenge: GithubDeviceChallenge?,
     actions: OnboardingActions,
 ) {
     val pagerState = rememberPagerState(pageCount = { PAGE_COUNT })
@@ -227,7 +242,13 @@ fun OnboardingScreen(
                         permissions = permissions,
                         actions = actions,
                     )
-                    2 -> SyncSlide(isLoading = isLoading, actions = actions)
+                    2 -> SyncSlide(
+                        isLoading = isLoading,
+                        providers = syncProviders,
+                        githubChallenge = githubChallenge,
+                        onSkip = { scope.launch { pagerState.animateScrollToPage(SYNC_PAGE + 1) } },
+                        actions = actions,
+                    )
                     else -> FinishSlide(actions = actions)
                 }
             }
@@ -575,10 +596,18 @@ private fun PermissionRow(
     }
 }
 
-// ── Slide 2: Cloud Sync ───────────────────────────────────────────────────────
+// ── Slide 2: Restore & cloud sync ─────────────────────────────────────────────
 
 @Composable
-private fun SyncSlide(isLoading: Boolean, actions: OnboardingActions) {
+private fun SyncSlide(
+    isLoading: Boolean,
+    providers: List<SyncProvider>,
+    githubChallenge: GithubDeviceChallenge?,
+    onSkip: () -> Unit,
+    actions: OnboardingActions,
+) {
+    var showWebDav by remember { mutableStateOf(false) }
+    val enabled = !isLoading
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -588,13 +617,241 @@ private fun SyncSlide(isLoading: Boolean, actions: OnboardingActions) {
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        ActionCard(
-            items = listOf(
-                ActionItem(R.drawable.ic_backup_restore, R.string.onboarding_restore_dropsauce, !isLoading, actions.onRestoreDropSauce),
-                ActionItem(R.drawable.ic_revert, R.string.onboarding_restore_tachiyomi, !isLoading, actions.onRestoreTachiyomi),
-            ),
+
+        // Section 1: cloud storage. Only providers configured in this build are offered.
+        if (providers.isNotEmpty()) {
+            SyncSectionHeader(
+                iconRes = R.drawable.ic_cloud_outline,
+                titleRes = R.string.onboarding_section_cloud,
+                accent = MaterialTheme.colorScheme.primary,
+            )
+            providers.forEach { provider ->
+                SyncRowCard(
+                    iconRes = provider.iconRes(),
+                    multiColorIcon = provider == SyncProvider.DRIVE,
+                    accent = provider.accent(),
+                    title = stringResource(provider.titleRes()),
+                    subtitle = stringResource(provider.summaryRes()),
+                    badge = if (provider == SyncProvider.WEBDAV) stringResource(R.string.onboarding_self_hosted) else null,
+                    enabled = enabled,
+                    onClick = {
+                        if (provider == SyncProvider.WEBDAV) showWebDav = true else actions.onSignInProvider(provider)
+                    },
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_chevron_right),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+        }
+
+        // Section 2: local backup files.
+        Spacer(Modifier.height(4.dp))
+        SyncSectionHeader(
+            iconRes = R.drawable.ic_backup_restore,
+            titleRes = R.string.onboarding_section_local,
+            accent = LOCAL_ACCENT,
+        )
+        SyncRowCard(
+            iconRes = R.drawable.ic_backup_restore,
+            accent = LOCAL_ACCENT,
+            title = stringResource(R.string.onboarding_restore_dropsauce),
+            subtitle = stringResource(R.string.onboarding_restore_dropsauce_summary),
+            enabled = enabled,
+            onClick = actions.onRestoreDropSauce,
+        ) { ImportPill(LOCAL_ACCENT) }
+        // Tachiyomi, Mihon and Anikku backups share one importer, so they share one card.
+        SyncRowCard(
+            iconRes = R.drawable.ic_explore_normal,
+            accent = TACHI_ACCENT,
+            title = stringResource(R.string.onboarding_restore_tachiyomi),
+            subtitle = stringResource(R.string.onboarding_restore_tachiyomi_summary),
+            enabled = enabled,
+            onClick = actions.onRestoreTachiyomi,
+        ) { ImportPill(TACHI_ACCENT) }
+
+        // Footer: reassurance + skip.
+        Spacer(Modifier.height(4.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_shield),
+                contentDescription = null,
+                tint = Color(0xFF34D399),
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = stringResource(R.string.onboarding_sync_footer),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        TextButton(onClick = onSkip, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+            Text(stringResource(R.string.onboarding_skip_restore))
+        }
+    }
+    if (showWebDav) {
+        WebDavDialog(
+            prefill = remember { actions.webDavPrefill() },
+            onConnect = { address, user, password ->
+                showWebDav = false
+                actions.onConnectWebDav(address, user, password)
+            },
+            onDismiss = { showWebDav = false },
         )
     }
+    if (githubChallenge != null) {
+        GithubCodeDialog(challenge = githubChallenge, onCancel = actions.onCancelGithub)
+    }
+}
+
+private val LOCAL_ACCENT = Color(0xFFF97316)
+private val TACHI_ACCENT = Color(0xFFEC4899)
+
+@DrawableRes
+private fun SyncProvider.iconRes(): Int = when (this) {
+    SyncProvider.DRIVE -> R.drawable.ic_google_color
+    SyncProvider.GITHUB -> R.drawable.ic_github
+    SyncProvider.DROPBOX -> R.drawable.ic_dropbox
+    SyncProvider.ONEDRIVE -> R.drawable.ic_cloud_outline
+    SyncProvider.WEBDAV -> R.drawable.ic_server
+}
+
+// The accent only tints the icon tile so the rows are easy to tell apart.
+private fun SyncProvider.accent() = when (this) {
+    SyncProvider.DRIVE -> Color(0xFF4285F4)
+    SyncProvider.GITHUB -> Color(0xFFA855F7)
+    SyncProvider.DROPBOX -> Color(0xFF3B82F6)
+    SyncProvider.ONEDRIVE -> Color(0xFF38BDF8)
+    SyncProvider.WEBDAV -> Color(0xFF2DD4BF)
+}
+
+/** Small uppercase label with an icon and a hairline under it, like the section headers of the design. */
+@Composable
+private fun SyncSectionHeader(@DrawableRes iconRes: Int, @StringRes titleRes: Int, accent: Color) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                text = stringResource(titleRes).uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+    }
+}
+
+/** One full-width row: icon tile, title + summary, and a trailing chevron or action pill. */
+@Composable
+private fun SyncRowCard(
+    @DrawableRes iconRes: Int,
+    accent: Color,
+    title: String,
+    subtitle: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    multiColorIcon: Boolean = false,
+    badge: String? = null,
+    trailing: @Composable () -> Unit,
+) {
+    val shape = RoundedCornerShape(20.dp)
+    Surface(
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer { alpha = if (enabled) 1f else 0.5f }
+            .clip(shape)
+            .clickable(enabled = enabled, onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(accent.copy(alpha = 0.14f))
+                    .border(1.dp, accent.copy(alpha = 0.25f), RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(iconRes),
+                    contentDescription = null,
+                    tint = if (multiColorIcon) Color.Unspecified else accent,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (badge != null) {
+                        Text(
+                            text = badge.uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = accent,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(accent.copy(alpha = 0.14f))
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            trailing()
+        }
+    }
+}
+
+/** Visual only: the whole row is the button, the pill just says what tapping it does. */
+@Composable
+private fun ImportPill(accent: Color) {
+    Text(
+        text = stringResource(R.string.onboarding_import),
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = accent,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(accent.copy(alpha = 0.14f))
+            .border(1.dp, accent.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+    )
 }
 
 // ── Slide 3: Finish ───────────────────────────────────────────────────────────

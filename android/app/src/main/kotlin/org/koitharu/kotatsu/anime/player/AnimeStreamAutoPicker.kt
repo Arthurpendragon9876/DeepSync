@@ -82,11 +82,63 @@ object AnimeStreamAutoPicker {
 		Variant.RAW -> if (preset == "dub") 3 else 1
 	}
 
-	fun order(context: Context, streams: List<AnimeStream>, preferTitle: String?, preferStrict: Boolean = false): List<Int> =
+	/** @param preset the Sub / Dub to rank by; null = the saved preset. The player passes its temporary one. */
+	fun order(
+		context: Context,
+		streams: List<AnimeStream>,
+		preferTitle: String?,
+		preferStrict: Boolean = false,
+		preset: String? = null,
+	): List<Int> =
 		order(
 			streams, preferTitle, AnimePlayerPrefs.preferredQuality(context),
-			AnimePlaybackSession.audioPreset(context), preferStrict,
+			preset ?: AnimePlaybackSession.audioPreset(context), preferStrict,
 		)
+
+	/** "sub" / "dub" when the stream is clearly one or the other; null for dual, raw and unlabeled streams. */
+	fun explicitPresetOf(stream: AnimeStream?): String? = when (stream?.let { variantOf(it) }) {
+		Variant.DUB -> "dub"
+		Variant.SUB -> "sub"
+		else -> null
+	}
+
+	/** A separate stream that offers the other audio of the playing one (its Sub / Dub twin). */
+	class AudioAlternative(val index: Int, val variant: Variant)
+
+	private val VARIANT_WORDS = Regex(SUB_RE.pattern + "|" + DUB_RE.pattern, RegexOption.IGNORE_CASE)
+
+	/** The title without its Sub / Dub words, so "Server A 1080p Sub" and "Server A 1080p Dub" compare equal. */
+	private fun baseTitle(stream: AnimeStream): String =
+		VARIANT_WORDS.replace(stream.video.videoTitle, " ").lowercase().replace(Regex("[^a-z0-9]+"), " ").trim()
+
+	private fun heightGap(a: Int?, b: Int?): Int = when {
+		a == null && b == null -> 0
+		a == null || b == null -> 10_000
+		else -> abs(a - b)
+	}
+
+	/**
+	 * For the player's Audio menu: the Sub / Dub streams that differ from the playing one, so the other
+	 * audio can be chosen there instead of hunting through the server list. One entry per audio, the stream
+	 * from the same server and nearest quality. Empty when the playing stream already has both audios.
+	 */
+	fun audioAlternatives(streams: List<AnimeStream>, current: Int): List<AudioAlternative> {
+		val playing = streams.getOrNull(current) ?: return emptyList()
+		val playingVariant = variantOf(playing)
+		if (playingVariant == Variant.DUAL) return emptyList()
+		val playingHeight = heightOf(playing)
+		val playingBase = baseTitle(playing)
+		return listOf(Variant.SUB, Variant.DUB).filter { it != playingVariant }.mapNotNull { wanted ->
+			streams.indices
+				.filter { it != current && variantOf(streams[it]) == wanted }
+				.minWithOrNull(
+					compareBy<Int> { baseTitle(streams[it]) != playingBase }
+						.thenBy { heightGap(heightOf(streams[it]), playingHeight) }
+						.thenBy { it },
+				)
+				?.let { AudioAlternative(it, wanted) }
+		}
+	}
 
 	/**
 	 * @param preset "sub" / "dub", or null to ignore the audio variant entirely.

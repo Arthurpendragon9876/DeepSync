@@ -2,12 +2,12 @@ package org.koitharu.kotatsu.sync.domain
 
 import java.io.IOException
 
-/** Thrown when the user must (re)authorize Google Drive access interactively. */
+/** Thrown when the user must (re)authorize access to the sync storage interactively. */
 class SyncSignInRequiredException(
-	message: String = "Google Drive authorization is required",
+	message: String = "Sign-in to the sync storage is required",
 ) : IOException(message)
 
-/** Thrown for Drive REST API errors. */
+/** Thrown for storage provider API errors; [code] is the HTTP status (0 when there is none). */
 class SyncApiException(
 	val code: Int,
 	message: String,
