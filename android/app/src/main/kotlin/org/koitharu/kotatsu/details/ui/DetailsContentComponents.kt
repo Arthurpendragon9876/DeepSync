@@ -299,7 +299,7 @@ internal fun TagsSection(tags: List<ChipsView.ChipModel>, accent: Color, onTagCl
 				val mangaTag = tag.data as? MangaTag
 				val warningColor = if (tag.tint != 0) colorResource(tag.tint) else null
 				Surface(
-					shape = RoundedCornerShape(15.dp),
+					shape = RoundedCornerShape(16.dp),
 					color = (warningColor ?: accent).copy(alpha = 0.16f),
 					onClick = { if (mangaTag != null) onTagClick(mangaTag) },
 				) {
@@ -307,7 +307,7 @@ internal fun TagsSection(tags: List<ChipsView.ChipModel>, accent: Color, onTagCl
 						text = tag.title?.toString().orEmpty(),
 						style = MaterialTheme.typography.labelLarge,
 						color = warningColor ?: accent,
-						modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+						modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
 					)
 				}
 			}
@@ -318,13 +318,13 @@ internal fun TagsSection(tags: List<ChipsView.ChipModel>, accent: Color, onTagCl
 @Composable
 internal fun TagToggleChip(text: String, accent: Color, expanded: Boolean, onClick: () -> Unit) {
 	Surface(
-		shape = RoundedCornerShape(15.dp),
+		shape = RoundedCornerShape(16.dp),
 		color = Color.Transparent,
 		border = BorderStroke(1.dp, accent.copy(alpha = 0.6f)),
 		onClick = onClick,
 	) {
 		Row(
-			modifier = Modifier.padding(start = 14.dp, end = 10.dp, top = 9.dp, bottom = 9.dp),
+			modifier = Modifier.padding(start = 16.dp, end = 12.dp, top = 9.dp, bottom = 9.dp),
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.spacedBy(4.dp),
 		) {
@@ -360,11 +360,11 @@ internal fun ScrobblingSection(
 		modifier = Modifier
 			.fillMaxWidth()
 			.padding(horizontal = SCREEN_PADDING),
-		verticalArrangement = Arrangement.spacedBy(10.dp),
+		verticalArrangement = Arrangement.spacedBy(12.dp),
 	) {
 		items.forEachIndexed { index, info ->
 			Surface(
-				shape = RoundedCornerShape(20.dp),
+				shape = RoundedCornerShape(24.dp),
 				color = MaterialTheme.colorScheme.surfaceContainerHigh,
 				onClick = { onCardClick(index) },
 				modifier = Modifier.fillMaxWidth(),
@@ -382,7 +382,7 @@ internal fun ScrobblingSection(
 						contentScale = ContentScale.Crop,
 						modifier = Modifier
 							.size(80.dp, 116.dp)
-							.clip(RoundedCornerShape(14.dp)),
+							.clip(RoundedCornerShape(12.dp)),
 					)
 					Spacer(Modifier.width(16.dp))
 					Column(
@@ -399,7 +399,7 @@ internal fun ScrobblingSection(
 							) {
 								Row(
 									verticalAlignment = Alignment.CenterVertically,
-									horizontalArrangement = Arrangement.spacedBy(6.dp),
+									horizontalArrangement = Arrangement.spacedBy(8.dp),
 								) {
 									Icon(
 										painter = painterResource(

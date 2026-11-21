@@ -130,7 +130,7 @@ internal fun StatTile(
 					Spacer(Modifier.weight(1f))
 					Row(
 						verticalAlignment = Alignment.CenterVertically,
-						horizontalArrangement = Arrangement.spacedBy(3.dp),
+						horizontalArrangement = Arrangement.spacedBy(4.dp),
 					) {
 						Icon(
 							painter = badgeIcon,
@@ -280,7 +280,7 @@ internal fun TopMangaRow(
 ) {
 	val base = Modifier
 		.fillMaxWidth()
-		.clip(RoundedCornerShape(20.dp))
+		.clip(RoundedCornerShape(24.dp))
 	Row(
 		modifier = (if (onClick != null) base.clickable(onClick = onClick) else base)
 			.padding(horizontal = 8.dp, vertical = 12.dp),
@@ -306,7 +306,7 @@ internal fun TopMangaRow(
 		Box(
 			modifier = Modifier
 				.size(width = 48.dp, height = 66.dp)
-				.clip(RoundedCornerShape(14.dp))
+				.clip(RoundedCornerShape(12.dp))
 				.background(accent.copy(alpha = 0.22f)),
 			contentAlignment = Alignment.Center,
 		) {

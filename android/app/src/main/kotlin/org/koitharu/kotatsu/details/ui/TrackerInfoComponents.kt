@@ -169,7 +169,7 @@ private fun InfoStatsCard(info: MetadataInfo, isAnime: Boolean) {
 	SectionCard {
 		FlowRow(
 			horizontalArrangement = Arrangement.spacedBy(24.dp),
-			verticalArrangement = Arrangement.spacedBy(14.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp),
 			modifier = Modifier.fillMaxWidth(),
 		) {
 			stats.forEach { (label, value) ->
@@ -266,7 +266,7 @@ private fun InfoSeasons(info: MetadataInfo, imageLoader: ImageLoader, actions: D
 	if (entries.isEmpty()) return
 	SectionCard {
 		InfoCardTitle(stringResource(R.string.ds_info_seasons))
-		Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+		Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
 			entries.forEach { media ->
 				SeasonButton(
 					media = media,
@@ -322,7 +322,7 @@ private fun SeasonButton(media: InfoMedia, imageLoader: ImageLoader, modifier: M
 				color = MaterialTheme.colorScheme.onSurface,
 				modifier = Modifier
 					.align(Alignment.CenterStart)
-					.padding(start = 14.dp),
+					.padding(start = 16.dp),
 			)
 		}
 	}
@@ -365,7 +365,7 @@ private fun InfoImage(url: String?, imageLoader: ImageLoader, modifier: Modifier
 @Composable
 private fun CharacterCard(person: InfoPerson, imageLoader: ImageLoader) {
 	Surface(
-		shape = RoundedCornerShape(20.dp),
+		shape = RoundedCornerShape(24.dp),
 		color = MaterialTheme.colorScheme.surfaceContainerHigh,
 		modifier = Modifier.width(250.dp),
 	) {
@@ -376,7 +376,7 @@ private fun CharacterCard(person: InfoPerson, imageLoader: ImageLoader) {
 					imageLoader = imageLoader,
 					modifier = Modifier
 						.size(width = 62.dp, height = 88.dp)
-						.clip(RoundedCornerShape(14.dp)),
+						.clip(RoundedCornerShape(12.dp)),
 				)
 				person.favourites?.let { fav ->
 					Text(
@@ -387,7 +387,7 @@ private fun CharacterCard(person: InfoPerson, imageLoader: ImageLoader) {
 						modifier = Modifier
 							.align(Alignment.BottomStart)
 							.padding(4.dp)
-							.clip(RoundedCornerShape(6.dp))
+							.clip(RoundedCornerShape(8.dp))
 							.background(Color.Black.copy(alpha = 0.65f))
 							.padding(horizontal = 4.dp, vertical = 1.dp),
 					)
@@ -435,7 +435,7 @@ private fun StaffCard(person: InfoPerson, imageLoader: ImageLoader) {
 						.align(Alignment.BottomCenter)
 						.fillMaxWidth()
 						.background(Color.Black.copy(alpha = 0.6f))
-						.padding(horizontal = 6.dp, vertical = 3.dp),
+						.padding(horizontal = 8.dp, vertical = 4.dp),
 				)
 			}
 		}
@@ -446,7 +446,7 @@ private fun StaffCard(person: InfoPerson, imageLoader: ImageLoader) {
 			maxLines = 2,
 			overflow = TextOverflow.Ellipsis,
 			color = MaterialTheme.colorScheme.onSurface,
-			modifier = Modifier.padding(top = 6.dp),
+			modifier = Modifier.padding(top = 8.dp),
 		)
 	}
 }
@@ -468,7 +468,7 @@ private fun MediaCarousel(
 			Column(
 				modifier = Modifier
 					.width(128.dp)
-					.clip(RoundedCornerShape(18.dp))
+					.clip(RoundedCornerShape(16.dp))
 					.clickable { onClick(media) },
 			) {
 				InfoImage(
@@ -476,7 +476,7 @@ private fun MediaCarousel(
 					imageLoader = imageLoader,
 					modifier = Modifier
 						.size(width = 128.dp, height = 184.dp)
-						.clip(RoundedCornerShape(18.dp)),
+						.clip(RoundedCornerShape(16.dp)),
 				)
 				Text(
 					text = media.title,

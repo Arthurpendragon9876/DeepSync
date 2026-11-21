@@ -459,7 +459,7 @@ private fun ThemeButtonGroup(selectedTheme: Int, onThemeChange: (Int) -> Unit) {
                         textAlign = TextAlign.Center,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(horizontal = 6.dp),
+                        modifier = Modifier.padding(horizontal = 8.dp),
                     )
                 }
             }
@@ -560,9 +560,9 @@ private fun PermissionRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = !isGranted, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Icon(
             painter = painterResource(iconRes),
@@ -772,7 +772,7 @@ private fun SyncRowCard(
     badge: String? = null,
     trailing: @Composable () -> Unit,
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(24.dp)
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -783,9 +783,9 @@ private fun SyncRowCard(
             .clickable(enabled = enabled, onClick = onClick),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Box(
                 modifier = Modifier
@@ -821,9 +821,9 @@ private fun SyncRowCard(
                             fontWeight = FontWeight.Bold,
                             color = accent,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(RoundedCornerShape(8.dp))
                                 .background(accent.copy(alpha = 0.14f))
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                                .padding(horizontal = 8.dp, vertical = 2.dp),
                         )
                     }
                 }
@@ -847,10 +847,10 @@ private fun ImportPill(accent: Color) {
         fontWeight = FontWeight.SemiBold,
         color = accent,
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
             .background(accent.copy(alpha = 0.14f))
-            .border(1.dp, accent.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .border(1.dp, accent.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
     )
 }
 

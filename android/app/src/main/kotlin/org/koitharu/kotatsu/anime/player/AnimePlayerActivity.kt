@@ -1131,7 +1131,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 					PlainIcon(R.drawable.ic_ap_audio, "Audio") { dialog = PlayerDialog.AUDIO }
 					if (AnimePlaybackSession.streams.size > 1) {
 						// "HQ": pick another server / quality
-						Box(Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).clickable { dialog = PlayerDialog.QUALITY }, contentAlignment = Alignment.Center) {
+						Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).clickable { dialog = PlayerDialog.QUALITY }, contentAlignment = Alignment.Center) {
 							Text(
 								"HQ",
 								color = MaterialTheme.colorScheme.onPrimary,
@@ -1168,7 +1168,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 						"%.2fx".format(speed),
 						color = Color(0xFFE0E0E6),
 						fontSize = 15.sp,
-						modifier = Modifier.clip(RoundedCornerShape(14.dp)).clickable { dialog = PlayerDialog.SPEED }
+						modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { dialog = PlayerDialog.SPEED }
 							.padding(horizontal = 14.dp, vertical = 12.dp),
 					)
 					Spacer(Modifier.weight(1f))
@@ -1394,7 +1394,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 	private fun Chip(text: String, modifier: Modifier = Modifier) {
 		Text(
 			text,
-			modifier = modifier.clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 12.dp, vertical = 5.dp),
+			modifier = modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primaryContainer).padding(horizontal = 12.dp, vertical = 5.dp),
 			color = MaterialTheme.colorScheme.onPrimaryContainer,
 			fontSize = 13.sp,
 			maxLines = 1,
@@ -1415,14 +1415,14 @@ class AnimePlayerActivity : AppCompatActivity() {
 	@Composable
 	private fun GroupPill(content: @Composable () -> Unit) {
 		Row(
-			Modifier.clip(RoundedCornerShape(18.dp)).background(Color(0x66000000)).padding(horizontal = 6.dp),
+			Modifier.clip(RoundedCornerShape(16.dp)).background(Color(0x66000000)).padding(horizontal = 6.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) { content() }
 	}
 
 	@Composable
 	private fun PillIcon(icon: Int, description: String, onClick: () -> Unit) {
-		Box(Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+		Box(Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
 			Icon(painterResource(icon), description, tint = Color.White, modifier = Modifier.size(22.dp))
 		}
 	}

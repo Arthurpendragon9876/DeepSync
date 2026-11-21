@@ -155,6 +155,9 @@ class ExploreFragment :
 		viewModel.isGrid.observe(viewLifecycleOwner) { isGrid ->
 			pages.forEach { it?.applyLayoutManager(isGrid) }
 		}
+		viewModel.gridColumns.observe(viewLifecycleOwner) { columns ->
+			pages.forEach { (it?.layoutManager as? GridLayoutManager)?.spanCount = columns.coerceIn(3, 5) }
+		}
 		viewModel.onShowSuggestionsTip.observeEvent(viewLifecycleOwner) {
 			showSuggestionsTip()
 		}
@@ -205,7 +208,7 @@ class ExploreFragment :
 	private fun RecyclerView.applyLayoutManager(isGrid: Boolean) {
 		val adapter = adapter as? ExploreAdapter ?: return
 		layoutManager = if (isGrid) {
-			GridLayoutManager(context, 4).also { lm ->
+			GridLayoutManager(context, viewModel.gridColumns.value.coerceIn(3, 5)).also { lm ->
 				lm.spanSizeLookup = ExploreGridSpanSizeLookup(adapter, lm)
 			}
 		} else {

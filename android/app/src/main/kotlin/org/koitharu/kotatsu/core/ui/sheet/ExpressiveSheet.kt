@@ -299,7 +299,7 @@ fun SheetSegmentedSelector(
 					.fillMaxHeight()
 					.fillMaxWidth(1f / options.size)
 					.align(BiasAlignment(horizontalBias = animatedBias, verticalBias = 0f))
-					.clip(RoundedCornerShape(22.dp))
+					.clip(RoundedCornerShape(24.dp))
 					.background(MaterialTheme.colorScheme.primary),
 			)
 			Row(

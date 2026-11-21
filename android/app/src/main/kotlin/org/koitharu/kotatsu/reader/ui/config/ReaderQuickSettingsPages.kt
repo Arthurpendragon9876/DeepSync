@@ -176,7 +176,7 @@ internal fun QsToggleRow(
 		Row(
 			modifier = Modifier
 				.fillMaxWidth()
-				.padding(horizontal = 14.dp, vertical = 12.dp),
+				.padding(horizontal = 16.dp, vertical = 12.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			QsIconChip(icon, size = 36)
@@ -221,7 +221,7 @@ internal fun QsActionRow(
 		Row(
 			modifier = Modifier
 				.fillMaxWidth()
-				.padding(horizontal = 14.dp, vertical = 12.dp),
+				.padding(horizontal = 16.dp, vertical = 12.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			QsIconChip(icon, size = 36)

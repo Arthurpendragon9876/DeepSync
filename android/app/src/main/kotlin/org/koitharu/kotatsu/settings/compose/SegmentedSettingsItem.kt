@@ -59,7 +59,7 @@ fun SegmentedSettingsItem(
 		color = MaterialTheme.colorScheme.surfaceContainer,
 		contentColor = MaterialTheme.colorScheme.onSurface,
 	) {
-		Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp)) {
+		Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				if (icon != null) {
 					Box(modifier = Modifier.size(44.dp), contentAlignment = Alignment.Center) {
@@ -178,7 +178,7 @@ private fun SegmentedRow(
 						textAlign = TextAlign.Center,
 						maxLines = 1,
 						overflow = TextOverflow.Ellipsis,
-						modifier = Modifier.padding(horizontal = 6.dp),
+						modifier = Modifier.padding(horizontal = 8.dp),
 					)
 				}
 			}

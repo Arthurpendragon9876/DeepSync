@@ -108,7 +108,7 @@ internal fun NovelTtsPlayer(
 							.weight(1f, fill = false)
 							.verticalScroll(rememberScrollState())
 							.padding(16.dp),
-						verticalArrangement = Arrangement.spacedBy(14.dp),
+						verticalArrangement = Arrangement.spacedBy(12.dp),
 					) {
 						when (tab) {
 							TtsTab.VOICE -> VoiceTab(tts, isPlaying, sentenceCount, refresh, tick)
@@ -176,7 +176,7 @@ internal fun NovelTtsPlayer(
 				}
 				// progress
 				val index = position?.index ?: 0
-				Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+				Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 					LinearProgressIndicator(
 						progress = { if (sentenceCount > 0) ((index + 1f) / sentenceCount).coerceIn(0f, 1f) else 0f },
 						modifier = Modifier
@@ -361,7 +361,7 @@ private fun VoiceRow(title: String, detail: String, selected: Boolean, onClick: 
 		Row(
 			modifier = Modifier
 				.fillMaxWidth()
-				.padding(horizontal = 14.dp, vertical = 12.dp),
+				.padding(horizontal = 16.dp, vertical = 12.dp),
 			verticalAlignment = Alignment.CenterVertically,
 			horizontalArrangement = Arrangement.spacedBy(12.dp),
 		) {

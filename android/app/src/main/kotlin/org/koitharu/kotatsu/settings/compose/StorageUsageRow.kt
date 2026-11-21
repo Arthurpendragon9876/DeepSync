@@ -88,7 +88,7 @@ fun StorageUsageRow(
 				),
 			)
 
-			Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+			Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 				LegendItem(
 					label = stringResource(R.string.saved_manga),
 					value = FileSize.BYTES.format(ctx, usage.savedManga.bytes),
@@ -124,7 +124,7 @@ private fun SegmentedBar(segments: List<BarSegment>) {
 		modifier = Modifier
 			.fillMaxWidth()
 			.height(12.dp)
-			.clip(RoundedCornerShape(6.dp))
+			.clip(RoundedCornerShape(8.dp))
 			.background(trackColor),
 	) {
 		val visible = segments.filter { it.fraction > 0f }
@@ -147,7 +147,7 @@ private fun LegendItem(label: String, value: String, color: Color) {
 		Box(
 			modifier = Modifier
 				.size(10.dp)
-				.clip(RoundedCornerShape(3.dp))
+				.clip(RoundedCornerShape(4.dp))
 				.background(color),
 		)
 		Spacer(Modifier.width(8.dp))

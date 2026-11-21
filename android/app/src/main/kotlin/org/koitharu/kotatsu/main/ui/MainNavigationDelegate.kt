@@ -14,6 +14,8 @@ import androidx.core.view.size
 import androidx.core.view.updateLayoutParams
 import androidx.core.widget.NestedScrollView
 import androidx.fragment.app.Fragment
+import org.koitharu.kotatsu.core.util.ext.isAnimationsEnabled
+import androidx.annotation.AnimatorRes
 import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -221,7 +223,7 @@ class MainNavigationDelegate(
 			R.id.nav_updated -> UpdatesFragment::class.java
 			else -> return false
 		}
-		if (!setPrimaryFragment(newFragment)) {
+		if (!setPrimaryFragment(newFragment, itemId)) {
 			// probably already selected
 			onNavigationItemReselected()
 		}
@@ -241,7 +243,7 @@ class MainNavigationDelegate(
 		else -> 0
 	}
 
-	private fun setPrimaryFragment(fragmentClass: Class<out Fragment>): Boolean {
+	private fun setPrimaryFragment(fragmentClass: Class<out Fragment>, @IdRes itemId: Int): Boolean {
 		if (fragmentManager.isStateSaved || fragmentClass.isInstance(primaryFragment)) {
 			return false
 		}
@@ -264,12 +266,17 @@ class MainNavigationDelegate(
 			fragmentClass == ExploreFragment::class.java ||
 			current is ExploreFragment
 		if (!changesAppbar) {
-			transaction.setCustomAnimations(
-				R.anim.m3_fade_through_enter,
-				R.anim.m3_fade_through_exit,
-				R.anim.m3_fade_through_pop_enter,
-				R.anim.m3_fade_through_pop_exit,
-			)
+			val slide = resolveTabTransition(current, itemId)
+			if (slide != TabTransition.NONE) {
+				transaction.setCustomAnimations(slide.enterAnimator, slide.exitAnimator)
+			} else {
+				transaction.setCustomAnimations(
+					R.anim.m3_fade_through_enter,
+					R.anim.m3_fade_through_exit,
+					R.anim.m3_fade_through_pop_enter,
+					R.anim.m3_fade_through_pop_exit,
+				)
+			}
 		}
 		if (current != null) {
 			transaction.hide(current)
@@ -279,6 +286,14 @@ class MainNavigationDelegate(
 		val shownFragment: Fragment
 		if (existing != null) {
 			shownFragment = existing
+			// Its view still holds the end state of the slide-out it was hidden with.
+			existing.view?.run {
+				alpha = 1f
+				translationX = 0f
+				translationY = 0f
+				scaleX = 1f
+				scaleY = 1f
+			}
 			transaction.show(existing)
 		} else {
 			shownFragment = instantiateFragment(fragmentClass).apply {
@@ -299,6 +314,20 @@ class MainNavigationDelegate(
 		}
 		transaction.commit()
 		return true
+	}
+
+	// Content slides along the nav bar's axis, towards where the newly selected item sits.
+	private fun resolveTabTransition(current: Fragment?, @IdRes targetItemId: Int): TabTransition {
+		if (current == null || !navBar.isLaidOut || !navBar.context.isAnimationsEnabled) {
+			return TabTransition.NONE
+		}
+		val visibleItems = navBar.menu.iterator().asSequence().filter { it.isVisible }.map { it.itemId }.toList()
+		val isForward = visibleItems.indexOf(targetItemId) >= visibleItems.indexOf(getItemId(current))
+		return when {
+			navBar is NavigationRailView -> if (isForward) TabTransition.UP else TabTransition.DOWN
+			isForward != (navBar.layoutDirection == View.LAYOUT_DIRECTION_RTL) -> TabTransition.LEFT
+			else -> TabTransition.RIGHT
+		}
 	}
 
 	/** The fragment's NestedScrollView, whether it is the root or sits inside a wrapper (Explore's pull-to-refresh). */
@@ -447,6 +476,18 @@ class MainNavigationDelegate(
 				root.setPadding(horizontalPadding, 0, horizontalPadding, 0)
 			}
 		}
+	}
+
+	/** Direction the content moves in on a tab switch. */
+	enum class TabTransition(
+		@AnimatorRes val enterAnimator: Int,
+		@AnimatorRes val exitAnimator: Int,
+	) {
+		NONE(0, 0),
+		LEFT(R.animator.nav_tab_enter_from_right, R.animator.nav_tab_exit_to_left),
+		RIGHT(R.animator.nav_tab_enter_from_left, R.animator.nav_tab_exit_to_right),
+		UP(R.animator.nav_tab_enter_from_bottom, R.animator.nav_tab_exit_to_top),
+		DOWN(R.animator.nav_tab_enter_from_top, R.animator.nav_tab_exit_to_bottom),
 	}
 
 	fun interface OnFragmentChangedListener {

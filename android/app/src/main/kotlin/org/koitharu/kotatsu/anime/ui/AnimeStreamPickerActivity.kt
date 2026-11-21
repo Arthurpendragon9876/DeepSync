@@ -211,7 +211,7 @@ class AnimeStreamPickerActivity : AppCompatActivity() {
 							tint = MaterialTheme.colorScheme.onSecondaryContainer,
 						)
 					}
-					Column(Modifier.weight(1f).padding(start = 14.dp)) {
+					Column(Modifier.weight(1f).padding(start = 16.dp)) {
 						Text(chapterLabel, fontSize = 20.sp, fontWeight = FontWeight.Bold, maxLines = 1)
 						Text(
 							chapterSubtitle,
@@ -242,7 +242,7 @@ class AnimeStreamPickerActivity : AppCompatActivity() {
 				.background(MaterialTheme.colorScheme.surfaceContainer),
 		) {
 			Row(
-				Modifier.fillMaxWidth().clickable { rememberServer = !rememberServer }.padding(horizontal = 16.dp, vertical = 14.dp),
+				Modifier.fillMaxWidth().clickable { rememberServer = !rememberServer }.padding(horizontal = 16.dp, vertical = 12.dp),
 				verticalAlignment = Alignment.CenterVertically,
 			) {
 				Column(Modifier.weight(1f)) {
@@ -250,7 +250,7 @@ class AnimeStreamPickerActivity : AppCompatActivity() {
 					Text(
 						"Auto-select this server quality for this anime",
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
-						fontSize = 13.sp,
+						fontSize = 14.sp,
 					)
 				}
 				Checkbox(checked = rememberServer, onCheckedChange = { rememberServer = it })
@@ -260,7 +260,7 @@ class AnimeStreamPickerActivity : AppCompatActivity() {
 				itemsIndexed(streams) { i, s ->
 					val video = s.video
 					Row(
-						Modifier.fillMaxWidth().clickable { pick(i) }.padding(horizontal = 16.dp, vertical = 14.dp),
+						Modifier.fillMaxWidth().clickable { pick(i) }.padding(horizontal = 16.dp, vertical = 12.dp),
 						verticalAlignment = Alignment.CenterVertically,
 					) {
 						Column(Modifier.weight(1f)) {
@@ -277,7 +277,7 @@ class AnimeStreamPickerActivity : AppCompatActivity() {
 								Text(
 									extras.joinToString("  ·  "),
 									color = MaterialTheme.colorScheme.onSurfaceVariant,
-									fontSize = 13.sp,
+									fontSize = 14.sp,
 								)
 							}
 						}

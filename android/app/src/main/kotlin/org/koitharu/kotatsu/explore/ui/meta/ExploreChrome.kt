@@ -96,7 +96,7 @@ fun ExploreHeader(
 	var showQuickPrefs by remember { mutableStateOf(false) }
 	Column(
 		modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
-		verticalArrangement = Arrangement.spacedBy(10.dp),
+		verticalArrangement = Arrangement.spacedBy(12.dp),
 	) {
 		Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
 			FeedPill(state.feed, tab, sources, actions)
@@ -168,9 +168,9 @@ private fun FeedPill(feed: ExploreFeed, tab: Int, sources: List<ExploreSourceEnt
 			color = MaterialTheme.colorScheme.surfaceContainerHigh,
 		) {
 			Row(
-				Modifier.padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+				Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
 				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(6.dp),
+				horizontalArrangement = Arrangement.spacedBy(8.dp),
 			) {
 				Icon(
 					painter = painterResource(if (tab == 1) FEED_ICONS.getValue(feed) else R.drawable.ic_explore_normal),
@@ -195,7 +195,7 @@ private fun FeedPill(feed: ExploreFeed, tab: Int, sources: List<ExploreSourceEnt
 		DropdownMenu(
 			expanded = expanded,
 			onDismissRequest = { expanded = false },
-			shape = RoundedCornerShape(20.dp),
+			shape = RoundedCornerShape(24.dp),
 			modifier = Modifier.width(300.dp),
 		) {
 			MenuHeader("Tracker feeds")
@@ -213,7 +213,7 @@ private fun FeedPill(feed: ExploreFeed, tab: Int, sources: List<ExploreSourceEnt
 				)
 			}
 			if (sources.isNotEmpty()) {
-				HorizontalDivider(Modifier.padding(vertical = 6.dp))
+				HorizontalDivider(Modifier.padding(vertical = 8.dp))
 				MenuHeader("Installed sources (${sources.size})")
 				Column(Modifier.height((sources.size.coerceAtMost(5) * 56).dp).verticalScroll(rememberScrollState())) {
 					sources.forEach { entry ->
@@ -246,7 +246,7 @@ private fun FeedRow(icon: Int, title: String, subtitle: String, selected: Boolea
 		Modifier
 			.fillMaxWidth()
 			.padding(horizontal = 8.dp, vertical = 2.dp)
-			.clip(RoundedCornerShape(14.dp))
+			.clip(RoundedCornerShape(12.dp))
 			.background(if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
 			.clickable(onClick = onClick)
 			.padding(horizontal = 8.dp, vertical = 8.dp),
@@ -254,7 +254,7 @@ private fun FeedRow(icon: Int, title: String, subtitle: String, selected: Boolea
 		horizontalArrangement = Arrangement.spacedBy(12.dp),
 	) {
 		Box(
-			Modifier.size(32.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
+			Modifier.size(32.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHighest),
 			contentAlignment = Alignment.Center,
 		) {
 			Icon(
@@ -287,14 +287,14 @@ private fun SourceRow(entry: ExploreSourceEntry, onClick: () -> Unit) {
 			.fillMaxWidth()
 			.height(56.dp)
 			.padding(horizontal = 8.dp, vertical = 2.dp)
-			.clip(RoundedCornerShape(14.dp))
+			.clip(RoundedCornerShape(12.dp))
 			.clickable(onClick = onClick)
 			.padding(horizontal = 8.dp),
 		verticalAlignment = Alignment.CenterVertically,
 		horizontalArrangement = Arrangement.spacedBy(12.dp),
 	) {
 		Box(
-			Modifier.size(32.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+			Modifier.size(32.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primaryContainer),
 			contentAlignment = Alignment.Center,
 		) {
 			Text(
@@ -349,7 +349,7 @@ private fun QuickPrefsSheet(
 			modifier = Modifier
 				.verticalScroll(rememberScrollState())
 				.padding(start = 16.dp, end = 16.dp, bottom = 32.dp),
-			verticalArrangement = Arrangement.spacedBy(10.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
 			Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 				Icon(painterResource(R.drawable.ic_tune), null, tint = MaterialTheme.colorScheme.primary)
@@ -475,7 +475,7 @@ private fun PrefLabel(text: String) {
 @Composable
 private fun PrefSwitchRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
 	Surface(
-		shape = RoundedCornerShape(18.dp),
+		shape = RoundedCornerShape(16.dp),
 		color = MaterialTheme.colorScheme.surfaceContainerHigh,
 		modifier = Modifier.fillMaxWidth(),
 	) {

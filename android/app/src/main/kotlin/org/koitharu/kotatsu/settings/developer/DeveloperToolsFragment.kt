@@ -279,7 +279,7 @@ private fun ExtensionResultItem(
 				}
 			},
 	) {
-		Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+		Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				Image(
 					painter = rememberExtensionIcon(result.packageName),
@@ -316,7 +316,7 @@ private fun ExtensionResultItem(
 						overflow = TextOverflow.Ellipsis,
 					)
 					Row(
-						horizontalArrangement = Arrangement.spacedBy(6.dp),
+						horizontalArrangement = Arrangement.spacedBy(8.dp),
 						verticalAlignment = Alignment.CenterVertically,
 					) {
 						Icon(
@@ -398,7 +398,7 @@ private fun StageResultRow(stage: DeveloperTestStageResult) {
 	Row(
 		modifier = Modifier
 			.fillMaxWidth()
-			.padding(vertical = 6.dp),
+			.padding(vertical = 8.dp),
 		verticalAlignment = Alignment.Top,
 	) {
 		Icon(

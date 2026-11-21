@@ -213,7 +213,7 @@ private fun HeroRow(
 				Row(
 					modifier = Modifier.weight(1f),
 					verticalAlignment = Alignment.CenterVertically,
-					horizontalArrangement = Arrangement.spacedBy(6.dp),
+					horizontalArrangement = Arrangement.spacedBy(8.dp),
 				) {
 					Icon(
 						painter = painterResource(
@@ -321,10 +321,10 @@ private fun StatusGrid(
 			Column(
 				modifier = Modifier
 					.weight(1f)
-					.clip(RoundedCornerShape(20.dp))
+					.clip(RoundedCornerShape(24.dp))
 					.background(background)
 					.clickable { onSelect(status) }
-					.padding(vertical = 12.dp, horizontal = 6.dp),
+					.padding(vertical = 12.dp, horizontal = 8.dp),
 				horizontalAlignment = Alignment.CenterHorizontally,
 				verticalArrangement = Arrangement.Center,
 			) {
@@ -497,7 +497,7 @@ private fun ProgressEditor(
 	Row(
 		modifier = modifier.fillMaxWidth(),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(10.dp),
+		horizontalArrangement = Arrangement.spacedBy(12.dp),
 	) {
 		StepButton(iconRes = R.drawable.ic_minus, enabled = current > 0) { commit(current - 1) }
 		androidx.compose.material3.OutlinedTextField(

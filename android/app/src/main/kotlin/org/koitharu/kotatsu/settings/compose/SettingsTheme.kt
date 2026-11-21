@@ -137,6 +137,10 @@ private fun bumpedTypography(family: FontFamily): Typography = remember(family) 
  *
  * Compose's own defaults are medium=12dp / large=16dp, which is *not* what the rest of the app
  * uses — without this, every Compose card and sheet was subtly squarer than its Views twin.
+ *
+ * Hand-written corners in Compose snap to this one ladder: 4 (indicators), 8 (chips, thumbnails),
+ * 12 (list cards, fields), 16 (cards, panels), 24 (sheets, large panels), 28 (dialogs, hero cards).
+ * Prefer `MaterialTheme.shapes.*` over a literal; when a literal is needed, use one of these.
  */
 private val DropSauceShapes = Shapes(
 	extraSmall = RoundedCornerShape(4.dp),

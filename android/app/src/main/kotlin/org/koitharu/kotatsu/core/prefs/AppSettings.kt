@@ -412,6 +412,17 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 	 * Which of the offered voices is selected, as an index rather than a name: the offer is the best
 	 * few voices of whatever language is being read, so the same slot keeps working in every book.
 	 */
+	/** Voice names the user linked to each voice slot of [language] (comma-separated, empty = automatic). */
+	fun getTtsSlotVoices(language: String): List<String> =
+		prefs.getString(KEY_EPUB_TTS_SLOT_VOICES + language, null)?.split(',').orEmpty()
+
+	fun setTtsSlotVoice(language: String, slot: Int, voiceName: String?) {
+		val names = getTtsSlotVoices(language).toMutableList()
+		while (names.size <= slot) names += ""
+		names[slot] = voiceName.orEmpty()
+		prefs.edit { putString(KEY_EPUB_TTS_SLOT_VOICES + language, names.joinToString(",")) }
+	}
+
 	var epubTtsVoiceIndex: Int
 		get() = prefs.getInt(KEY_EPUB_TTS_VOICE, 0)
 		set(value) = prefs.edit { putInt(KEY_EPUB_TTS_VOICE, value) }
@@ -698,6 +709,23 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		set(value) = prefs.edit {
 			putString(KEY_NOVEL_OVERRIDES, value.entries.joinToString(";") { "${it.key}=${it.value}" })
 		}
+
+	/** Translate novel chapters in the reader (and, with [isNovelAutoTranslateDownloads], as they download). */
+	var isNovelTranslationEnabled: Boolean
+		get() = prefs.getBoolean(KEY_NOVEL_TRANSLATE, false)
+		set(value) = prefs.edit { putBoolean(KEY_NOVEL_TRANSLATE, value) }
+
+	/** Language the chapters are written in, or "auto". */
+	var novelTranslationSource: String
+		get() = prefs.getString(KEY_NOVEL_TRANSLATE_SOURCE, null) ?: "auto"
+		set(value) = prefs.edit { putString(KEY_NOVEL_TRANSLATE_SOURCE, value) }
+
+	var novelTranslationTarget: String
+		get() = prefs.getString(KEY_NOVEL_TRANSLATE_TARGET, null) ?: "en"
+		set(value) = prefs.edit { putString(KEY_NOVEL_TRANSLATE_TARGET, value) }
+
+	val isNovelAutoTranslateDownloads: Boolean
+		get() = prefs.getBoolean(KEY_NOVEL_TRANSLATE_AUTO_DOWNLOADS, false)
 
 	var isChaptersGridView: Boolean
 		get() = prefs.getBoolean(KEY_GRID_VIEW_CHAPTERS, false)
@@ -1041,6 +1069,10 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 	var isSourcesGridMode: Boolean
 		get() = prefs.getBoolean(KEY_SOURCES_GRID, true)
 		set(value) = prefs.edit { putBoolean(KEY_SOURCES_GRID, value) }
+
+	/** Extensions in a row of Explore's grid (3, 4 or 5). */
+	val sourcesGridColumns: Int
+		get() = prefs.getInt(KEY_SOURCES_GRID_COLUMNS, 4)
 
 	/**
 	 * The active language chosen per logical source (a package + source-name pair) for
@@ -1687,6 +1719,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_EPUB_PAGED_TAP_GESTURES = "epub_paged_tap_gestures"
 		const val KEY_EPUB_TTS_SPEED = "epub_tts_speed"
 		const val KEY_EPUB_TTS_VOICE_NAME = "epub_tts_voice_name"
+		const val KEY_EPUB_TTS_SLOT_VOICES = "epub_tts_slot_voices_"
 		const val KEY_EPUB_TTS_FOLLOW = "epub_tts_follow"
 		const val KEY_EPUB_TTS_AUTO_ADVANCE = "epub_tts_auto_advance"
 		const val KEY_EPUB_TTS_VOICE = "epub_tts_voice_index"
@@ -1778,6 +1811,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_PREFETCH_CONTENT = "prefetch_content"
 		const val KEY_APP_LOCALE = "app_locale"
 		const val KEY_SOURCES_GRID = "sources_grid"
+		const val KEY_SOURCES_GRID_COLUMNS = "sources_grid_columns"
 		const val KEY_TIPS_CLOSED = "tips_closed"
 		const val KEY_SSL_BYPASS = "ssl_bypass"
 		const val DEFAULT_AUTOSCROLL_SPEED = 0.5f

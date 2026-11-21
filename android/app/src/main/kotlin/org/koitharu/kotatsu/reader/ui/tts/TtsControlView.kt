@@ -41,6 +41,7 @@ class TtsControlView @JvmOverloads constructor(
 	private var tts: ReaderTts? = null
 
 	init {
+		binding.buttonCustomizeVoices.setOnClickListener(this)
 		binding.buttonClose.setOnClickListener(this)
 		binding.buttonPlay.setOnClickListener(this)
 		binding.buttonNext.setOnClickListener(this)
@@ -77,6 +78,7 @@ class TtsControlView @JvmOverloads constructor(
 		val presets = tts?.voicePresets().orEmpty()
 		val buttons = voiceButtons
 		buttons.forEachIndexed { index, button -> button.isGone = index >= presets.size }
+		binding.buttonCustomizeVoices.isGone = presets.isEmpty()
 		binding.labelVoice.setText(if (presets.isEmpty()) R.string.tts_unavailable else R.string.tts_voice)
 		if (presets.isEmpty()) {
 			return
@@ -125,6 +127,7 @@ class TtsControlView @JvmOverloads constructor(
 	override fun onClick(v: View) {
 		val controller = tts ?: return
 		when (v.id) {
+			R.id.button_customize_voices -> showTtsVoicesDialog(context, controller, ::updateVoices)
 			R.id.button_close -> hide()
 			R.id.button_play -> controller.toggle()
 			R.id.button_next -> controller.skip(1)

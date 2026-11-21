@@ -164,7 +164,7 @@ private fun ColorSchemeCard(
 					modifier = Modifier
 						.align(Alignment.BottomEnd)
 						.size(16.dp)
-						.background(colors.primary, RoundedCornerShape(6.dp)),
+						.background(colors.primary, RoundedCornerShape(8.dp)),
 				)
 				if (selected) {
 					Icon(

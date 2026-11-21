@@ -37,6 +37,8 @@ import org.koitharu.kotatsu.settings.compose.DropSauceTheme
 import org.koitharu.kotatsu.settings.compose.ListSettingsItem
 import org.koitharu.kotatsu.settings.compose.NavigationSettingsItem
 import org.koitharu.kotatsu.settings.compose.MultiSelectSettingsItem
+import org.koitharu.kotatsu.settings.compose.PreviewChoiceSettingsItem
+import org.koitharu.kotatsu.settings.compose.readerModePreviewOptions
 import org.koitharu.kotatsu.settings.compose.SettingsGroup
 import org.koitharu.kotatsu.settings.compose.SettingsScaffold
 import org.koitharu.kotatsu.settings.compose.SliderSettingsItem
@@ -153,12 +155,11 @@ private fun ReaderScreen(
 		item {
 			SettingsGroup(title = "Mode") {
 				item { pos ->
-					ListSettingsItem(
+					PreviewChoiceSettingsItem(
 						title = stringResource(R.string.default_mode),
-						entries = readerModeEntries,
-						entryValues = readerModeValues,
-						selectedValue = readerMode,
-						onValueChange = { readerMode = it },
+						options = readerModePreviewOptions(readerModeEntries),
+						selectedIndex = readerModeValues.indexOf(readerMode),
+						onSelected = { readerMode = readerModeValues[it] },
 						icon = R.drawable.ic_book_page,
 						
 						shape = pos.shape,

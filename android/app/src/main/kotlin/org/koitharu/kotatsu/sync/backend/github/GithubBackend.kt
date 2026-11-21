@@ -11,6 +11,7 @@ import org.koitharu.kotatsu.sync.backend.SyncSession
 import org.koitharu.kotatsu.sync.data.SyncSettings
 import org.koitharu.kotatsu.sync.domain.SyncApiException
 import org.koitharu.kotatsu.sync.domain.SyncSignInRequiredException
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -40,7 +41,9 @@ class GithubBackend @Inject constructor(
 	private var lastWriteAt = 0L
 
 	override suspend fun <T> session(block: suspend (SyncSession) -> T): T {
-		val token = secrets.get(TOKEN_SECRET) ?: throw SyncSignInRequiredException("GitHub authorization is required")
+		// A token that is merely unreadable for a moment throws a plain error (retried later); only a token that is
+		// really gone asks the user to sign in.
+		val token = secrets.getStrict(TOKEN_SECRET) ?: throw SyncSignInRequiredException("GitHub authorization is required")
 		return try {
 			try {
 				run(token, block)
@@ -53,13 +56,25 @@ class GithubBackend @Inject constructor(
 				run(token, block)
 			}
 		} catch (e: SyncApiException) {
-			// Revoked or deleted token; OAuth App tokens don't expire on their own.
-			if (e.code == 401) {
+			// OAuth App tokens don't expire on their own, but GitHub revokes the least recently used one once an app
+			// has issued ten for the same user and scope, and the user can revoke it too. Only forget the token when
+			// GitHub confirms it is dead: one stray 401 must not log the user out.
+			if (e.code == 401 && isTokenRejected(token)) {
 				secrets.set(TOKEN_SECRET, null)
 				throw SyncSignInRequiredException("GitHub authorization was revoked")
 			}
 			throw e
 		}
+	}
+
+	/** Asks GitHub who the token belongs to: only a 401 there means it is revoked (a network error says nothing). */
+	private suspend fun isTokenRejected(token: String): Boolean = try {
+		api.user(token)
+		false
+	} catch (e: SyncApiException) {
+		e.code == 401
+	} catch (e: IOException) {
+		false
 	}
 
 	private suspend fun <T> run(token: String, block: suspend (SyncSession) -> T): T {

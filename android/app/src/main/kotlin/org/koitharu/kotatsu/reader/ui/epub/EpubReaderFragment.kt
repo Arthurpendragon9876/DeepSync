@@ -168,6 +168,12 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 	@Inject
 	lateinit var tts: ReaderTts
 
+	@Inject
+	lateinit var novelTranslator: NovelTranslator
+
+	private var appliedTranslationKey = ""
+	private var translationJob: kotlinx.coroutines.Job? = null
+
 	private var chapters: List<NativeChapter> = emptyList()
 	private val chapterDividerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 	private val chapterDividerDecoration = object : RecyclerView.ItemDecoration() {
@@ -669,6 +675,22 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 			.observe(viewLifecycleOwner) { switchReadingMode() }
 		settings.observeAsFlow(AppSettings.KEY_EPUB_SCROLL_STYLE) { epubScrollStyle }
 			.observe(viewLifecycleOwner) { rebuildVerticalForStyle() }
+		appliedTranslationKey = translationKey()
+		settings.observeAsFlow(AppSettings.KEY_NOVEL_TRANSLATE) { isNovelTranslationEnabled }
+			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
+		settings.observeAsFlow(AppSettings.KEY_NOVEL_TRANSLATE_SOURCE) { novelTranslationSource }
+			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
+		settings.observeAsFlow(AppSettings.KEY_NOVEL_TRANSLATE_TARGET) { novelTranslationTarget }
+			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
+		viewLifecycleOwner.lifecycleScope.launch {
+			novelTranslator.failures.collect { reason ->
+				android.widget.Toast.makeText(
+					requireContext(),
+					"Translation failed, showing original text ($reason)",
+					android.widget.Toast.LENGTH_LONG,
+				).show()
+			}
+		}
 		tts.position.observe(viewLifecycleOwner) { onTtsPositionChanged(it) }
 		tts.chapterFinished.observe(viewLifecycleOwner) { onTtsChapterFinished(it) }
 	}
@@ -991,7 +1013,57 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 				return
 			}
 			chapter.error = null
-			chapter.content = parseChapter(chapter, raw)
+			// A chapter must always open: if the translated markup trips the parser, fall back to the original.
+			chapter.content = runCatching { parseChapter(chapter, translateIfEnabled(raw)) }
+				.getOrElse { parseChapter(chapter, raw) }
+		}
+	}
+
+	/**
+	 * With translation on, the chapter is translated before it is laid out, so pagination, search,
+	 * progress and read-aloud all work on the translated text. Falls back to the original when the
+	 * translation service cannot be reached, so a chapter always opens.
+	 */
+	private fun translateIfEnabled(raw: String): String {
+		if (!settings.isNovelTranslationEnabled) return raw
+		return runBlocking {
+			novelTranslator.translateForReader(raw, settings.novelTranslationSource, settings.novelTranslationTarget)
+		}
+	}
+
+	private fun translationKey(): String =
+		if (settings.isNovelTranslationEnabled) "${settings.novelTranslationSource}>${settings.novelTranslationTarget}" else "off"
+
+	/** Translation was switched on or off, or its languages changed: load the chapters again in the new language. */
+	private fun onTranslationSettingsChanged() {
+		val key = translationKey()
+		if (key == appliedTranslationKey) return
+		appliedTranslationKey = key
+		if (chapters.isEmpty()) return
+		val locator = currentLocator().clamped()
+		val oldLength = chapters[locator.chapter].text.length.coerceAtLeast(1)
+		translationJob?.cancel()
+		translationJob = viewLifecycleOwner.lifecycleScope.launch {
+			chapters.forEach {
+				it.content = null
+				it.error = null
+				it.failedAttempts = 0
+			}
+			setChapterLoading(true)
+			try {
+				withContext(Dispatchers.IO) {
+					ensureChapterLoaded(locator.chapter)
+					val from = (locator.chapter - PRELOAD_RADIUS).coerceAtLeast(0)
+					val to = (locator.chapter + PRELOAD_RADIUS).coerceAtMost(chapters.lastIndex)
+					for (i in from..to) ensureChapterLoaded(i)
+				}
+			} finally {
+				setChapterLoading(false)
+			}
+			// The two languages differ in length, so keep the place by how far into the chapter it was.
+			val newLength = chapters[locator.chapter].text.length
+			val offset = (locator.offset.toLong() * newLength / oldLength).toInt()
+			refreshReader(Locator(locator.chapter, offset))
 		}
 	}
 
@@ -1006,7 +1078,7 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 		val parsed = HtmlCompat.fromHtml(
 			document.body().html(),
 			HtmlCompat.FROM_HTML_MODE_LEGACY,
-			Html.ImageGetter { source -> loadEpubImage(chapter, source) },
+			Html.ImageGetter { source -> source?.takeIf { it.isNotBlank() }?.let { loadEpubImage(chapter, it) } },
 			null,
 		).trimmed().withPlainSpaces()
 		return SpannedString(parsed).takeIf { it.isNotEmpty() } ?: EMPTY_CHAPTER_TEXT

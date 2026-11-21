@@ -118,7 +118,7 @@ fun StatsScreen(
 				// cut cards under the toolbar with a card's own radius, at a card's own edges
 				.clip(RoundedTopShape(radius = STATS_CARD_CORNER, inset = STATS_PADDING)),
 			contentPadding = PaddingValues(top = 8.dp, bottom = bottomInset + 32.dp),
-			verticalArrangement = Arrangement.spacedBy(10.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
 			item("filters") {
 				LazyRow(
@@ -224,9 +224,9 @@ fun StatsScreen(
 			item("tiles") {
 				Column(
 					modifier = Modifier.padding(horizontal = STATS_PADDING),
-					verticalArrangement = Arrangement.spacedBy(10.dp),
+					verticalArrangement = Arrangement.spacedBy(12.dp),
 				) {
-					Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+					Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
 						StatTile(
 							value = stats.chapters.toString(),
 							label = stringResource(if (isAnime) R.string.stats_episodes_watched else R.string.stats_chapters_read),
@@ -242,7 +242,7 @@ fun StatsScreen(
 							modifier = Modifier.weight(1f),
 						)
 					}
-					Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+					Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
 						StatTile(
 							value = stringResource(
 								R.string.minutes_per_chapter_short,
@@ -312,7 +312,7 @@ private fun GenresSection(genres: List<org.koitharu.kotatsu.stats.domain.GenreSc
 				Spacer(Modifier.height(4.dp))
 				LinearProgressIndicator(
 					progress = { genre.score },
-					modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+					modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(4.dp)),
 				)
 			}
 		}
@@ -474,7 +474,7 @@ private fun MangaCover(manga: Manga, imageLoader: ImageLoader) {
 		contentScale = ContentScale.Crop,
 		modifier = Modifier
 			.fillMaxSize()
-			.clip(RoundedCornerShape(14.dp)),
+			.clip(RoundedCornerShape(12.dp)),
 	)
 }
 

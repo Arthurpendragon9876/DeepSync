@@ -112,6 +112,7 @@ class DownloadWorker @AssistedInject constructor(
 	@LocalStorageChanges private val localStorageChanges: MutableSharedFlow<LocalManga?>,
 	private val sourceThrottler: DownloadSourceThrottler,
 	private val imageProxyInterceptor: ImageProxyInterceptor,
+	private val novelTranslator: org.koitharu.kotatsu.reader.ui.epub.NovelTranslator,
 	notificationFactoryFactory: DownloadNotificationFactory.Factory,
 ) : CoroutineWorker(appContext, params) {
 
@@ -213,6 +214,12 @@ class DownloadWorker @AssistedInject constructor(
 					manga = mangaDetails,
 					format = task.format ?: settings.preferredDownloadFormat,
 				)
+				val novelOutput = output as? org.koitharu.kotatsu.local.data.output.LocalNovelEpubOutput
+				if (novelOutput != null && settings.isNovelTranslationEnabled && settings.isNovelAutoTranslateDownloads) {
+					val source = settings.novelTranslationSource
+					val target = settings.novelTranslationTarget
+					novelOutput.chapterTransform = { html -> novelTranslator.translateForDownload(html, source, target) }
+				}
 				val coverUrl = mangaDetails.largeCoverUrl.ifNullOrEmpty { mangaDetails.coverUrl }
 				if (!coverUrl.isNullOrEmpty()) {
 					downloadFile(coverUrl, destination, repo).let { file ->

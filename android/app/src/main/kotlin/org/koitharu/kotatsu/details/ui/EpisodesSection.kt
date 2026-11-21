@@ -82,7 +82,7 @@ internal fun EpisodesSection(
 	val currentId = historyInfo.history?.chapterId
 
 	Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-		Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+		Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
 			AudioPresetToggle(preset, accent) {
 				preset = it
 				AnimePlaybackSession.setAudioPreset(context, it)
@@ -97,7 +97,7 @@ internal fun EpisodesSection(
 			)
 		}
 		Spacer(Modifier.height(12.dp))
-		Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+		Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
 			filtered.take(visible).forEach { chapter ->
 				EpisodeCard(chapter, manga, imageLoader, accent, isCurrent = chapter.id == currentId) {
 					onEpisodeClick(chapter)
@@ -117,7 +117,7 @@ internal fun EpisodesSection(
 @Composable
 private fun AudioPresetToggle(preset: String, accent: Color, onChange: (String) -> Unit) {
 	Row(
-		Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh),
+		Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		listOf("sub" to "Sub", "dub" to "Dub").forEach { (key, label) ->
@@ -142,7 +142,7 @@ private fun AudioPresetToggle(preset: String, accent: Color, onChange: (String) 
 private fun HeaderChip(text: String, leading: Int? = null, trailing: Int? = null, onClick: () -> Unit) {
 	Surface(
 		onClick = onClick,
-		shape = RoundedCornerShape(14.dp),
+		shape = RoundedCornerShape(12.dp),
 		color = MaterialTheme.colorScheme.surfaceContainerHigh,
 	) {
 		Row(
@@ -178,12 +178,12 @@ private fun EpisodeCard(
 
 	Surface(
 		onClick = onClick,
-		shape = RoundedCornerShape(22.dp),
+		shape = RoundedCornerShape(24.dp),
 		color = MaterialTheme.colorScheme.surfaceContainer,
 		modifier = Modifier.fillMaxWidth(),
 	) {
 		Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-			Box(Modifier.width(132.dp).height(76.dp).clip(RoundedCornerShape(14.dp))) {
+			Box(Modifier.width(132.dp).height(76.dp).clip(RoundedCornerShape(12.dp))) {
 				AsyncImage(
 					model = request,
 					imageLoader = imageLoader,
@@ -198,7 +198,7 @@ private fun EpisodeCard(
 					Icon(painterResource(R.drawable.ic_ap_play), null, tint = Color.White, modifier = Modifier.size(22.dp))
 				}
 			}
-			Column(Modifier.weight(1f).padding(horizontal = 14.dp)) {
+			Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
 				Text(
 					heading,
 					fontSize = 16.sp,
@@ -209,7 +209,7 @@ private fun EpisodeCard(
 				if (chapter.uploadDate > 0L) {
 					Text(
 						DateUtils.formatDateTime(ctx, chapter.uploadDate, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_SHOW_YEAR),
-						fontSize = 13.sp,
+						fontSize = 14.sp,
 						color = MaterialTheme.colorScheme.onSurfaceVariant,
 						modifier = Modifier.padding(top = 4.dp),
 					)

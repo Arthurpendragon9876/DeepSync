@@ -95,6 +95,14 @@ class HistoryListViewModel @Inject constructor(
 		valueProducer = { isStatsEnabled || isWatchStatsEnabled },
 	)
 
+	/** The content mode History is showing right now: anime history opens watching stats, the rest reading stats. */
+	val statsMode: HomeMode
+		get() = settings.homeMode
+
+	/** Whether the statistics for the *current* mode are switched on (watch stats in anime mode, reading stats otherwise). */
+	val isStatsAvailableForMode: Boolean
+		get() = if (settings.homeMode == HomeMode.ANIME) settings.isWatchStatsEnabled else settings.isStatsEnabled
+
 	override val content = combine(
 		observeHistory(),
 		isGroupingEnabled,

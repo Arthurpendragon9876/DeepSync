@@ -109,7 +109,8 @@ object NovelPresetStore {
 	fun create(settings: AppSettings, name: String) {
 		val trimmed = name.trim().ifEmpty { return }
 		val others = load(settings).filterNot { it.name.equals(trimmed, ignoreCase = true) }
-		save(settings, others + capture(settings, trimmed))
+		// Newest first: a preset you just made is the one you reach for next.
+		save(settings, listOf(capture(settings, trimmed)) + others)
 	}
 
 	fun delete(settings: AppSettings, name: String) {
