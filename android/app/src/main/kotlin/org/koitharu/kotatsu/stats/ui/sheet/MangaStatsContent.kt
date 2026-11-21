@@ -119,7 +119,7 @@ fun MangaStatsContent(
 			)
 		}
 		Spacer(Modifier.height(20.dp))
-		Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+		Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
 			StatTile(
 				value = pagesRead.toString(),
 				label = stringResource(R.string.stats_pages_read),

@@ -323,7 +323,7 @@ internal fun CoverCard(
 						style = MaterialTheme.typography.labelSmall,
 						fontWeight = FontWeight.Bold,
 						color = Color.White,
-						modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+						modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
 					)
 				}
 			}
@@ -458,7 +458,7 @@ internal fun SourcePill(
 		Row(
 			modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
 			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(6.dp),
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
 		) {
 			AsyncImage(
 				model = faviconRequest,
@@ -543,7 +543,7 @@ internal fun FavouriteButton(
 ) {
 	Surface(
 		onClick = onClick,
-		shape = RoundedCornerShape(20.dp),
+		shape = RoundedCornerShape(24.dp),
 		color = if (isFavourite) accent else accent.copy(alpha = 0.16f),
 		modifier = modifier
 			.fillMaxWidth()
@@ -624,7 +624,7 @@ internal fun MigrateButton(
 	val label = stringResource(R.string.migrate)
 	Surface(
 		onClick = onClick,
-		shape = RoundedCornerShape(20.dp),
+		shape = RoundedCornerShape(24.dp),
 		color = accent.copy(alpha = 0.16f),
 		modifier = Modifier
 			.height(52.dp)
@@ -677,7 +677,7 @@ internal fun TrackerStatusButton(
 	val scheme = MaterialTheme.colorScheme
 	Surface(
 		onClick = onClick,
-		shape = RoundedCornerShape(20.dp),
+		shape = RoundedCornerShape(24.dp),
 		// No outline: a soft tonal fill blends into the card instead of sitting on it.
 		color = scheme.onSurface.copy(alpha = 0.10f),
 		modifier = Modifier

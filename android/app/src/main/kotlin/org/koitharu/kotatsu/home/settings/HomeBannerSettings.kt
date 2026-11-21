@@ -229,7 +229,7 @@ private fun BannerStyleCard(
 				Box(
 					modifier = Modifier
 						.size(48.dp)
-						.clip(RoundedCornerShape(14.dp))
+						.clip(RoundedCornerShape(12.dp))
 						.background(colors.surfaceContainerHighest),
 					contentAlignment = Alignment.Center,
 				) {
@@ -257,7 +257,7 @@ private fun BannerStyleCard(
 					Text(
 						text = stringResource(style.titleRes),
 						style = MaterialTheme.typography.labelLarge,
-						modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+						modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
 					)
 				}
 			}

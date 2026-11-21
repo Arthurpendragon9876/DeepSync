@@ -117,7 +117,7 @@ private fun AboutScreen(
 					horizontalAlignment = Alignment.CenterHorizontally,
 				) {
 					AndroidView(
-						modifier = Modifier.size(96.dp).clip(RoundedCornerShape(26.dp)),
+						modifier = Modifier.size(96.dp).clip(RoundedCornerShape(28.dp)),
 						factory = { context ->
 							ImageView(context).apply {
 								setImageDrawable(context.packageManager.getApplicationIcon(context.packageName))
@@ -145,7 +145,7 @@ private fun AboutScreen(
 				color = MaterialTheme.colorScheme.surfaceContainer,
 				modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
 			) {
-				Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+				Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
 					Text(
 						text = stringResource(R.string.ds_about_blurb),
 						style = MaterialTheme.typography.bodyLarge,
@@ -257,7 +257,7 @@ private fun AboutChip(text: String, onClick: (() -> Unit)?) {
 			style = MaterialTheme.typography.labelLarge,
 			fontWeight = FontWeight.SemiBold,
 			color = MaterialTheme.colorScheme.onPrimaryContainer,
-			modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+			modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
 		)
 	}
 	if (onClick == null) {

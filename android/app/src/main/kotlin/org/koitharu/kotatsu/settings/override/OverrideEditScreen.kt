@@ -199,7 +199,7 @@ private fun CoverSourceTile(
 			modifier = Modifier
 				.clickable(enabled = enabled, onClick = onClick)
 				.fillMaxWidth()
-				.padding(vertical = 14.dp, horizontal = 16.dp),
+				.padding(vertical = 12.dp, horizontal = 16.dp),
 			horizontalArrangement = Arrangement.Start,
 			verticalAlignment = Alignment.CenterVertically,
 		) {
@@ -344,7 +344,7 @@ private fun OverrideTextField(
 		},
 		enabled = enabled,
 		singleLine = singleLine,
-		shape = RoundedCornerShape(20.dp),
+		shape = RoundedCornerShape(24.dp),
 		colors = OutlinedTextFieldDefaults.colors(
 			focusedPlaceholderColor = watermark,
 			unfocusedPlaceholderColor = watermark,

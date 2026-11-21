@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.reader.ui.tts
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioAttributes
 import android.os.Handler
 import android.os.Looper
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import java.text.BreakIterator
 import java.util.Locale
@@ -52,10 +54,14 @@ class ReaderTts @Inject constructor(
 	private val _position = MutableStateFlow<Position?>(null)
 	private val _chapterFinished = MutableSharedFlow<Int>(extraBufferCapacity = 1)
 	private val _sentenceCount = MutableStateFlow(0)
+	private val _previewingVoice = MutableStateFlow<String?>(null)
 	private val _sleepRemainingMs = MutableStateFlow(0L)
 	private val _sleepAtChapterEnd = MutableStateFlow(false)
 	private val sleepHandler = Handler(Looper.getMainLooper())
 	private var sleepDeadline = 0L
+
+	/** Name of the voice whose sample is playing in the voice picker, if any. */
+	val previewingVoice: StateFlow<String?> = _previewingVoice.asStateFlow()
 
 	/** Number of sentences in the loaded chapter (for the progress bar). */
 	val sentenceCount: StateFlow<Int> = _sentenceCount.asStateFlow()
@@ -81,6 +87,17 @@ class ReaderTts @Inject constructor(
 	 * robotic — so a fresh install lands on the best installed voice instead of that one.
 	 */
 	fun voicePresets(): List<Voice> {
+		val auto = autoPresets()
+		val linked = settings.getTtsSlotVoices(spokenLocale().language)
+		if (linked.none { it.isNotEmpty() }) return auto
+		val all = allVoices()
+		// A voice the user linked to a slot replaces the automatic pick for that slot only.
+		return auto.mapIndexed { slot, voice ->
+			linked.getOrNull(slot)?.takeIf { it.isNotEmpty() }?.let { name -> all.firstOrNull { it.name == name } } ?: voice
+		}
+	}
+
+	private fun autoPresets(): List<Voice> {
 		val all = tts?.takeIf { isInitialized }?.voices ?: return emptyList()
 		val language = spokenLocale().language
 		val installed = all.filter { !it.isInstallRequired() && it.locale.language == language }
@@ -135,6 +152,54 @@ class ReaderTts @Inject constructor(
 	}
 
 	fun selectedVoiceName(): String? = settings.epubTtsVoiceName
+
+	/** Name of the voice the user linked to [slot], or null when it is on the automatic pick. */
+	fun linkedVoiceName(slot: Int): String? =
+		settings.getTtsSlotVoices(spokenLocale().language).getOrNull(slot)?.takeIf { it.isNotEmpty() }
+
+	/** Links [voice] to [slot] for the language being read; null puts the slot back on the automatic pick. */
+	fun linkVoice(slot: Int, voice: Voice?) {
+		settings.setTtsSlotVoice(spokenLocale().language, slot, voice?.name)
+		if (slot == selectedVoiceIndex() && settings.epubTtsVoiceName == null) {
+			selectVoice(slot)
+		}
+	}
+
+	/** Speaks a line of the book in [voice] so it can be heard before linking it. Pauses the reading. */
+	fun preview(voice: Voice) {
+		val engine = tts?.takeIf { isInitialized } ?: return
+		if (_isPlaying.value) {
+			pause()
+		}
+		engine.setSpeechRate(settings.epubTtsSpeed)
+		engine.setPitch(settings.epubTtsPitch)
+		engine.voice = voice
+		_previewingVoice.value = voice.name
+		engine.speak(sampleText(), TextToSpeech.QUEUE_FLUSH, null, PREVIEW_UTTERANCE_PREFIX + voice.name)
+	}
+
+	fun stopPreview() {
+		_previewingVoice.value = null
+		if (!_isPlaying.value) {
+			tts?.stop()
+		}
+	}
+
+	/** Opens the engine's own screen for downloading voices. */
+	fun installVoicesIntent(): Intent = Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA)
+		.setPackage(tts?.defaultEngine)
+
+	/** A line or two from where the reader is, so a voice is judged on the book itself. */
+	private fun sampleText(): String {
+		val from = _position.value?.index ?: 0
+		val sample = StringBuilder()
+		for (i in from..chunks.lastIndex) {
+			if (sample.length >= SAMPLE_LENGTH) break
+			sample.append(spokenText(i)).append(' ')
+		}
+		return sample.trim().takeIf { it.isNotEmpty() }?.toString()
+			?: context.getString(R.string.tts_voice_sample)
+	}
 
 	fun selectVoiceByName(name: String?) {
 		settings.epubTtsVoiceName = name
@@ -367,7 +432,19 @@ class ReaderTts @Inject constructor(
 			spokenOffset = spokenPrefix + start
 		}
 
+		/** A sample ending clears the picker's pause button, unless a newer sample already took over. */
+		private fun onPreviewEnded(utteranceId: String?): Boolean {
+			val name = utteranceId?.removePrefix(PREVIEW_UTTERANCE_PREFIX)?.takeIf { it != utteranceId } ?: return false
+			_previewingVoice.compareAndSet(name, null)
+			return true
+		}
+
+		override fun onStop(utteranceId: String?, interrupted: Boolean) {
+			onPreviewEnded(utteranceId)
+		}
+
 		override fun onDone(utteranceId: String?) {
+			if (onPreviewEnded(utteranceId)) return
 			val index = utteranceId?.toIntOrNull() ?: return
 			if (index >= chunks.lastIndex) {
 				_isPlaying.value = false
@@ -379,12 +456,15 @@ class ReaderTts @Inject constructor(
 		override fun onError(utteranceId: String?) = Unit
 
 		override fun onError(utteranceId: String?, errorCode: Int) {
+			if (onPreviewEnded(utteranceId)) return
 			_isPlaying.value = false
 		}
 	}
 }
 
 private const val MAX_PRESETS = 4
+private const val SAMPLE_LENGTH = 120
+private const val PREVIEW_UTTERANCE_PREFIX = "preview:"
 private val WHITESPACE = Regex("""\s+""")
 
 private fun Voice.isInstallRequired(): Boolean =

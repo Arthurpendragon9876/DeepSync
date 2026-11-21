@@ -7,9 +7,13 @@ import android.util.Base64
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.io.IOException
+import java.security.InvalidKeyException
 import java.security.KeyStore
+import java.security.UnrecoverableKeyException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
+import javax.crypto.AEADBadTagException
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 import javax.inject.Inject
@@ -37,6 +41,38 @@ class SecretStore @Inject constructor(@ApplicationContext context: Context) {
 			.getOrNull()
 			?.also { cache[name] = it }
 	}
+
+	/**
+	 * Like [get], but a secret that can't be read *right now* is not mistaken for a missing one.
+	 *
+	 * Returns null when there is no secret, or when it can never be read again (its Keystore key is gone or
+	 * changed, or the file is corrupt): that file is deleted so it isn't retried forever, and the caller
+	 * should ask the user to sign in. Throws [SecretUnavailableException] for everything else (the Keystore
+	 * service hiccuping in the background, right after boot, under memory pressure...): the secret is still
+	 * there and a later attempt will read it, so that must not log the user out.
+	 */
+	@Synchronized
+	fun getStrict(name: String): String? {
+		cache[name]?.let { return it }
+		val file = fileOf(name)
+		if (!file.isFile) return null
+		return try {
+			decrypt(file.readText()).also { cache[name] = it }
+		} catch (e: Exception) {
+			if (e.isPermanent()) {
+				Log.w(TAG, "secret $name can never be read again, dropping it", e)
+				file.delete()
+				null
+			} else {
+				Log.w(TAG, "secret $name is temporarily unreadable", e)
+				throw SecretUnavailableException("The saved login can't be read right now", e)
+			}
+		}
+	}
+
+	private fun Throwable.isPermanent(): Boolean =
+		this is AEADBadTagException || this is IllegalArgumentException ||
+			this is InvalidKeyException || this is UnrecoverableKeyException
 
 	@Synchronized
 	fun set(name: String, value: String?) {
@@ -98,6 +134,8 @@ class SecretStore @Inject constructor(@ApplicationContext context: Context) {
 		}
 		return cipher.doFinal(bytes, IV_SIZE, bytes.size - IV_SIZE).decodeToString()
 	}
+
+	class SecretUnavailableException(message: String, cause: Throwable?) : IOException(message, cause)
 
 	private companion object {
 

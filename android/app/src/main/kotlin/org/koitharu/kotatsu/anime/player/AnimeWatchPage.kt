@@ -236,7 +236,7 @@ private fun InfoCard(manga: Manga, episodeCount: Int) {
 	}
 	val tags = remember(manga.tags) { manga.tags.map { it.title }.take(10) }
 	val amber = Color(0xFFFFB300)
-	Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
+	Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth()) {
 		Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
 			// One wrapping row: rating, episode count and genres share the space instead of each owning a row.
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -449,7 +449,7 @@ private fun NotesBlock(data: WatchPageData, actions: WatchPageActions) {
 									if (note.positionMs >= 0) "@ ${formatClock(note.positionMs)}" else "General",
 									fontSize = 10.sp,
 									color = MaterialTheme.colorScheme.onPrimaryContainer,
-									modifier = Modifier.clip(RoundedCornerShape(6.dp)).background(MaterialTheme.colorScheme.primaryContainer)
+									modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.primaryContainer)
 										.padding(horizontal = 6.dp, vertical = 2.dp),
 								)
 								Text(note.episode, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 6.dp))
@@ -564,7 +564,7 @@ private fun EpisodeCard(
 	val primary = MaterialTheme.colorScheme.primary
 	Surface(
 		onClick = onClick,
-		shape = RoundedCornerShape(18.dp),
+		shape = RoundedCornerShape(16.dp),
 		color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f) else MaterialTheme.colorScheme.surfaceContainer,
 		border = if (selected) BorderStroke(1.dp, primary.copy(alpha = 0.7f)) else null,
 		modifier = Modifier.fillMaxWidth(),

@@ -402,7 +402,7 @@ private fun SourceSectionHeader(
 				start = 24.dp,
 				end = 16.dp,
 				top = topPadding,
-				bottom = 6.dp,
+				bottom = 8.dp,
 			),
 		verticalAlignment = Alignment.CenterVertically,
 	) {

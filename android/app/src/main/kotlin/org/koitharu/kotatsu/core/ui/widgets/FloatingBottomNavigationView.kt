@@ -111,6 +111,11 @@ class FloatingBottomNavigationView @JvmOverloads constructor(
 		// The parent NavigationBarView paints a solid surface — clear it so the Compose pill floats.
 		background = null
 		elevation = 0f
+		// The magnified drag pill and the mode fan draw outside the bar's own bounds.
+		clipChildren = false
+		clipToPadding = false
+		composeView.clipChildren = false
+		composeView.clipToPadding = false
 		// Hide everything the parent NavigationBarView added (the native menu view) BEFORE
 		// our composeView gets added — we can't reference BottomNavigationMenuView directly
 		// because it's @RestrictTo(LIBRARY_GROUP), so we identify it by exclusion instead.

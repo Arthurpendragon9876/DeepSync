@@ -22,6 +22,7 @@ import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.model.getTitle
 import org.koitharu.kotatsu.core.model.isNovelSource
 import org.koitharu.kotatsu.core.prefs.AppSettings
+import org.koitharu.kotatsu.reader.ui.epub.NovelTranslationLanguages
 import org.koitharu.kotatsu.explore.data.MangaSourcesRepository
 import org.koitharu.kotatsu.settings.compose.ActionSettingsItem
 import org.koitharu.kotatsu.settings.compose.BaseComposeSettingsFragment
@@ -66,13 +67,8 @@ class AdvancedNovelSettingsFragment : BaseComposeSettingsFragment(R.string.advan
 	}
 }
 
-private val LANGUAGE_CODES = listOf(
-	"en", "es", "fr", "de", "it", "pt", "ru", "ja", "ko", "zh", "ar", "hi", "id", "tr", "vi", "th", "pl", "nl",
-)
-private val LANGUAGE_NAMES = listOf(
-	"English", "Spanish", "French", "German", "Italian", "Portuguese", "Russian", "Japanese", "Korean",
-	"Chinese", "Arabic", "Hindi", "Indonesian", "Turkish", "Vietnamese", "Thai", "Polish", "Dutch",
-)
+private val LANGUAGE_CODES = NovelTranslationLanguages.all.map { it.first }
+private val LANGUAGE_NAMES = NovelTranslationLanguages.all.map { it.second }
 
 @Composable
 private fun AdvancedNovelScreen(settings: AppSettings, sourcesRepository: MangaSourcesRepository) {

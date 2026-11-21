@@ -212,7 +212,7 @@ class MetaDetailsActivity : BaseActivity<ActivityDetailsExpressiveBinding>() {
 		Surface(
 			shape = RoundedCornerShape(50),
 			color = MaterialTheme.colorScheme.primaryContainer,
-			shadowElevation = 4.dp,
+			shadowElevation = 3.dp,
 			modifier = if (missing != null) {
 				Modifier.clickable {
 					startActivity(SourceChooserActivity.intent(this, missing.query, ref.mode, MetadataLinks.key(ref)))
@@ -222,9 +222,9 @@ class MetaDetailsActivity : BaseActivity<ActivityDetailsExpressiveBinding>() {
 			},
 		) {
 			Row(
-				modifier = Modifier.padding(horizontal = 22.dp, vertical = 14.dp),
+				modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
 				verticalAlignment = Alignment.CenterVertically,
-				horizontalArrangement = Arrangement.spacedBy(10.dp),
+				horizontalArrangement = Arrangement.spacedBy(12.dp),
 			) {
 				if (missing == null) {
 					CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)

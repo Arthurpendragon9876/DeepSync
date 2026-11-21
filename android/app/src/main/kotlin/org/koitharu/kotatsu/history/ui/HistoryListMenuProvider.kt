@@ -8,6 +8,7 @@ import androidx.core.view.MenuProvider
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.nav.AppRouter
 import org.koitharu.kotatsu.core.ui.dialog.showSingleChoiceDialog
+import org.koitharu.kotatsu.home.ui.model.HomeMode
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -25,7 +26,12 @@ class HistoryListMenuProvider(
 
 	override fun onPrepareMenu(menu: Menu) {
 		super.onPrepareMenu(menu)
-		menu.findItem(R.id.action_stats)?.isVisible = viewModel.isStatsEnabled.value
+		menu.findItem(R.id.action_stats)?.apply {
+			isVisible = viewModel.isStatsAvailableForMode
+			setTitle(
+				if (viewModel.statsMode == HomeMode.ANIME) R.string.watching_stats else R.string.reading_stats,
+			)
+		}
 	}
 
 	override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
@@ -36,7 +42,7 @@ class HistoryListMenuProvider(
 			}
 
 			R.id.action_stats -> {
-				router.openStatistic()
+				router.openStatistic(viewModel.statsMode)
 				true
 			}
 

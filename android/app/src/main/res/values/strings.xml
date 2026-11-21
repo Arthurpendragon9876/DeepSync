@@ -1697,4 +1697,12 @@
     <string name="ds_player_sub_edge">Edge style</string>
     <string name="ds_player_sub_background">Background box</string>
     <string name="ds_player_sub_position">Position</string>
+	<string name="extensions_per_row">Extensions per row</string>
+	<string name="tts_customize_voices">Customize voices</string>
+	<string name="tts_get_more_voices">Get more voices</string>
+	<string name="tts_voice_needs_internet">needs internet</string>
+	<string name="tts_voice_male">Male</string>
+	<string name="tts_voice_female">Female</string>
+	<string name="tts_voice_sample">This is how this voice sounds.</string>
+	<string name="tts_preview_voice">Play a sample</string>
 </resources>

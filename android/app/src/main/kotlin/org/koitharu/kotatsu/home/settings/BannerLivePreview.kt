@@ -137,7 +137,7 @@ private fun PanelsPreview(items: List<HeroSnap>, index: Int, anime: Boolean, onP
 				.rotate(-1.4f),
 		) {
 			// Featured panel
-			Panel(Modifier.weight(0.632f).fillMaxHeight().padding(end = 3.dp)) {
+			Panel(Modifier.weight(0.632f).fillMaxHeight().padding(end = 4.dp)) {
 				Cover(main, Modifier.fillMaxSize())
 				Box(
 					Modifier
@@ -154,8 +154,8 @@ private fun PanelsPreview(items: List<HeroSnap>, index: Int, anime: Boolean, onP
 					letterSpacing = 0.08.em(),
 					modifier = Modifier
 						.align(Alignment.TopStart)
-						.background(Color.White, RoundedCornerShape(3.dp))
-						.padding(horizontal = 10.dp, vertical = 5.dp),
+						.background(Color.White, RoundedCornerShape(4.dp))
+						.padding(horizontal = 12.dp, vertical = 5.dp),
 				)
 				Box(
 					Modifier
@@ -171,7 +171,7 @@ private fun PanelsPreview(items: List<HeroSnap>, index: Int, anime: Boolean, onP
 					Modifier
 						.align(Alignment.BottomStart)
 						.fillMaxWidth()
-						.padding(start = 14.dp, end = 76.dp, bottom = 18.dp),
+						.padding(start = 16.dp, end = 76.dp, bottom = 18.dp),
 				) {
 					Text(
 						text = main.title,
@@ -195,7 +195,7 @@ private fun PanelsPreview(items: List<HeroSnap>, index: Int, anime: Boolean, onP
 						.align(Alignment.BottomEnd)
 						.padding(12.dp)
 						.size(52.dp)
-						.background(Color.White, RoundedCornerShape(3.dp)),
+						.background(Color.White, RoundedCornerShape(4.dp)),
 					contentAlignment = Alignment.Center,
 				) {
 					Icon(
@@ -207,15 +207,15 @@ private fun PanelsPreview(items: List<HeroSnap>, index: Int, anime: Boolean, onP
 				}
 			}
 			// Two small panels: the next titles, tapping one promotes it like on Home
-			Column(Modifier.weight(0.368f).fillMaxHeight().padding(start = 3.dp)) {
+			Column(Modifier.weight(0.368f).fillMaxHeight().padding(start = 4.dp)) {
 				if (side1 != null) {
 					Panel(
-						Modifier.weight(1f).fillMaxWidth().padding(bottom = 3.dp).clickable { onPromote((index + 1) % n) },
+						Modifier.weight(1f).fillMaxWidth().padding(bottom = 4.dp).clickable { onPromote((index + 1) % n) },
 					) { Cover(side1, Modifier.fillMaxSize()) }
 				} else Spacer(Modifier.weight(1f))
 				if (side2 != null) {
 					Panel(
-						Modifier.weight(1f).fillMaxWidth().padding(top = 3.dp).clickable { onPromote((index + 2) % n) },
+						Modifier.weight(1f).fillMaxWidth().padding(top = 4.dp).clickable { onPromote((index + 2) % n) },
 					) { Cover(side2, Modifier.fillMaxSize()) }
 				} else Spacer(Modifier.weight(1f))
 			}
@@ -228,9 +228,9 @@ private fun PanelsPreview(items: List<HeroSnap>, index: Int, anime: Boolean, onP
 private fun Panel(modifier: Modifier, content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit) {
 	Box(
 		modifier
-			.clip(RoundedCornerShape(3.dp))
+			.clip(RoundedCornerShape(4.dp))
 			.background(MaterialTheme.colorScheme.surfaceContainerHigh)
-			.border(BorderStroke(2.dp, Color(0xEEFFFFFF)), RoundedCornerShape(3.dp)),
+			.border(BorderStroke(2.dp, Color(0xEEFFFFFF)), RoundedCornerShape(4.dp)),
 		content = content,
 	)
 }
@@ -274,8 +274,8 @@ private fun CardPreview(items: List<HeroSnap>, index: Int, anime: Boolean) {
 			Box(
 				Modifier
 					.size(width = 108.dp, height = 158.dp)
-					.shadow(8.dp, RoundedCornerShape(18.dp))
-					.clip(RoundedCornerShape(18.dp)),
+					.shadow(8.dp, RoundedCornerShape(16.dp))
+					.clip(RoundedCornerShape(16.dp)),
 			) { Cover(main, Modifier.fillMaxSize()) }
 			Column(Modifier.weight(1f).padding(start = 16.dp)) {
 				Text(
@@ -299,18 +299,18 @@ private fun CardPreview(items: List<HeroSnap>, index: Int, anime: Boolean) {
 				Text(
 					text = main.genres.take(3).joinToString(" \u00b7 "),
 					color = Color(0xB3FFFFFF),
-					fontSize = 13.sp,
+					fontSize = 14.sp,
 					maxLines = 1,
 					overflow = TextOverflow.Ellipsis,
 					modifier = Modifier.padding(top = 4.dp),
 				)
-				Row(Modifier.padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+				Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
 					repeat(n) { i ->
 						val on = i == index % n
 						Box(
 							Modifier
 								.size(width = if (on) 18.dp else 6.dp, height = 6.dp)
-								.background(if (on) Color.White else Color(0x66FFFFFF), RoundedCornerShape(3.dp)),
+								.background(if (on) Color.White else Color(0x66FFFFFF), RoundedCornerShape(4.dp)),
 						)
 					}
 				}
@@ -342,13 +342,13 @@ private fun SpotlightPreview(items: List<HeroSnap>) {
 					scaleY = s
 					alpha = 1f - 0.45f * distance
 				}
-				.padding(horizontal = 6.dp)
+				.padding(horizontal = 8.dp)
 				.padding(10.dp),
 		) {
 			Box(Modifier.fillMaxWidth().height(340.dp).clip(RoundedCornerShape(28.dp))) {
 				Cover(item, Modifier.fillMaxSize())
 			}
-			Row(Modifier.fillMaxWidth().padding(top = 12.dp, start = 6.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+			Row(Modifier.fillMaxWidth().padding(top = 12.dp, start = 8.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
 				Text(
 					text = item.title,
 					style = MaterialTheme.typography.titleMedium,
@@ -362,16 +362,16 @@ private fun SpotlightPreview(items: List<HeroSnap>) {
 						style = MaterialTheme.typography.labelLarge,
 						modifier = Modifier
 							.padding(start = 8.dp)
-							.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(20.dp))
-							.padding(horizontal = 12.dp, vertical = 6.dp),
+							.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(24.dp))
+							.padding(horizontal = 12.dp, vertical = 8.dp),
 					)
 				}
 			}
 			Row(
 				Modifier
 					.fillMaxWidth()
-					.padding(top = 10.dp)
-					.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(20.dp))
+					.padding(top = 12.dp)
+					.background(MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(24.dp))
 					.padding(14.dp),
 				verticalAlignment = Alignment.CenterVertically,
 			) {

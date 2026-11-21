@@ -75,7 +75,7 @@ internal fun SectionHeader(title: String, action: String, accent: Color, onActio
 				style = MaterialTheme.typography.labelMedium,
 				fontWeight = FontWeight.Medium,
 				color = accent,
-				modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+				modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp),
 			)
 		}
 	}
@@ -100,7 +100,7 @@ internal fun Pill(
 		Row(
 			modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
 			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(6.dp),
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
 		) {
 			leading?.invoke()
 			Text(

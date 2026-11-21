@@ -152,7 +152,7 @@
 				android:paddingVertical="0dp"
 				android:text="@string/ds_track_search_other"
 				android:textSize="12sp"
-				app:cornerRadius="19dp"
+				app:cornerRadius="20dp"
 				app:icon="@drawable/ic_search"
 				app:iconGravity="textStart"
 				app:iconPadding="6dp"
@@ -171,7 +171,7 @@
 				android:paddingVertical="0dp"
 				android:text="@string/ds_track_no"
 				android:textSize="12sp"
-				app:cornerRadius="19dp" />
+				app:cornerRadius="20dp" />
 
 		</LinearLayout>
 

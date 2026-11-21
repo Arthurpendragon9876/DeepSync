@@ -234,7 +234,7 @@ private fun SubtitlePreview(font: String, size: String, color: String, edge: Str
 			modifier = Modifier
 				.padding(horizontal = 16.dp)
 				.background(box)
-				.padding(horizontal = 6.dp, vertical = 2.dp),
+				.padding(horizontal = 8.dp, vertical = 2.dp),
 			textAlign = TextAlign.Center,
 			style = TextStyle(
 				color = textColor,

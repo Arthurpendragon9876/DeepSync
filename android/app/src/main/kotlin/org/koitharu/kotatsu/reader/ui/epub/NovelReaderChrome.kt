@@ -397,7 +397,7 @@ private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
 				Row(
 					modifier = Modifier
 						.fillMaxWidth()
-						.padding(horizontal = 6.dp, vertical = 10.dp),
+						.padding(horizontal = 8.dp, vertical = 12.dp),
 					horizontalArrangement = Arrangement.SpaceEvenly,
 					verticalAlignment = Alignment.CenterVertically,
 				) {
@@ -446,7 +446,7 @@ private fun BarButton(icon: Int, label: String, active: Boolean, onClick: () -> 
 private fun ListenButton(onClick: () -> Unit) {
 	Surface(
 		onClick = onClick,
-		shape = RoundedCornerShape(20.dp),
+		shape = RoundedCornerShape(24.dp),
 		color = Bar.accent,
 		shadowElevation = 0.dp,
 		modifier = Modifier.height(54.dp),
@@ -454,7 +454,7 @@ private fun ListenButton(onClick: () -> Unit) {
 		Row(
 			modifier = Modifier.padding(horizontal = 28.dp),
 			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(10.dp),
+			horizontalArrangement = Arrangement.spacedBy(12.dp),
 		) {
 			Icon(
 				painter = painterResource(R.drawable.ic_novel_headphones),
@@ -613,7 +613,7 @@ private fun NovelSettingsPanel(state: NovelChromeState, settings: AppSettings, o
 						.weight(1f, fill = false)
 						.verticalScroll(rememberScrollState())
 						.padding(16.dp),
-					verticalArrangement = Arrangement.spacedBy(14.dp),
+					verticalArrangement = Arrangement.spacedBy(12.dp),
 				) {
 					when (tab) {
 						NovelTab.PRESETS -> PresetsTab(settings, refresh, tick)
@@ -668,13 +668,13 @@ private fun PanelHeader(modified: Int, onReset: () -> Unit, onDismiss: () -> Uni
 			if (modified > 0) {
 				Surface(
 					onClick = onReset,
-					shape = RoundedCornerShape(10.dp),
+					shape = RoundedCornerShape(12.dp),
 					color = Bar.warning.copy(alpha = 0.15f),
 					border = BorderStroke(1.dp, Bar.warning.copy(alpha = 0.3f)),
 				) {
 					Row(
 						modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-						horizontalArrangement = Arrangement.spacedBy(6.dp),
+						horizontalArrangement = Arrangement.spacedBy(8.dp),
 						verticalAlignment = Alignment.CenterVertically,
 					) {
 						Icon(
@@ -719,12 +719,12 @@ private fun TabBar(selected: NovelTab, onSelect: (NovelTab) -> Unit) {
 			val isSelected = t == selected
 			Surface(
 				onClick = { onSelect(t) },
-				shape = RoundedCornerShape(10.dp),
+				shape = RoundedCornerShape(12.dp),
 				color = if (isSelected) Bar.accent else Bar.surfaceVariant,
 			) {
 				Row(
-					modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-					horizontalArrangement = Arrangement.spacedBy(6.dp),
+					modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+					horizontalArrangement = Arrangement.spacedBy(8.dp),
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					val color = if (isSelected) Bar.onAccent else Bar.textMuted
@@ -758,7 +758,7 @@ private inline fun PresetsTab(settings: AppSettings, noinline refresh: () -> Uni
 	) {
 		Row(
 			modifier = Modifier.padding(12.dp),
-			horizontalArrangement = Arrangement.spacedBy(10.dp),
+			horizontalArrangement = Arrangement.spacedBy(12.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			Icon(
@@ -771,6 +771,24 @@ private inline fun PresetsTab(settings: AppSettings, noinline refresh: () -> Uni
 				text = "Choose a preset for quick setup, then customize individual settings in other tabs.",
 				style = MaterialTheme.typography.bodySmall,
 				color = Bar.textSecondary,
+			)
+		}
+	}
+	// The user's own presets come first, newest at the top, then the built-in ones
+	NovelPresetStore.load(settings).forEach { preset ->
+		val active = NovelPresetStore.isActive(settings, preset)
+		Surface(
+			onClick = { NovelPresetStore.apply(settings, preset); refresh() },
+			shape = RoundedCornerShape(Bar.radiusSmall),
+			color = if (active) Bar.accentSubtle else Bar.surfaceVariant.copy(alpha = 0.5f),
+			border = BorderStroke(if (active) 2.dp else 1.dp, if (active) Bar.accent else Bar.border),
+		) {
+			Text(
+				text = preset.name + if (active) "  \u00B7  Active" else "",
+				style = MaterialTheme.typography.bodyMedium,
+				fontWeight = FontWeight.SemiBold,
+				color = if (active) Bar.accent else Bar.textPrimary,
+				modifier = Modifier.fillMaxWidth().padding(14.dp),
 			)
 		}
 	}
@@ -803,7 +821,7 @@ private inline fun PresetsTab(settings: AppSettings, noinline refresh: () -> Uni
 									text = "Active",
 									style = MaterialTheme.typography.labelSmall,
 									color = Bar.onAccent,
-									modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+									modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
 								)
 							}
 						}
@@ -828,24 +846,6 @@ private inline fun PresetsTab(settings: AppSettings, noinline refresh: () -> Uni
 					}
 				}
 			}
-		}
-	}
-	// Presets saved from Settings > Novel reader
-	NovelPresetStore.load(settings).forEach { preset ->
-		val active = NovelPresetStore.isActive(settings, preset)
-		Surface(
-			onClick = { NovelPresetStore.apply(settings, preset); refresh() },
-			shape = RoundedCornerShape(Bar.radiusSmall),
-			color = if (active) Bar.accentSubtle else Bar.surfaceVariant.copy(alpha = 0.5f),
-			border = BorderStroke(if (active) 2.dp else 1.dp, if (active) Bar.accent else Bar.border),
-		) {
-			Text(
-				text = preset.name + if (active) "  \u00B7  Active" else "",
-				style = MaterialTheme.typography.bodyMedium,
-				fontWeight = FontWeight.SemiBold,
-				color = if (active) Bar.accent else Bar.textPrimary,
-				modifier = Modifier.fillMaxWidth().padding(14.dp),
-			)
 		}
 	}
 }
@@ -944,7 +944,7 @@ private inline fun ThemeTab(settings: AppSettings, noinline refresh: () -> Unit,
 		else -> settings.epubTheme
 	}
 	themes.chunked(3).forEach { row ->
-		Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+		Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
 			row.forEach { (id, bg, fg) ->
 				val selected = current == id
 				Surface(
@@ -957,7 +957,7 @@ private inline fun ThemeTab(settings: AppSettings, noinline refresh: () -> Unit,
 					Column(
 						modifier = Modifier
 							.fillMaxWidth()
-							.padding(vertical = 14.dp),
+							.padding(vertical = 12.dp),
 						horizontalAlignment = Alignment.CenterHorizontally,
 					) {
 						Text(text = "Aa", fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = fg)
@@ -975,6 +975,21 @@ private inline fun OptionsTab(state: NovelChromeState, settings: AppSettings, no
 	ToggleRow("Chapter header", settings.isEpubChapterHeaderEnabled) { settings.isEpubChapterHeaderEnabled = it; refresh() }
 	ToggleRow("Bionic reading", settings.isEpubBionicReadingEnabled) { settings.isEpubBionicReadingEnabled = it; refresh() }
 	ToggleRow("Use book formatting", settings.isEpubPublisherStyleEnabled) { settings.isEpubPublisherStyleEnabled = it; refresh() }
+	ToggleRow("Translate chapters", settings.isNovelTranslationEnabled) { settings.isNovelTranslationEnabled = it; refresh() }
+	if (settings.isNovelTranslationEnabled) {
+		Section("Translate to", NovelTranslationLanguages.nameOf(settings.novelTranslationTarget)) {
+			ChipFlow(
+				options = NovelTranslationLanguages.all,
+				selected = settings.novelTranslationTarget,
+			) { settings.novelTranslationTarget = it; refresh() }
+		}
+		Section("Translate from", NovelTranslationLanguages.nameOf(settings.novelTranslationSource)) {
+			ChipFlow(
+				options = listOf(NovelTranslationLanguages.AUTO to "Auto") + NovelTranslationLanguages.all,
+				selected = settings.novelTranslationSource,
+			) { settings.novelTranslationSource = it; refresh() }
+		}
+	}
 	ActionRow("Search in book", R.drawable.ic_search) { onDismiss(); state.onSearchClick() }
 	ActionRow("Auto scroll", R.drawable.ic_timer) { onDismiss(); state.onAutoScrollClick() }
 }
@@ -1061,11 +1076,11 @@ internal fun ChipFlow(
 						color = if (isSelected) Bar.accentMuted else Bar.surfaceVariant,
 						border = BorderStroke(1.dp, if (isSelected) Bar.accent else Bar.border.copy(alpha = 0.5f)),
 					) {
-						Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp, vertical = 10.dp)) {
+						Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp)) {
 							Text(
 								text = label,
 								fontFamily = fontFor(value),
-								fontSize = 13.sp,
+								fontSize = 14.sp,
 								maxLines = 1,
 								overflow = TextOverflow.Ellipsis,
 								color = if (isSelected) Bar.onAccentMuted else Bar.textSecondary,
@@ -1090,7 +1105,7 @@ internal fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> U
 		Row(
 			modifier = Modifier
 				.fillMaxWidth()
-				.padding(horizontal = 14.dp, vertical = 12.dp),
+				.padding(horizontal = 16.dp, vertical = 12.dp),
 			horizontalArrangement = Arrangement.SpaceBetween,
 			verticalAlignment = Alignment.CenterVertically,
 		) {
@@ -1122,7 +1137,7 @@ internal fun ActionRow(label: String, icon: Int, onClick: () -> Unit) {
 		Row(
 			modifier = Modifier
 				.fillMaxWidth()
-				.padding(horizontal = 14.dp, vertical = 12.dp),
+				.padding(horizontal = 16.dp, vertical = 12.dp),
 			horizontalArrangement = Arrangement.spacedBy(12.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {

@@ -261,7 +261,7 @@ private fun DetailsStyleOption(
 			val scale = screenWidth / PHONE_WIDTH
 			Surface(
 				modifier = Modifier.size(screenWidth + BEZEL * 2, PHONE_HEIGHT * scale + BEZEL * 2),
-				shape = RoundedCornerShape(26.dp),
+				shape = RoundedCornerShape(28.dp),
 				color = scheme.surfaceContainerHighest,
 				border = BorderStroke(if (selected) 2.dp else 1.dp, borderColor),
 			) {
@@ -355,7 +355,7 @@ private fun PreviewScreen(centered: Boolean, backdrop: Boolean, blurAmount: Int)
 		Bar(
 			modifier = Modifier
 				.align(Alignment.BottomCenter)
-				.padding(bottom = 10.dp)
+				.padding(bottom = 12.dp)
 				.size(108.dp, 4.dp),
 			color = scheme.onSurface.copy(alpha = 0.35f),
 		)
@@ -542,7 +542,7 @@ private fun PreviewTags(accent: Color) {
 		verticalArrangement = Arrangement.spacedBy(8.dp),
 	) {
 		for (width in intArrayOf(74, 96, 62, 88, 110, 70, 84, 66)) {
-			Surface(shape = RoundedCornerShape(15.dp), color = accent.copy(alpha = 0.16f)) {
+			Surface(shape = RoundedCornerShape(16.dp), color = accent.copy(alpha = 0.16f)) {
 				Box(Modifier.size(width.dp, 38.dp), contentAlignment = Alignment.Center) {
 					Bar(Modifier.size((width - 28).dp, 10.dp), accent.copy(alpha = 0.55f))
 				}
@@ -562,7 +562,7 @@ private fun PreviewSourcePill(modifier: Modifier = Modifier) {
 		Row(
 			modifier = Modifier.padding(horizontal = 13.dp, vertical = 8.dp),
 			verticalAlignment = Alignment.CenterVertically,
-			horizontalArrangement = Arrangement.spacedBy(6.dp),
+			horizontalArrangement = Arrangement.spacedBy(8.dp),
 		) {
 			Icon(
 				painter = painterResource(R.drawable.ic_manga_source),
@@ -621,7 +621,7 @@ private fun PreviewStatusBar() {
 			.height(STATUS_BAR)
 			.padding(horizontal = 24.dp),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(6.dp),
+		horizontalArrangement = Arrangement.spacedBy(8.dp),
 	) {
 		Bar(Modifier.size(38.dp, 12.dp), color)
 		Spacer(Modifier.weight(1f))

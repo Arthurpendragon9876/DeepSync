@@ -246,7 +246,7 @@ private fun DuplicateCard(
 	Surface(
 		onClick = { onPreview(card) },
 		enabled = !card.isBlocked,
-		shape = RoundedCornerShape(26.dp),
+		shape = RoundedCornerShape(28.dp),
 		color = MaterialTheme.colorScheme.surfaceContainerHigh,
 		modifier = Modifier.fillMaxWidth(),
 	) {
@@ -313,7 +313,7 @@ private fun Cover(card: DuplicateCardModel, imageLoader: ImageLoader) {
 			modifier = Modifier
 				.width(92.dp)
 				.aspectRatio(CoverRatio)
-				.clip(RoundedCornerShape(18.dp)),
+				.clip(RoundedCornerShape(16.dp)),
 		)
 		val progress = card.duplicate.progress
 		if (ReadingProgress.isValid(progress) && progress > 0f) {
@@ -429,7 +429,7 @@ private fun CategoryPill(card: DuplicateCardModel) {
 	}
 	Surface(
 		color = MaterialTheme.colorScheme.secondaryContainer,
-		shape = RoundedCornerShape(10.dp),
+		shape = RoundedCornerShape(12.dp),
 		modifier = Modifier.padding(top = 8.dp),
 	) {
 		Row(
@@ -462,8 +462,8 @@ private fun ReplaceButton(
 	FilledTonalButton(
 		onClick = { onReplace(card) },
 		enabled = card.duplicate.canReplace && !card.isBlocked,
-		shape = RoundedCornerShape(18.dp),
-		contentPadding = PaddingValues(horizontal = 14.dp),
+		shape = RoundedCornerShape(16.dp),
+		contentPadding = PaddingValues(horizontal = 16.dp),
 		modifier = Modifier.height(38.dp),
 	) {
 		when {

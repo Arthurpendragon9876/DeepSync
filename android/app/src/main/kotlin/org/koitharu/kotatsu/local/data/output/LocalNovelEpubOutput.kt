@@ -42,6 +42,13 @@ class LocalNovelEpubOutput(
 	private var isFinished = false
 	private var excludedIds: Set<Long> = emptySet()
 
+	/**
+	 * Set by the download worker when "Auto-translate downloads" is on: turns a chapter's html into its
+	 * translation before it is written. The language comes back so the page can be marked as translated
+	 * and the reader does not translate it a second time.
+	 */
+	var chapterTransform: (suspend (String) -> org.koitharu.kotatsu.reader.ui.epub.TranslatedChapter)? = null
+
 	init {
 		index.setMangaInfo(manga)
 	}
@@ -66,8 +73,13 @@ class LocalNovelEpubOutput(
 				chapter.index + 1,
 			) + ".xhtml"
 			val title = chapter.value.title ?: "Chapter ${chapter.index + 1}"
+			val raw = runInterruptible(Dispatchers.IO) { file.readText() }
+			// A failed translation must never fail the download: the chapter is saved as it came.
+			val chapterPage = chapterTransform?.let { transform ->
+				runCatching { transform(raw) }.getOrNull()
+			}
 			runInterruptible(Dispatchers.IO) {
-				output.put(name, wrapXhtml(title, file.readText()))
+				output.put(name, wrapXhtml(title, chapterPage?.html ?: raw, chapterPage?.translatedTo))
 			}
 			spine[name] = title
 			// The entry name is what maps this chapter id back on read-back, and that mapping is what
@@ -153,11 +165,15 @@ class LocalNovelEpubOutput(
 		}
 	}
 
-	private fun wrapXhtml(title: String, body: String) = buildString {
+	private fun wrapXhtml(title: String, body: String, translatedTo: String? = null) = buildString {
 		append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n")
 		append("<html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>")
 		append(title.escapeXml())
-		append("</title></head><body>")
+		append("</title>")
+		if (translatedTo != null) {
+			append("<meta name=\"yugen-translated\" content=\"").append(translatedTo.escapeXml()).append("\"/>")
+		}
+		append("</head><body>")
 		append(body)
 		append("</body></html>")
 	}

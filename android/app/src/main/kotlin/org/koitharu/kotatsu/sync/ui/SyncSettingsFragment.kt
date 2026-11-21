@@ -401,7 +401,7 @@ private fun AccountRow(
 		Row(
 			modifier = Modifier
 				.heightIn(min = 72.dp)
-				.padding(horizontal = 12.dp, vertical = 10.dp),
+				.padding(horizontal = 12.dp, vertical = 12.dp),
 			verticalAlignment = Alignment.CenterVertically,
 		) {
 			AccountAvatar(photoUrl = photoUrl, imageLoader = imageLoader)

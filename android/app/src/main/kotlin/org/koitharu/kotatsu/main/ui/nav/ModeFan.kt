@@ -1,10 +1,18 @@
 package org.koitharu.kotatsu.main.ui.nav
 
 import android.view.View
+import android.app.Activity
+import android.content.ContextWrapper
+import android.view.Window
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -38,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,11 +61,11 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -81,11 +90,12 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
-import androidx.core.graphics.Insets
-import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.util.ext.HapticEffect
 import org.koitharu.kotatsu.core.util.ext.rememberHapticEffect
@@ -104,20 +114,20 @@ import kotlin.math.sin
  *  - **Tap**: continue reading / watching (with nothing to resume, it opens the fan to pick from).
  *  - **Pull** (drag past 14dp): a quarter-circle fan blooms from the button, the nav bar slides away and the page
  *    dims. The mode under the thumb is highlighted with a glowing spoke and a tick; releasing switches to it.
- *  - **Hold** for a second without pulling: opens the details of the last title, with a ring charging around the
+ *  - **Hold** for 0.85 s without pulling: opens the details of the last title, with a ring charging around the
  *    button and two soft ticks on the way.
  *
  * Every step has its own haptic: a start when the fan opens, a tick each time the highlighted mode changes, a
  * confirm when the mode is switched, a long press when the hold completes. All of them go through the app's
  * haptics switch.
  */
-private const val HOLD_MS = 1000
+private const val HOLD_MS = 850
 
 /** Node angles measured from "straight left" (0) to "straight up" (90), as in the prototype. */
 private fun HomeMode.fanAngle(): Float = when (this) {
-	HomeMode.ANIME -> 75f
+	HomeMode.ANIME -> 72f
 	HomeMode.MANGA -> 45f
-	HomeMode.NOVEL -> 15f
+	HomeMode.NOVEL -> 18f
 }
 
 /** Room kept free above the fan for the status bar and the "Switch mode" pill. */
@@ -125,11 +135,29 @@ private val FAN_TOP_ROOM = 150.dp
 private val FAN_MIN_RADIUS = 230.dp
 private val FAN_MIN_NODE_RADIUS = 150.dp
 private val FAN_EDGE_MARGIN = 16.dp
-private val FAN_CORNER = 28.dp
-private val PILL_MAX_WIDTH = 250.dp
-private val NODE_W = 76.dp
-private val NODE_H = 70.dp
+
+/** The small gap between the button and the panel's right and bottom edges, the same on both sides. */
+private val FAN_CORNER_GAP = 6.dp
+
+/** Corner rounding of the panel: at the button's corner, and at the two outer ends of the arc. */
+private val FAN_TIP_CORNER = 32.dp
+private val FAN_END_CORNER = 26.dp
+
+/** The gap between the panel's corner and the screen's right and bottom edges: barely a millimetre, as in the prototype. */
+private val FAN_SCREEN_GAP = 6.dp
+private val PILL_MAX_WIDTH = 270.dp
+private val NODE_W = 72.dp
+private val NODE_H = 68.dp
 private val FAB_SIZE = 52.dp
+
+/** The fan always floats over a black scrim, so it keeps the prototype's dark glass palette in light and dark themes. */
+private val GlassTop = Color(0xFF2E2E36)
+private val GlassBottom = Color(0xFF18181D)
+private val NodeFill = Color(0xFF2C2C30)
+private val PillFill = Color(0xFF18181C)
+private val MutedText = Color(0xFFA1A1AA)
+private val Emerald = Color(0xFF34C759)
+private val EmeraldOnWhite = Color(0xFF059669)
 
 private enum class FanEnd { TAP, PULL, HOLD }
 
@@ -146,34 +174,49 @@ private fun modeTitleRes(mode: HomeMode): Int = when (mode) {
 	HomeMode.MANGA -> R.string.ds_mode_manga
 }
 
-/** Where the fan sits: [origin] is the bottom-right corner of the usable screen, [nodeRadius] the ring the three modes are on. */
-private class FanGeometry(val origin: Offset, val radius: Float, val nodeRadius: Float)
-
-/** The navigation bar (gesture line or three buttons) at the edges of [this] window, so the fan can sit above it. */
-private fun View.navigationInsets(): Insets =
-	ViewCompat.getRootWindowInsets(this)?.getInsets(WindowInsetsCompat.Type.navigationBars()) ?: Insets.NONE
-
 /**
- * The fan is a 90-degree sector whose tip is the bottom-right corner of the screen, just above the navigation bar, and
- * whose straight edges run along the right edge and that bar. It stays compact (70% of the width).
+ * Where the fan sits: a true quarter-circle whose corner [center] is the bottom-right corner of the screen (a hair
+ * indented), exactly like the prototype. The button copy [fabCenter] is tucked into that corner, and the three modes are
+ * on a ring of [nodeRadius] around [center]. None of it depends on where the real button is on the page.
  */
-private fun Density.fanGeometry(window: Size, insets: Insets): FanGeometry {
-	val origin = Offset(window.width - insets.right, window.height - insets.bottom)
-	val radius = min(window.width * 0.7f, origin.y - FAN_TOP_ROOM.toPx()).coerceAtLeast(FAN_MIN_RADIUS.toPx())
-	return FanGeometry(origin, radius, radius * 0.8f)
+private class FanGeometry(val center: Offset, val fabCenter: Offset, val radius: Float, val nodeRadius: Float)
+
+/** The activity window behind [this] view, if any. */
+private fun View.hostWindow(): Window? {
+	var ctx = context
+	while (ctx is ContextWrapper) {
+		if (ctx is Activity) return ctx.window
+		ctx = ctx.baseContext
+	}
+	return null
 }
 
-/** The sector from the corner, with its two outer ends softly rounded. */
-private fun sectorPath(origin: Offset, r: Float, c: Float): Path {
-	val tDeg = Math.toDegrees((c / r).toDouble()).toFloat()
-	val t = Math.toRadians(tDeg.toDouble())
+private fun Density.fanGeometry(window: Size): FanGeometry {
+	val half = (FAB_SIZE / 2).toPx()
+	val gap = FAN_CORNER_GAP.toPx()
+	val edge = FAN_SCREEN_GAP.toPx()
+	// Anchored to the screen corner, not to the real button: the system navigation is hidden while the fan is open,
+	// so the panel can sit right at the edge with gesture navigation and with three buttons alike.
+	val origin = Offset(window.width - edge, window.height - edge)
+	val fab = Offset(origin.x - gap - half, origin.y - gap - half)
+	val radius = min(window.width * 0.7f, min(origin.y - FAN_TOP_ROOM.toPx(), origin.x - FAN_EDGE_MARGIN.toPx()))
+		.coerceAtLeast(FAN_MIN_RADIUS.toPx())
+	return FanGeometry(origin, fab, radius, radius * 0.84f)
+}
+
+/** The quarter-circle with soft corners: [tip] at the button's corner, [end] at the two outer ends of the arc. */
+private fun fanPath(origin: Offset, r: Float, tip: Float, end: Float): Path {
+	val tTop = Math.toRadians(Math.toDegrees((end / r).toDouble()))
+	val tDeg = Math.toDegrees((end / r).toDouble()).toFloat()
 	val rect = Rect(origin.x - r, origin.y - r, origin.x + r, origin.y + r)
+	val tipRect = Rect(origin.x - tip * 2, origin.y - tip * 2, origin.x, origin.y)
 	return Path().apply {
-		moveTo(origin.x, origin.y)
-		lineTo(origin.x, origin.y - r + c)
-		quadraticBezierTo(origin.x, origin.y - r, origin.x - r * sin(t).toFloat(), origin.y - r * cos(t).toFloat())
+		moveTo(origin.x - tip, origin.y)
+		arcTo(tipRect, 90f, -90f, false)
+		lineTo(origin.x, origin.y - r + end)
+		quadraticBezierTo(origin.x, origin.y - r, origin.x - r * sin(tTop).toFloat(), origin.y - r * cos(tTop).toFloat())
 		arcTo(rect, 270f - tDeg, -(90f - 2f * tDeg), false)
-		quadraticBezierTo(origin.x - r, origin.y, origin.x - r + c, origin.y)
+		quadraticBezierTo(origin.x - r, origin.y, origin.x - r + end, origin.y)
 		close()
 	}
 }
@@ -191,8 +234,8 @@ private fun pickMode(dx: Float, dy: Float, radiusPx: Float, nearPx: Float, deadP
 	}
 	val angle = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
 	return when {
-		angle >= 60f -> HomeMode.ANIME
-		angle >= 30f -> HomeMode.MANGA
+		angle >= 58.5f -> HomeMode.ANIME
+		angle >= 31.5f -> HomeMode.MANGA
 		else -> HomeMode.NOVEL
 	}
 }
@@ -214,7 +257,9 @@ internal fun ModeFanButton(
 	var holding by remember { mutableStateOf(false) }
 	var highlighted by remember { mutableStateOf<HomeMode?>(null) }
 	var locked by remember { mutableStateOf(false) }
-	var fabCenter by remember { mutableStateOf(Offset.Zero) }
+	// Where the real button is in the window right now, for the thumb maths. The fan itself is anchored to the
+	// screen corner and ignores it.
+	var liveCenter by remember { mutableStateOf(Offset.Zero) }
 	val currentMode by rememberUpdatedState(mode)
 	val canContinue by rememberUpdatedState(continueEnabled)
 	val setOpen by rememberUpdatedState(onFanOpenChange)
@@ -233,6 +278,24 @@ internal fun ModeFanButton(
 		highlighted = currentMode
 		haptic(HapticEffect.GESTURE_START)
 		setOpen(true)
+	}
+
+	// The system navigation (the gesture line or the three buttons) is tucked away while the fan is open, so the
+	// corner stays clean like in the prototype. A swipe from the edge still brings it back for a moment.
+	DisposableEffect(fanOpen) {
+		val controller = view.hostWindow()?.let { WindowCompat.getInsetsController(it, view) }
+		val previous = controller?.systemBarsBehavior
+		val hide = fanOpen && controller != null
+		if (hide && controller != null) {
+			controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+			controller.hide(WindowInsetsCompat.Type.navigationBars())
+		}
+		onDispose {
+			if (hide && controller != null) {
+				controller.show(WindowInsetsCompat.Type.navigationBars())
+				if (previous != null) controller.systemBarsBehavior = previous
+			}
+		}
 	}
 
 	val fanProgress by animateFloatAsState(
@@ -267,14 +330,20 @@ internal fun ModeFanButton(
 
 	Box(modifier = Modifier.padding(horizontal = 2.dp)) {
 		Surface(
-			shape = RoundedCornerShape(20.dp),
+			shape = RoundedCornerShape(16.dp),
 			color = container,
 			contentColor = content,
 			border = if (fanOpen) androidx.compose.foundation.BorderStroke(1.5.dp, cs.outline.copy(alpha = 0.5f)) else null,
 			modifier = Modifier
 				.size(FAB_SIZE)
-				.onGloballyPositioned { fabCenter = it.boundsInWindow().center }
-				.graphicsLayer { scaleX = pressScale; scaleY = pressScale }
+				.onGloballyPositioned { liveCenter = it.boundsInWindow().center }
+				// The real button steps aside while the fan is open (its copy sits in the screen corner), but it stays
+				// in the layout, so it keeps receiving the gesture and can never ghost through the scrim.
+				.graphicsLayer {
+					scaleX = pressScale
+					scaleY = pressScale
+					alpha = 1f - fanProgress.coerceIn(0f, 1f)
+				}
 				.drawBehind {
 					// Charge ring for the one-second hold, drawn just outside the button
 					if (ring.value > 0.001f) {
@@ -383,13 +452,13 @@ internal fun ModeFanButton(
 										change.consume()
 										if (!change.pressed) break
 										// Thumb position in the window, measured from the screen corner the fan grows out of
-										val g = fanGeometry(Size(view.rootView.width.toFloat(), view.rootView.height.toFloat()), view.navigationInsets())
-										val winX = fabCenter.x + (change.position.x - size.width / 2f)
-										val winY = fabCenter.y + (change.position.y - size.height / 2f)
-										val dx = g.origin.x - winX
-										val dy = g.origin.y - winY
+										val g = fanGeometry(Size(view.rootView.width.toFloat(), view.rootView.height.toFloat()))
+										val winX = liveCenter.x + (change.position.x - size.width / 2f)
+										val winY = liveCenter.y + (change.position.y - size.height / 2f)
+										val dx = g.center.x - winX
+										val dy = g.center.y - winY
 										// Ignore the stretch between the corner and the button, so a small pull never flips the highlight
-										val dead = max(deadPx, hypot(g.origin.x - fabCenter.x, g.origin.y - fabCenter.y) + 12.dp.toPx())
+										val dead = hypot(g.center.x - g.fabCenter.x, g.center.y - g.fabCenter.y) + 12.dp.toPx()
 										val picked = pickMode(dx, dy, g.nodeRadius, nearPx, dead)
 										if (picked != null && picked != highlighted) {
 											highlighted = picked
@@ -436,10 +505,8 @@ internal fun ModeFanButton(
 	if (fanOpen || fanProgress > 0.01f) {
 		ModeFanPopup(
 			progress = fanProgress,
-			fabCenter = fabCenter,
 			current = mode,
 			highlighted = highlighted ?: mode,
-			insets = view.navigationInsets(),
 			onPick = { picked ->
 				val changed = picked != currentMode
 				closeFan()
@@ -463,18 +530,15 @@ private object ZeroPosition : PopupPositionProvider {
 	) = IntOffset.Zero
 }
 
-/** The dimmed page, the quarter-circle with its three modes, the spoke, the preview pill and a copy of the button on top. */
+/** The dimmed page, the frosted quarter-circle with its three modes and a gliding spotlight, the preview pill and a copy of the button on top. */
 @Composable
 private fun ModeFanPopup(
 	progress: Float,
-	fabCenter: Offset,
 	current: HomeMode,
 	highlighted: HomeMode,
-	insets: Insets,
 	onPick: (HomeMode) -> Unit,
 	onDismiss: () -> Unit,
 ) {
-	val cs = MaterialTheme.colorScheme
 	val density = LocalDensity.current
 	val fabHalf = with(density) { (FAB_SIZE / 2).toPx() }
 	val nodeHalfW = with(density) { (NODE_W / 2).toPx() }
@@ -486,10 +550,12 @@ private fun ModeFanPopup(
 		animationSpec = spring(dampingRatio = 0.6f, stiffness = 520f),
 		label = "spoke",
 	)
-	val sectorFill = cs.surfaceContainerHigh
-	val sectorEdge = cs.outline.copy(alpha = 0.4f)
-	val ringColor = cs.onSurface.copy(alpha = 0.16f)
-	val spokeColor = cs.primary
+	val glow by rememberInfiniteTransition(label = "fanGlow").animateFloat(
+		initialValue = 0.65f,
+		targetValue = 1f,
+		animationSpec = infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+		label = "fanGlowAlpha",
+	)
 
 	Popup(
 		popupPositionProvider = ZeroPosition,
@@ -498,20 +564,17 @@ private fun ModeFanPopup(
 		BoxWithConstraints(Modifier.fillMaxSize()) {
 			val windowW = constraints.maxWidth.toFloat()
 			val windowH = constraints.maxHeight.toFloat()
-			val g = with(density) { fanGeometry(Size(windowW, windowH), insets) }
-			val cornerPx = with(density) { FAN_CORNER.toPx() }
-			val marginPx = with(density) { FAN_EDGE_MARGIN.toPx() }
+			val g = with(density) { fanGeometry(Size(windowW, windowH)) }
 			val pillWidth: Dp = min(PILL_MAX_WIDTH.value, maxWidth.value - FAN_EDGE_MARGIN.value * 2).dp
-			val pillWidthPx = with(density) { pillWidth.toPx() }
-			// The pill sits clear above the top of the fan, against the right margin
-			val pillX = (windowW - pillWidthPx - marginPx).coerceAtLeast(marginPx)
-			val pillBottom = g.origin.y - g.radius - with(density) { 14.dp.toPx() }
+			// The pill sits clear above the top of the fan, at the left like in the prototype
+			val pillX = with(density) { (FAN_EDGE_MARGIN + 2.dp).toPx() }
+			val pillBottom = g.center.y - g.radius - with(density) { 14.dp.toPx() }
 
 			Box(
 				Modifier
 					.fillMaxSize()
 					.graphicsLayer { this.alpha = alpha }
-					.background(Color.Black.copy(alpha = 0.66f))
+					.background(Color.Black.copy(alpha = 0.74f))
 					.clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
 			)
 			// The fan blooms out of the screen corner
@@ -522,45 +585,63 @@ private fun ModeFanPopup(
 						scaleX = scale
 						scaleY = scale
 						this.alpha = alpha
-						transformOrigin = TransformOrigin(1f, 1f)
+						transformOrigin = TransformOrigin(g.center.x / windowW, g.center.y / windowH)
 					},
 			) {
 				Canvas(Modifier.fillMaxSize()) {
-					val origin = g.origin
-					val path = sectorPath(origin, g.radius, cornerPx)
+					val c = g.center
+					val path = fanPath(c, g.radius, FAN_TIP_CORNER.toPx(), FAN_END_CORNER.toPx())
+					val reach = g.radius
+					// Frosted glass body: a bright corner fading into smoky glass, as in the prototype
 					drawPath(
 						path = path,
 						brush = Brush.radialGradient(
-							0f to sectorFill.copy(alpha = 0.98f),
-							1f to sectorFill.copy(alpha = 0.92f),
-							center = origin,
-							radius = g.radius,
+							0f to Color.White.copy(alpha = 0.14f),
+							0.44f to GlassTop.copy(alpha = 0.68f),
+							1f to GlassBottom.copy(alpha = 0.78f),
+							center = c,
+							radius = reach,
 						),
 					)
-					drawPath(path = path, color = sectorEdge, style = Stroke(1.5.dp.toPx()))
-					val dash = PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 8.dp.toPx()))
-					listOf(g.nodeRadius, g.nodeRadius * 0.55f).forEach { rr ->
-						drawArc(
-							color = ringColor, startAngle = 180f, sweepAngle = 90f, useCenter = false,
-							topLeft = Offset(origin.x - rr, origin.y - rr), size = Size(rr * 2, rr * 2),
-							style = Stroke(1.dp.toPx(), pathEffect = dash),
+					clipPath(path) {
+						// Ambient glow breathing out of the button corner
+						drawRect(
+							brush = Brush.radialGradient(
+								0f to Color.White.copy(alpha = 0.18f * glow),
+								0.42f to Color(0xFFA78BFA).copy(alpha = 0.08f * glow),
+								1f to Color.Transparent,
+								center = c,
+								radius = reach,
+							),
+						)
+						// Spotlight beam that glides (with a little spring) to the mode under the thumb
+						val f = (180f + spoke) / 360f
+						drawRect(
+							brush = Brush.sweepGradient(
+								(f - 0.075f) to Color.Transparent,
+								(f - 0.04f) to Color.White.copy(alpha = 0.06f),
+								f to Color.White.copy(alpha = 0.34f),
+								(f + 0.04f) to Color.White.copy(alpha = 0.06f),
+								(f + 0.075f) to Color.Transparent,
+								center = c,
+							),
 						)
 					}
-					// The glowing spoke from the button to the highlighted node, stopping short of the node
-					val a = Math.toRadians(spoke.toDouble())
-					val node = Offset(origin.x - g.nodeRadius * cos(a).toFloat(), origin.y - g.nodeRadius * sin(a).toFloat())
-					val len = hypot(node.x - fabCenter.x, node.y - fabCenter.y).coerceAtLeast(1f)
-					val stop = 46.dp.toPx()
-					val end = Offset(node.x - (node.x - fabCenter.x) / len * stop, node.y - (node.y - fabCenter.y) / len * stop)
-					drawLine(
-						brush = Brush.linearGradient(listOf(spokeColor.copy(alpha = 0.95f), spokeColor.copy(alpha = 0.12f)), fabCenter, end),
-						start = fabCenter, end = end, strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round,
+					// Glass rim, brighter on the upper-left edge
+					drawPath(
+						path = path,
+						brush = Brush.linearGradient(
+							listOf(Color.White.copy(alpha = 0.30f), Color.White.copy(alpha = 0.10f)),
+							start = Offset(c.x - reach, c.y - reach),
+							end = c,
+						),
+						style = Stroke(1.5.dp.toPx()),
 					)
 				}
 				HomeMode.entries.forEach { m ->
 					val a = Math.toRadians(m.fanAngle().toDouble())
-					val cx = g.origin.x - g.nodeRadius * cos(a).toFloat()
-					val cy = g.origin.y - g.nodeRadius * sin(a).toFloat()
+					val cx = g.center.x - g.nodeRadius * cos(a).toFloat()
+					val cy = g.center.y - g.nodeRadius * sin(a).toFloat()
 					FanNode(
 						mode = m,
 						selected = m == highlighted,
@@ -573,8 +654,9 @@ private fun ModeFanPopup(
 			// Preview pill above the fan: what the thumb is on right now. It lives outside the fan so it can never overlap a node.
 			Surface(
 				shape = RoundedCornerShape(20.dp),
-				color = cs.surfaceContainerHigh.copy(alpha = 0.97f),
-				shadowElevation = 6.dp,
+				color = PillFill.copy(alpha = 0.96f),
+				border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.16f)),
+				shadowElevation = 12.dp,
 				modifier = Modifier
 					.align(Alignment.BottomStart)
 					.offset { IntOffset(pillX.roundToInt(), (pillBottom - windowH).roundToInt()) }
@@ -590,7 +672,7 @@ private fun ModeFanPopup(
 						fontSize = 10.sp,
 						fontWeight = FontWeight.Bold,
 						letterSpacing = 1.sp,
-						color = cs.onSurfaceVariant,
+						color = MutedText,
 					)
 					AnimatedContent(
 						targetState = highlighted,
@@ -602,37 +684,46 @@ private fun ModeFanPopup(
 						modifier = Modifier.padding(top = 4.dp),
 					) { m ->
 						Row(verticalAlignment = Alignment.CenterVertically) {
-							Icon(painterResource(modeIconRes(m)), null, tint = cs.primary, modifier = Modifier.size(20.dp))
+							Icon(painterResource(modeIconRes(m)), null, tint = Color.White, modifier = Modifier.size(20.dp))
 							Text(
 								text = stringResource(modeTitleRes(m)),
 								fontSize = 18.sp,
 								fontWeight = FontWeight.ExtraBold,
-								color = cs.onSurface,
+								color = Color.White,
 								modifier = Modifier.padding(start = 8.dp),
 							)
 						}
 					}
 					Text(
-						text = stringResource(R.string.ds_mode_fan_hint),
+						text = stringResource(R.string.ds_mode_fan_hint, (HOLD_MS / 1000f).toString()),
 						fontSize = 11.sp,
 						lineHeight = 15.sp,
-						color = cs.onSurfaceVariant,
+						color = MutedText,
 						modifier = Modifier.padding(top = 6.dp),
 					)
 				}
 			}
+			// The soft halo around the button, as in the prototype
+			val haloPad = with(density) { 6.dp.toPx() }
+			Box(
+				Modifier
+					.offset { IntOffset((g.fabCenter.x - fabHalf - haloPad).roundToInt(), (g.fabCenter.y - fabHalf - haloPad).roundToInt()) }
+					.size(FAB_SIZE + 12.dp)
+					.graphicsLayer { this.alpha = alpha }
+					.background(Color(0xFFE5E5EA).copy(alpha = 0.08f), RoundedCornerShape(22.dp)),
+			)
 			// A copy of the button on top of the dimmed page, previewing the mode under the thumb
 			Surface(
-				shape = RoundedCornerShape(20.dp),
-				color = cs.surfaceContainerHighest,
-				border = androidx.compose.foundation.BorderStroke(1.5.dp, cs.outline.copy(alpha = 0.5f)),
+				shape = RoundedCornerShape(16.dp),
+				color = Color(0xFF1C1C20),
+				border = androidx.compose.foundation.BorderStroke(1.5.dp, Color.White.copy(alpha = 0.22f)),
 				modifier = Modifier
-					.offset { IntOffset((fabCenter.x - fabHalf).roundToInt(), (fabCenter.y - fabHalf).roundToInt()) }
+					.offset { IntOffset((g.fabCenter.x - fabHalf).roundToInt(), (g.fabCenter.y - fabHalf).roundToInt()) }
 					.size(FAB_SIZE)
 					.graphicsLayer { this.alpha = alpha },
 			) {
 				Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-					Icon(painterResource(modeIconRes(highlighted)), null, tint = cs.onSurface, modifier = Modifier.size(24.dp))
+					Icon(painterResource(modeIconRes(highlighted)), null, tint = Color(0xFFE5E5EA), modifier = Modifier.size(24.dp))
 				}
 			}
 		}
@@ -647,19 +738,18 @@ private fun FanNode(
 	modifier: Modifier,
 	onClick: () -> Unit,
 ) {
-	val cs = MaterialTheme.colorScheme
 	val scale by animateFloatAsState(
 		targetValue = if (selected) 1.16f else 1f,
 		animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
 		label = "nodeScale",
 	)
 	val container by animateColorAsState(
-		targetValue = if (selected) cs.primary else cs.surfaceContainerHighest,
+		targetValue = if (selected) Color.White else NodeFill.copy(alpha = 0.82f),
 		animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
 		label = "nodeContainer",
 	)
 	val content by animateColorAsState(
-		targetValue = if (selected) cs.onPrimary else cs.onSurface,
+		targetValue = if (selected) Color.Black else Color(0xFFF5F5F7),
 		animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
 		label = "nodeContent",
 	)
@@ -668,6 +758,10 @@ private fun FanNode(
 		color = container,
 		contentColor = content,
 		shadowElevation = if (selected) 10.dp else 4.dp,
+		border = androidx.compose.foundation.BorderStroke(
+			1.5.dp,
+			if (selected) Color.White else Color.White.copy(alpha = 0.24f),
+		),
 		modifier = modifier
 			.size(NODE_W, NODE_H)
 			.graphicsLayer { scaleX = scale; scaleY = scale }
@@ -694,7 +788,7 @@ private fun FanNode(
 						.align(Alignment.TopEnd)
 						.padding(7.dp)
 						.size(6.dp)
-						.background(if (selected) cs.onPrimary else cs.tertiary, RoundedCornerShape(50)),
+						.background(if (selected) EmeraldOnWhite else Emerald, RoundedCornerShape(50)),
 				)
 			}
 		}

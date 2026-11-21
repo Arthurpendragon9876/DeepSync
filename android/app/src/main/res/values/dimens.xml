@@ -132,4 +132,8 @@
 	<dimen name="menu_popup_selector_inset_horizontal">4dp</dimen>
 	<dimen name="menu_popup_selector_inset_vertical">4dp</dimen>
 	<dimen name="menu_icon_text_spacing_extra">10dp</dimen>
+	<dimen name="nav_tab_slide_distance">24dp</dimen>
+	<dimen name="nav_tab_slide_distance_negative">-24dp</dimen>
+	<dimen name="nav_tab_exit_distance">18dp</dimen>
+	<dimen name="nav_tab_exit_distance_negative">-18dp</dimen>
 </resources>

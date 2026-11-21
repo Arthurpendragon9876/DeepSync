@@ -288,7 +288,7 @@ private fun SourceMangaRow(
 				},
 			)
 			.combinedClickable(onClick = onClick, onLongClick = onLongClick)
-			.padding(horizontal = 8.dp, vertical = 6.dp),
+			.padding(horizontal = 8.dp, vertical = 8.dp),
 		verticalAlignment = Alignment.CenterVertically,
 	) {
 		Box(

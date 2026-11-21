@@ -163,7 +163,7 @@ internal fun ReadFab(
 						.weight(1f)
 						.padding(start = 22.dp, end = if (hasMenu) 14.dp else 24.dp),
 					verticalAlignment = Alignment.CenterVertically,
-					horizontalArrangement = Arrangement.spacedBy(10.dp),
+					horizontalArrangement = Arrangement.spacedBy(12.dp),
 				) {
 					Icon(
 						painter = painterResource(R.drawable.ic_play),
@@ -243,9 +243,9 @@ internal fun FabMenuRow(
 		modifier = Modifier
 			.fillMaxWidth()
 			.clickable(onClick = onClick)
-			.padding(horizontal = 20.dp, vertical = 14.dp),
+			.padding(horizontal = 20.dp, vertical = 12.dp),
 		verticalAlignment = Alignment.CenterVertically,
-		horizontalArrangement = Arrangement.spacedBy(14.dp),
+		horizontalArrangement = Arrangement.spacedBy(12.dp),
 	) {
 		Icon(
 			painter = painterResource(iconRes),

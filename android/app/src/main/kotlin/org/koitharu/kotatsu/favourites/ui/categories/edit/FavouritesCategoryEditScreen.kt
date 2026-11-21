@@ -72,7 +72,7 @@ fun FavouritesCategoryEditScreen(
 			label = { Text(stringResource(R.string.name)) },
 			singleLine = true,
 			enabled = enabled,
-			shape = RoundedCornerShape(20.dp),
+			shape = RoundedCornerShape(24.dp),
 			keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
 		)
 		Spacer(Modifier.height(16.dp))

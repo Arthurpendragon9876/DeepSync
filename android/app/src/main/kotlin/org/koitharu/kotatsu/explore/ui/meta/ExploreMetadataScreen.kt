@@ -134,7 +134,7 @@ private fun ExploreMetadataContent(state: ExploreMetaState, imageLoader: ImageLo
 @Composable
 private fun UnavailableCard(actions: ExploreMetaActions) {
 	Surface(
-		shape = RoundedCornerShape(20.dp),
+		shape = RoundedCornerShape(24.dp),
 		color = MaterialTheme.colorScheme.surfaceContainerHigh,
 		modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
 	) {
@@ -165,7 +165,7 @@ internal fun DiscoverFilters.activeCount(): Int = include.size + exclude.size + 
 private fun ActiveFilters(filters: DiscoverFilters, actions: ExploreMetaActions) {
 	Column(
 		modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-		verticalArrangement = Arrangement.spacedBy(6.dp),
+		verticalArrangement = Arrangement.spacedBy(8.dp),
 	) {
 		Row(verticalAlignment = Alignment.CenterVertically) {
 			val parts = buildList {
@@ -259,13 +259,13 @@ internal fun FiltersSheet(
 	) {
 		Column(
 			modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 32.dp),
-			verticalArrangement = Arrangement.spacedBy(10.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp),
 		) {
 			Text("Filters", style = MaterialTheme.typography.titleLarge)
 			// The options scroll; Reset / Apply stay pinned below so they can never be pushed off screen
 			Column(
 				modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
-				verticalArrangement = Arrangement.spacedBy(10.dp),
+				verticalArrangement = Arrangement.spacedBy(12.dp),
 			) {
 
 			SheetLabel("Sort by")
@@ -485,13 +485,13 @@ private fun ListingBody(
 		)
 
 		isListView -> Column(
-			verticalArrangement = Arrangement.spacedBy(10.dp),
+			verticalArrangement = Arrangement.spacedBy(12.dp),
 			modifier = Modifier.padding(horizontal = 4.dp),
 		) {
 			listing.items.forEach { title -> ListRowCard(title, imageLoader, onOpen) }
 		}
 
-		else -> Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+		else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
 			listing.items.chunked(COLUMNS).forEach { row ->
 				Row(
 					modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
@@ -552,7 +552,7 @@ private fun PosterCard(title: MetadataTitle, imageLoader: ImageLoader, onOpen: (
 			fontWeight = FontWeight.SemiBold,
 			maxLines = 2,
 			overflow = TextOverflow.Ellipsis,
-			modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp),
+			modifier = Modifier.padding(top = 8.dp, start = 2.dp, end = 2.dp),
 		)
 		val meta = listOfNotNull(title.score?.let { "\u2605 %.1f".format(it) }, title.year?.toString()).joinToString(" \u00B7 ")
 		if (meta.isNotEmpty()) {
@@ -576,7 +576,7 @@ private fun Badge(text: String, modifier: Modifier = Modifier) {
 		modifier = modifier
 			.clip(RoundedCornerShape(8.dp))
 			.background(Color.Black.copy(alpha = 0.6f))
-			.padding(horizontal = 6.dp, vertical = 2.dp),
+			.padding(horizontal = 8.dp, vertical = 2.dp),
 	)
 }
 
@@ -595,9 +595,9 @@ private fun formatLabel(title: MetadataTitle, mode: HomeMode): String? {
 @Composable
 private fun ListRowCard(title: MetadataTitle, imageLoader: ImageLoader, onOpen: (MetadataTitle) -> Unit) {
 	Surface(
-		shape = RoundedCornerShape(18.dp),
+		shape = RoundedCornerShape(16.dp),
 		color = MaterialTheme.colorScheme.surfaceContainerHigh,
-		modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).clickable { onOpen(title) },
+		modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onOpen(title) },
 	) {
 		Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
 			AsyncImage(
@@ -610,7 +610,7 @@ private fun ListRowCard(title: MetadataTitle, imageLoader: ImageLoader, onOpen: 
 					.aspectRatio(2f / 3f)
 					.clip(RoundedCornerShape(12.dp)),
 			)
-			Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+			Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
 				Text(title.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
 				val line = listOfNotNull(
 					title.score?.let { "\u2605 %.1f".format(it) },
@@ -668,7 +668,7 @@ private fun SamplesSection(state: ExploreMetaState, imageLoader: ImageLoader, ac
 	}
 	LazyRow(
 		contentPadding = PaddingValues(horizontal = 4.dp),
-		horizontalArrangement = Arrangement.spacedBy(10.dp),
+		horizontalArrangement = Arrangement.spacedBy(12.dp),
 	) {
 		items(state.samples, key = { it.id }) { title ->
 			SampleCard(title, imageLoader, actions)
@@ -679,12 +679,12 @@ private fun SamplesSection(state: ExploreMetaState, imageLoader: ImageLoader, ac
 @Composable
 private fun SampleCard(title: MetadataTitle, imageLoader: ImageLoader, actions: ExploreMetaActions) {
 	Surface(
-		shape = RoundedCornerShape(20.dp),
+		shape = RoundedCornerShape(24.dp),
 		color = MaterialTheme.colorScheme.surfaceContainerHigh,
 		modifier = Modifier.width(300.dp),
 	) {
 		Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-			Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+			Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
 				AsyncImage(
 					model = title.coverUrl,
 					imageLoader = imageLoader,
