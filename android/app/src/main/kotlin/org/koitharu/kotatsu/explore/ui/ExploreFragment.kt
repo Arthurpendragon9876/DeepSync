@@ -278,15 +278,21 @@ class ExploreFragment :
 		}
 		showExploreTab(binding, metaViewModel.selectedTab.value)
 		metaViewModel.onOpen.observeEvent(viewLifecycleOwner, ::onOpenMetadataTarget)
-		// Next / Previous page swaps the posters but the scroller stays where the pager button was, at the
-		// bottom. Jump back to the top so the new page is seen from its first row (instant: the list shrinks
-		// to a spinner while loading, which a smooth scroll would fight).
+		// Next / Previous page keeps the old posters dimmed under a spinner while the new page loads. Jump back to
+		// the top once it has arrived (not when the button is tapped) so the new page is seen from its first row.
+		// Instant, not smooth: the list changes height as the posters swap, which a smooth scroll would fight.
+		var shownResultsPage = 1
+		var shownForYouPage = 1
 		metaViewModel.state
-			.map { it.results.page to it.forYou.page }
+			.map { Triple(it.results.isLoading || it.forYou.isLoading, it.results.page, it.forYou.page) }
 			.distinctUntilChanged()
-			.drop(1)
-			.observe(viewLifecycleOwner) {
-				viewBinding?.scrollView?.scrollTo(0, 0)
+			.observe(viewLifecycleOwner) { (loading, resultsPage, forYouPage) ->
+				if (loading) return@observe
+				if (resultsPage != shownResultsPage || forYouPage != shownForYouPage) {
+					viewBinding?.scrollView?.scrollTo(0, 0)
+				}
+				shownResultsPage = resultsPage
+				shownForYouPage = forYouPage
 			}
 		// The content mode can change from the nav bar while this tab is open.
 		viewModel.modeFlow.observe(viewLifecycleOwner) {
@@ -318,8 +324,31 @@ class ExploreFragment :
 		}
 	}
 
+	override fun onStart() {
+		super.onStart()
+		if (!isHidden) syncMainAppBar()
+	}
+
+	/** Switching tabs hides this fragment without stopping it, so the bar comes back (or goes) here. */
+	override fun onHiddenChanged(hidden: Boolean) {
+		super.onHiddenChanged(hidden)
+		syncMainAppBar()
+	}
+
+	override fun onStop() {
+		// Settings / Updates open on top while Explore is still current: give the bar back so it does not flash later
+		(activity as? org.koitharu.kotatsu.main.ui.MainActivity)?.syncAppBarVisibility(forceShow = true)
+		super.onStop()
+	}
+
+	/** Explore draws its own header (like Home), so the activity's top bar steps aside while it is shown. */
+	private fun syncMainAppBar() {
+		(activity as? org.koitharu.kotatsu.main.ui.MainActivity)?.syncAppBarVisibility()
+	}
+
 	override fun onResume() {
 		super.onResume()
+		if (!isHidden) syncMainAppBar()
 		// The metadata provider is chosen in Home settings; re-read it when coming back from there.
 		if (metaViewModel.selectedTab.value == 1) metaViewModel.sync()
 	}
@@ -329,7 +358,8 @@ class ExploreFragment :
 		val basePadding = v.resources.getDimensionPixelOffset(R.dimen.list_spacing_normal)
 		viewBinding?.layoutContent?.setPadding(
 			/* left = */ barsInsets.left + basePadding,
-			/* top = */ 0,
+			// The app bar that used to carry the status bar inset is collapsed on this tab, so the inset is ours
+			/* top = */ barsInsets.top,
 			/* right = */ barsInsets.right + basePadding,
 			/* bottom = */ barsInsets.bottom + basePadding,
 		)

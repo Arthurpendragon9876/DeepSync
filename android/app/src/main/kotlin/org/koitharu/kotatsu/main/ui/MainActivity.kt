@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewGroup.MarginLayoutParams
 import android.widget.LinearLayout
 import androidx.activity.viewModels
@@ -261,6 +262,26 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), AppBarOwner, BottomNav
 		}
 	}
 
+	/**
+	 * Home and Explore draw their own header, so the activity's top bar collapses while either is shown. A hidden
+	 * (GONE) bar left the page below it offset by the bar's old height, so it is kept as a zero-height, invisible
+	 * bar instead. Decided from the tab that is actually shown, so the two tabs handing over cannot undo each other.
+	 */
+	fun syncAppBarVisibility(top: Fragment? = navigationDelegate.primaryFragment, forceShow: Boolean = false) {
+		val collapse = !forceShow && (top is HomeFragment || top is ExploreFragment)
+		val appBar = viewBinding.appbar
+		if (collapse) {
+			if (appBar.visibility == View.INVISIBLE && appBar.layoutParams.height == 0) return
+			appBar.setExpanded(true, false)
+			appBar.updateLayoutParams { height = 0 }
+			appBar.visibility = View.INVISIBLE
+		} else {
+			if (appBar.visibility == View.VISIBLE && appBar.layoutParams.height == ViewGroup.LayoutParams.WRAP_CONTENT) return
+			appBar.updateLayoutParams { height = ViewGroup.LayoutParams.WRAP_CONTENT }
+			appBar.visibility = View.VISIBLE
+		}
+	}
+
 	/** Opens the global search; used by Explore's header search icon. */
 	fun openSearch() {
 		if (!viewBinding.searchView.isShowing) {
@@ -474,6 +495,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), AppBarOwner, BottomNav
 		// Explore draws its own single-row header (feed pill, search, filters, preferences), so the
 		// global gear / search field / overflow row is hidden there instead of stacking a second row.
 		viewBinding.layoutSearch.isVisible = topFragment !is ExploreFragment
+		syncAppBarVisibility(topFragment)
 		if (topFragment is FavouritesContainerFragment) {
 			fadingAppbarMediator.bind()
 			topFragment.attachTabsToAppBar()

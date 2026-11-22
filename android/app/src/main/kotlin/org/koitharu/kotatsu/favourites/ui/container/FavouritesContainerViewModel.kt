@@ -44,9 +44,11 @@ class FavouritesContainerViewModel @Inject constructor(
 	private val modeCategoriesFlow = combine(
 		categoriesStateFlow.filterNotNull(),
 		settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
-	) { list, mode -> list to mode }.flatMapLatest { (list, mode) ->
-		if (list.isEmpty()) {
-			flowOf(emptyList())
+		settings.observeAsFlow(AppSettings.KEY_SHOW_EMPTY_MODE_CATEGORIES) { isShowEmptyModeCategories },
+	) { list, mode, showAllModes -> Triple(list, mode, showAllModes) }.flatMapLatest { (list, mode, showAllModes) ->
+		if (list.isEmpty() || showAllModes) {
+			// Option on: never hide a category just because it has nothing in the current mode.
+			flowOf(list)
 		} else {
 			combine(
 				list.map { category ->

@@ -54,6 +54,8 @@ data class ExploreQuickPrefs(
 	val discoverDefault: Boolean = true,
 	val autoUpdateExtensions: Boolean = false,
 	val hideAdult: Boolean = false,
+	/** True when adult content is allowed at all (global NSFW switch on and Explore's "hide adult" off). */
+	val adultAllowed: Boolean = false,
 	val metadataFromTracker: Boolean = true,
 	val provider: HomeMetadata = HomeMetadata.SOURCES,
 	/** Trackers that can serve the current mode, for the provider chips. */
@@ -351,6 +353,7 @@ class ExploreMetadataViewModel @Inject constructor(
 			discoverDefault = settings.isExploreDiscoverDefault,
 			autoUpdateExtensions = settings.isAutoUpdateExtensionsEnabled,
 			hideAdult = settings.isHomeHideNsfw,
+			adultAllowed = !hideAdult(),
 			metadataFromTracker = settings.isMetadataFromTracker,
 			provider = settings.homeMetadataProvider,
 			providers = HomeMetadata.values().filter { it != HomeMetadata.SOURCES && repository.supports(it, mode) },

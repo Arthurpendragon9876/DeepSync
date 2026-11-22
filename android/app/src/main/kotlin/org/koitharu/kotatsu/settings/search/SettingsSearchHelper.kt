@@ -86,6 +86,7 @@ class SettingsSearchHelper @Inject constructor(
 				addItem(AppSettings.KEY_LIST_MODE, R.string.list_mode, breadcrumbs = crumbs, fragmentClass = AppearanceSettingsFragment::class.java, keywordArrayRes = intArrayOf(R.array.list_modes))
 				addItem(AppSettings.KEY_GRID_SIZE, R.string.grid_size, breadcrumbs = crumbs, fragmentClass = AppearanceSettingsFragment::class.java)
 				addItem(AppSettings.KEY_QUICK_FILTER, R.string.show_quick_filters, R.string.show_quick_filters_summary, crumbs, AppearanceSettingsFragment::class.java)
+				addItem(AppSettings.KEY_SHOW_EMPTY_MODE_CATEGORIES, R.string.show_empty_mode_categories, R.string.show_empty_mode_categories_summary, crumbs, AppearanceSettingsFragment::class.java)
 				addItem(AppSettings.KEY_LIST_CHECKPOINT, R.string.list_checkpoint_settings, R.string.list_checkpoint_settings_summary, crumbs, AppearanceSettingsFragment::class.java)
 				addItem(AppSettings.KEY_PROGRESS_INDICATORS, R.string.show_reading_indicators, breadcrumbs = crumbs, fragmentClass = AppearanceSettingsFragment::class.java)
 				addItem(AppSettings.KEY_MANGA_LIST_BADGES, R.string.badges_in_lists, breadcrumbs = crumbs, fragmentClass = AppearanceSettingsFragment::class.java, keywordArrayRes = intArrayOf(R.array.list_badges))

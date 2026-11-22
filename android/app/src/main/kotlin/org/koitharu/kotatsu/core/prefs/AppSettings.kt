@@ -571,6 +571,11 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		get() = prefs.getBoolean(KEY_ALL_FAVOURITES_VISIBLE, true)
 		set(value) = prefs.edit { putBoolean(KEY_ALL_FAVOURITES_VISIBLE, value) }
 
+	/** When true, favourite categories stay visible in every mode (Manga/Anime/Novel) even if empty there. */
+	var isShowEmptyModeCategories: Boolean
+		get() = prefs.getBoolean(KEY_SHOW_EMPTY_MODE_CATEGORIES, false)
+		set(value) = prefs.edit { putBoolean(KEY_SHOW_EMPTY_MODE_CATEGORIES, value) }
+
 	val isTrackerEnabled: Boolean
 		get() = prefs.getBoolean(KEY_TRACKER_ENABLED, true)
 
@@ -1785,6 +1790,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_DOWNLOADS_METERED_NETWORK = "downloads_metered_network"
 		const val KEY_DOWNLOADS_FORMAT = "downloads_format"
 		const val KEY_ALL_FAVOURITES_VISIBLE = "all_favourites_visible"
+		const val KEY_SHOW_EMPTY_MODE_CATEGORIES = "show_empty_mode_categories"
 		const val KEY_DOH = "doh"
 		const val KEY_MIHON_USER_AGENT = "mihon_user_agent"
 		const val KEY_EXIT_CONFIRM = "exit_confirm"

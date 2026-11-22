@@ -95,7 +95,8 @@ fun ExploreHeader(
 	var showFilters by remember { mutableStateOf(false) }
 	var showQuickPrefs by remember { mutableStateOf(false) }
 	Column(
-		modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 4.dp),
+		// 6dp on top mirrors Home's header row, so the two tabs' headers sit at the same height
+		modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 4.dp),
 		verticalArrangement = Arrangement.spacedBy(12.dp),
 	) {
 		Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -125,6 +126,7 @@ fun ExploreHeader(
 			mode = state.mode,
 			provider = state.provider,
 			current = state.filters,
+			adultAllowed = prefs.adultAllowed,
 			onApply = {
 				showFilters = false
 				actions.onFilters(it)
@@ -165,7 +167,8 @@ private fun FeedPill(feed: ExploreFeed, tab: Int, sources: List<ExploreSourceEnt
 		Surface(
 			onClick = { expanded = true },
 			shape = CircleShape,
-			color = MaterialTheme.colorScheme.surfaceContainerHigh,
+			// No fill: the pill reads as part of the page, like the "ANIME" pill on Home
+			color = Color.Transparent,
 		) {
 			Row(
 				Modifier.padding(start = 16.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),

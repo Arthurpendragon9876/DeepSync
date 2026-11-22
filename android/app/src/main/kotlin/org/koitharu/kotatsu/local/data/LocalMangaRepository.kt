@@ -273,6 +273,14 @@ class LocalMangaRepository @Inject constructor(
 		}
 	}
 
+	/**
+	 * Cheap "has anything changed on disk" token: each readable storage dir with its last-modified time. It changes
+	 * when the storage folder is switched (e.g. to another app's download folder) or a title folder is added or
+	 * removed, which is when the local index has to be rebuilt.
+	 */
+	suspend fun getStorageFingerprint(): String = storageManager.getReadableDirs()
+		.joinToString("|") { "${it.absolutePath}:${it.lastModified()}" }
+
 	private suspend fun getRawList(): ArrayList<LocalManga> = getRawListAsFlow().toCollection(ArrayList())
 
 	private suspend fun getAllFiles() = storageManager.getReadableDirs()

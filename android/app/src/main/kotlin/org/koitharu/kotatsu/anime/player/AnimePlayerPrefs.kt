@@ -28,6 +28,20 @@ object AnimePlayerPrefs {
 	/** Length of the skip pill ("+85 s"), in seconds. */
 	const val KEY_SKIP_SECONDS = "anime_player_skip_seconds"
 
+	/** Which control layout the built-in player draws; one of [STYLE_VALUES]. */
+	const val KEY_PLAYER_STYLE = "anime_player_style"
+
+	/** Yugen's own layout: big centre transport, skip pill, lock / rotate / speed row. The default. */
+	const val STYLE_YUGEN = "yugen"
+
+	/** Kototoro's layout: title bar on top, play + seek bar + time and a row of small pills underneath. */
+	const val STYLE_KOTOTORO = "kototoro"
+
+	/** Simple modern layout: back 10 s / play / forward 10 s in the centre, a red seek bar, captioned actions below. */
+	const val STYLE_MODERN = "modern"
+
+	val STYLE_VALUES = listOf(STYLE_YUGEN, STYLE_KOTOTORO, STYLE_MODERN)
+
 	// Subtitle look, applied to the player's subtitle view; each holds one of the keys in [SUBTITLE_FONTS] etc.
 	const val KEY_SUB_FONT = "anime_player_sub_font"
 	const val KEY_SUB_SIZE = "anime_player_sub_size"
@@ -128,6 +142,10 @@ object AnimePlayerPrefs {
 
 	private fun prefs(context: Context): SharedPreferences =
 		PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
+
+	/** The saved style; anything unknown falls back to Yugen's own. */
+	fun playerStyle(context: Context): String =
+		prefs(context).getString(KEY_PLAYER_STYLE, STYLE_YUGEN)?.takeIf { it in STYLE_VALUES } ?: STYLE_YUGEN
 
 	fun isDirectLandscape(context: Context): Boolean = prefs(context).getBoolean(KEY_DIRECT_LANDSCAPE, false)
 

@@ -188,7 +188,8 @@ class HistoryListViewModel @Inject constructor(
 		isPaginationReady.set(false)
 		// The mode filter has to run before the page limit, or a page could end up (nearly) empty.
 		repository.observeAllWithHistory(order, filters, Int.MAX_VALUE).map { list ->
-			list.filter { it.manga.source.contentMode == mode }.take(limit)
+			// The "On device" filter returns downloaded copies, already filtered by their original source's mode
+			if (ListFilterOption.Downloaded in filters) list.take(limit) else list.filter { it.manga.source.contentMode == mode }.take(limit)
 		}
 	}.flattenLatest()
 

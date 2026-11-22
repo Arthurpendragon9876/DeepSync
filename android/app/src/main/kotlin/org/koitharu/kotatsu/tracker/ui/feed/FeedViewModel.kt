@@ -26,6 +26,7 @@ import org.koitharu.kotatsu.core.util.ext.MutableEventFlow
 import org.koitharu.kotatsu.core.util.ext.groupByDateBucket
 import org.koitharu.kotatsu.core.util.ext.call
 import org.koitharu.kotatsu.history.data.HistoryRepository
+import org.koitharu.kotatsu.home.ui.model.HomeMode
 import org.koitharu.kotatsu.list.domain.ListFilterOption
 import org.koitharu.kotatsu.list.domain.MangaListMapper
 import org.koitharu.kotatsu.list.domain.QuickFilterListener
@@ -81,14 +82,20 @@ class FeedViewModel @Inject constructor(
 
 	@Suppress("USELESS_CAST")
 	private val baseContent = combine(
-		combine(limit, quickFilter.appliedOptions.combineWithSettings(), ::Pair)
-			.flatMapLatest { repository.observeTrackingLog(it.first, it.second) },
+		// Every log row (the table is trimmed to a small fixed size): the mode filter and the page limit are
+		// applied below, in that order. Limiting in SQL first let a run of manga updates push every anime
+		// update out of the first page, and with nothing to scroll the next page was never requested.
+		quickFilter.appliedOptions.combineWithSettings()
+			.flatMapLatest { repository.observeTrackingLog(0, it) },
 		combine(
 			settings.observeAsFlow(AppSettings.KEY_TIPS_CLOSED) { isTipEnabled(TIP_GESTURES) },
 			isSwipeGesturesEnabled,
 		) { tip, swipe -> tip && swipe },
 		historyRepository.observeAll(),
-	) { list, isTipVisible, _ ->
+		// Observed so that switching Manga / Anime / Novel re-filters the feed at once
+		settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
+		limit,
+	) { list, isTipVisible, _, mode, pageLimit ->
 		// Read here rather than combined in: the query above already re-runs on every filter change, and
 		// a second input would render the chips one frame ahead of their results.
 		val filters = quickFilter.appliedOptions.value
@@ -101,7 +108,7 @@ class FeedViewModel @Inject constructor(
 		result += QuickFilter(listOf(unreadChip) + quickFilter.filterItem(filters)?.items.orEmpty())
 		if (list.isNotEmpty()) {
 			isReady.set(true)
-			list.mapListTo(result, isUnreadOnly = ListFilterOption.Unread in filters)
+			list.mapListTo(result, mode = mode, pageLimit = pageLimit, isUnreadOnly = ListFilterOption.Unread in filters)
 		}
 		if (result.none { it is FeedItem }) {
 			result += EmptyState(
@@ -214,12 +221,18 @@ class FeedViewModel @Inject constructor(
 		expandedIds.update { if (it.isEmpty()) it else emptySet() }
 	}
 
-	private suspend fun List<TrackingLogItem>.mapListTo(destination: MutableList<ListModel>, isUnreadOnly: Boolean) {
+	private suspend fun List<TrackingLogItem>.mapListTo(
+		destination: MutableList<ListModel>,
+		mode: HomeMode,
+		pageLimit: Int,
+		isUnreadOnly: Boolean,
+	) {
 		// The query keeps unread rows; an entry whose chapters were all read since still shows as read
-		// The feed is kept apart per mode: manga, novels and anime each show only their own updates
-		val mode = settings.homeMode
-		val feedItems = map { it to mangaListMapper.toFeedItem(it) }
-			.filter { it.second.manga.source.contentMode == mode }
+		// The feed is kept apart per mode: manga, novels and anime each show only their own updates.
+		// The mode is chosen before the page is cut, so the page is filled with this mode's entries.
+		val feedItems = filter { it.manga.source.contentMode == mode }
+			.take(pageLimit)
+			.map { it to mangaListMapper.toFeedItem(it) }
 			.filter { !isUnreadOnly || it.second.isNew }
 		val bucketedItems = feedItems.groupByDateBucket(instantOf = { it.first.createdAt })
 		for ((date, items) in bucketedItems) {

@@ -55,6 +55,8 @@ class ProgressUpdateUseCase @Inject constructor(
 				history.copy(
 					chapterId = chapter.id,
 					percent = result,
+					// The percent is measured against this list, so the count it was measured against moves with it
+					chaptersCount = chaptersCount,
 				),
 			)
 		}
