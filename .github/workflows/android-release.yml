@@ -70,11 +70,21 @@ jobs:
         if [ -n "$KEYSTORE_BASE64" ]; then
           echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
         else
-          echo "No keystore secret found, creating debug keystore"
-          keytool -genkey -v -keystore release.keystore -alias release \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass password -keypass password \
-            -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, S=Debug, C=US"
+          # Every build without a secret gets a brand new random key, so such an APK can never update the
+          # previous one. That is fine for a test pre-release, but a stable release needs the permanent key.
+          case "${{ inputs.version_name }}" in
+            *-*)
+              echo "No keystore secret found, creating a temporary debug keystore (pre-release only)"
+              keytool -genkey -v -keystore release.keystore -alias release \
+                -keyalg RSA -keysize 2048 -validity 10000 \
+                -storepass password -keypass password \
+                -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, S=Debug, C=US"
+              ;;
+            *)
+              echo "::error::A stable release must be signed with your permanent key. Add the KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS and RELEASE_KEY_PASSWORD repository secrets first."
+              exit 1
+              ;;
+          esac
         fi
 
     - name: Update versionName and increment versionCode

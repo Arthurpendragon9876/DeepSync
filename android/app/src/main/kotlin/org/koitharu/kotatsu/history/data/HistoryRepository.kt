@@ -429,8 +429,8 @@ class HistoryRepository @Inject constructor(
 		if (manga.isLocal || chapters.isNullOrEmpty() || chapters.findById(chapterId) != null) {
 			return this
 		}
-		val index = ceil(chapters.size * percent.toDouble()).toInt() - 1
-		val newChapterId = chapters.getOrNull(index.coerceIn(chapters.indices))?.id ?: return this
+		val index = recoveredChapterIndex(percent, chaptersCount, chapters.size)
+		val newChapterId = chapters.getOrNull(index)?.id ?: return this
 		val newEntity = copy(chapterId = newChapterId)
 		db.getHistoryDao().update(newEntity)
 		return newEntity
@@ -460,6 +460,23 @@ suspend fun MangaDatabase.markFeedReadUpTo(mangaId: Long, chapterId: Long) {
 			getTrackLogsDao().markLogAsRead(log.id)
 		}
 	}
+}
+
+/**
+ * Where a saved position sits in a chapter list that no longer contains the chapter it was saved on
+ * (the source re-keyed its chapters, or the list was replaced).
+ *
+ * [percent] was measured against the list as it was when the position was saved, which [savedCount]
+ * remembers. Measuring it against the current list instead moves the position forward whenever new
+ * chapters have arrived: someone on 6 of 6 would land on 7 of 7 the moment episode 7 is published, with
+ * no update in the feed and no notification. New chapters are appended after the old ones, so the saved
+ * count is the right yardstick; the current size is only used for rows saved without a count.
+ */
+internal fun recoveredChapterIndex(percent: Float, savedCount: Int, currentSize: Int): Int {
+	val base = if (savedCount > 0) savedCount else currentSize
+	// The small offset keeps float noise (6 / 7f * 7 = 6.0000005) from rounding up to the next chapter
+	val index = ceil(base * percent.toDouble() - 1e-4).toInt() - 1
+	return index.coerceIn(0, (currentSize - 1).coerceAtLeast(0))
 }
 
 internal fun canAdvanceFromTracking(

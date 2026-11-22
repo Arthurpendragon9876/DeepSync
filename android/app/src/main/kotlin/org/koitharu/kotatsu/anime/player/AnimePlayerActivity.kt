@@ -51,8 +51,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -136,7 +134,7 @@ import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import javax.inject.Inject
 
-private enum class PlayerDialog { NONE, SETTINGS, SPEED, SUBTITLES, AUDIO, QUALITY }
+private enum class PlayerDialog { NONE, SETTINGS, SPEED, SUBTITLES, AUDIO, QUALITY, EPISODES }
 
 private class TrackOption(val label: String, val selected: Boolean, val onSelect: () -> Unit)
 
@@ -236,6 +234,49 @@ class AnimePlayerActivity : AppCompatActivity() {
 	}
 	private var skipSeconds = 85
 
+	/** Settings > Player > Player style, read once per launch: one of [AnimePlayerPrefs.STYLE_VALUES]. */
+	private var playerStyle = AnimePlayerPrefs.STYLE_YUGEN
+
+	/** What the Kototoro / Modern control layouts press; Yugen's own layout calls the same functions directly. */
+	private val chromeActions by lazy {
+		PlayerChromeActions(
+			back = { handleBack() },
+			togglePlay = { togglePlay() },
+			seekTo = { player?.seekTo(it) },
+			seekBy = { seekBy(it) },
+			previous = { go(index - 1) },
+			next = { go(index + 1) },
+			subtitles = { dialog = PlayerDialog.SUBTITLES },
+			audio = { dialog = PlayerDialog.AUDIO },
+			quality = { dialog = PlayerDialog.QUALITY },
+			more = { dialog = PlayerDialog.SETTINGS },
+			speed = { dialog = PlayerDialog.SPEED },
+			episodes = { dialog = PlayerDialog.EPISODES },
+			aspect = { cycleResize() },
+			lock = { locked = true },
+			rotate = { toggleOrientation() },
+			enterFullscreen = { setFullscreen(true, viaRotation = false) },
+			exitFullscreen = { setFullscreen(false, viaRotation = false) },
+		)
+	}
+
+	private fun buildChrome() = PlayerChrome(
+		animeTitle = animeTitle,
+		episodeTitle = episodeTitle,
+		episodeChip = episodeChip,
+		qualityChip = qualityChip,
+		isPlaying = isPlaying,
+		position = position,
+		duration = duration,
+		speed = speed,
+		aspectLabel = RESIZE_LABELS[resizeIdx],
+		hasPrevious = index > 0,
+		hasNext = index + 1 < chapters.size,
+		canPickStream = AnimePlaybackSession.streams.size > 1,
+		canExitFullscreen = watchEnabled,
+		skipSeconds = skipSeconds,
+	)
+
 	/** Streams are resolved but auto-pick is off: waiting for the user to choose a server. */
 	private var chooseServer by mutableStateOf(false)
 	private var rememberPick by mutableStateOf(false)
@@ -285,6 +326,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 		fullscreen = !watchEnabled
 		audioPreset = AnimePlaybackSession.audioPreset(this)
 		skipSeconds = AnimePlayerPrefs.skipSeconds(this)
+		playerStyle = AnimePlayerPrefs.playerStyle(this)
 		if (parcel != null) {
 			// Opened with just a title: this screen loads the episodes and resolves the stream itself.
 			val seed = parcel.manga
@@ -1023,7 +1065,15 @@ class AnimePlayerActivity : AppCompatActivity() {
 				enter = fadeIn(spring(stiffness = 700f)) + scaleIn(spring(dampingRatio = 0.7f, stiffness = 500f), initialScale = 0.96f),
 				exit = fadeOut(spring(stiffness = 900f)) + scaleOut(spring(stiffness = 900f), targetScale = 0.98f),
 			) {
-				if (compact) CompactControls() else Controls()
+				when (playerStyle) {
+					AnimePlayerPrefs.STYLE_KOTOTORO ->
+						if (compact) KototoroCompactControls(buildChrome(), chromeActions) else KototoroControls(buildChrome(), chromeActions)
+
+					AnimePlayerPrefs.STYLE_MODERN ->
+						if (compact) ModernCompactControls(buildChrome(), chromeActions) else ModernControls(buildChrome(), chromeActions)
+
+					else -> if (compact) CompactControls() else Controls()
+				}
 			}
 			AnimatedVisibility(
 				shown && locked,
@@ -1106,7 +1156,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 				),
 			),
 		) {
-			Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 16.dp, vertical = 4.dp)) {
+			Column(Modifier.fillMaxSize().fullscreenInsets().padding(vertical = 4.dp)) {
 				// top bar: back, title + episode, then subtitles / audio / quality / more
 				Row(verticalAlignment = Alignment.CenterVertically) {
 					PlainIcon(R.drawable.ic_ap_back, "Back") { handleBack() }
@@ -1201,23 +1251,15 @@ class AnimePlayerActivity : AppCompatActivity() {
 
 	@Composable
 	private fun SeekBar(modifier: Modifier = Modifier) {
-		var dragging by remember { mutableStateOf(false) }
-		var dragValue by remember { mutableFloatStateOf(0f) }
 		val fraction = if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
-		Slider(
-			value = if (dragging) dragValue else fraction,
-			onValueChange = { dragging = true; dragValue = it },
-			onValueChangeFinished = {
-				player?.let { if (duration > 0) it.seekTo((dragValue * duration).toLong()) }
-				dragging = false
-			},
-			colors = SliderDefaults.colors(
-				thumbColor = MaterialTheme.colorScheme.primary,
-				activeTrackColor = MaterialTheme.colorScheme.primary,
-				inactiveTrackColor = Color(0x40FFFFFF),
-			),
-			modifier = modifier.height(28.dp),
-		)
+		ThinTrack(
+			fraction = fraction,
+			enabled = duration > 0,
+			color = MaterialTheme.colorScheme.primary,
+			trackHeight = 3.dp,
+			thumb = 12.dp,
+			modifier = modifier,
+		) { f -> player?.let { if (duration > 0) it.seekTo((f * duration).toLong()) } }
 	}
 
 	@OptIn(ExperimentalLayoutApi::class)
@@ -1266,82 +1308,83 @@ class AnimePlayerActivity : AppCompatActivity() {
 
 	@Composable
 	private fun DialogHost() {
-		Box(
-			Modifier.fillMaxSize().background(Color(0x99000000)).clickable { dialog = PlayerDialog.NONE },
-			contentAlignment = Alignment.Center,
+		val title = when (dialog) {
+			PlayerDialog.SPEED -> "Playback speed"
+			PlayerDialog.QUALITY -> "Server / quality"
+			PlayerDialog.SUBTITLES -> "Subtitles"
+			PlayerDialog.AUDIO -> "Audio track"
+			PlayerDialog.EPISODES -> "Episodes"
+			else -> "Settings"
+		}
+		PlayerPanel(
+			title = title,
+			subtitle = if (dialog == PlayerDialog.EPISODES) animeTitle.takeIf { it.isNotBlank() } else null,
+			onBack = if (dialog == PlayerDialog.SETTINGS) null else ({ dialog = PlayerDialog.SETTINGS }),
+			onClose = { dialog = PlayerDialog.NONE },
 		) {
-			Surface(
-				shape = RoundedCornerShape(24.dp),
-				color = Color(0xFF1B1B1F),
-				modifier = Modifier.width(320.dp).clickable(enabled = false) {},
-			) {
-				Column(Modifier.padding(vertical = 12.dp)) {
-					when (dialog) {
-						PlayerDialog.SETTINGS -> {
-							DialogTitle("Settings")
-							DialogRow("Playback speed  ·  ${speedLabel(speed)}", false) { dialog = PlayerDialog.SPEED }
-							DialogRow("Subtitles", false) { dialog = PlayerDialog.SUBTITLES }
-							DialogRow("Audio track", false) { dialog = PlayerDialog.AUDIO }
-							if (AnimePlaybackSession.streams.size > 1) {
-								DialogRow("Server / quality", false) { dialog = PlayerDialog.QUALITY }
-							}
-							DialogRow("Aspect ratio  ·  ${RESIZE_LABELS[resizeIdx]}", false) { cycleResize() }
-							DialogRow("Picture in picture", false) { dialog = PlayerDialog.NONE; enterPip() }
+			when (dialog) {
+				PlayerDialog.SETTINGS -> PanelScroll {
+					if (chapters.size > 1) PanelMenuRow(R.drawable.ic_ap_episodes, "Episodes", "${chapters.size}") { dialog = PlayerDialog.EPISODES }
+					PanelMenuRow(R.drawable.ic_ap_speed, "Playback speed", speedLabel(speed)) { dialog = PlayerDialog.SPEED }
+					PanelMenuRow(R.drawable.ic_ap_subtitles, "Subtitles", null) { dialog = PlayerDialog.SUBTITLES }
+					PanelMenuRow(R.drawable.ic_ap_audio, "Audio track", null) { dialog = PlayerDialog.AUDIO }
+					if (AnimePlaybackSession.streams.size > 1) {
+						PanelMenuRow(R.drawable.ic_ap_settings, "Server / quality", qualityChip.takeIf { it.isNotBlank() }) { dialog = PlayerDialog.QUALITY }
+					}
+					PanelMenuRow(R.drawable.ic_ap_aspect, "Aspect ratio", RESIZE_LABELS[resizeIdx]) { cycleResize() }
+					PanelMenuRow(R.drawable.ic_ap_pip, "Picture in picture", null) { dialog = PlayerDialog.NONE; enterPip() }
+				}
+
+				PlayerDialog.SPEED -> PanelScroll {
+					SPEEDS.forEach { s ->
+						PanelChoiceRow(speedLabel(s), s == speed) {
+							speed = s
+							player?.setPlaybackSpeed(s)
+							dialog = PlayerDialog.NONE
 						}
-						PlayerDialog.SPEED -> {
-							DialogTitle("Playback speed")
-							SPEEDS.forEach { s ->
-								DialogRow(speedLabel(s), s == speed) {
-									speed = s
-									player?.setPlaybackSpeed(s)
-									dialog = PlayerDialog.NONE
-								}
-							}
-						}
-						PlayerDialog.QUALITY -> {
-							DialogTitle("Server / quality")
-							DialogRow("Remember for this anime", rememberPick) { rememberPick = !rememberPick }
-							LazyColumn(Modifier.height((minOf(AnimePlaybackSession.streams.size, 7) * 52).dp)) {
-								itemsIndexed(AnimePlaybackSession.streams) { i, st ->
-									DialogRow(st.video.videoTitle.ifBlank { "Stream ${i + 1}" }, i == streamIndex && !chooseServer) { switchStream(i) }
-								}
-							}
-						}
-						PlayerDialog.SUBTITLES, PlayerDialog.AUDIO -> {
-							val isText = dialog == PlayerDialog.SUBTITLES
-							DialogTitle(if (isText) "Subtitles" else "Audio track")
-							val options = if (isText) trackOptions(C.TRACK_TYPE_TEXT) else audioOptions()
-							if (options.isEmpty()) {
-								Text("None available", color = Color.Gray, modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
-							} else {
-								LazyColumn(Modifier.height((minOf(options.size, 7) * 52).dp)) {
-									items(options) { o ->
-										DialogRow(o.label, o.selected) { o.onSelect(); dialog = PlayerDialog.NONE }
-									}
-								}
-							}
-						}
-						PlayerDialog.NONE -> Unit
 					}
 				}
-			}
-		}
-	}
 
-	@Composable
-	private fun DialogTitle(text: String) {
-		Text(text, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
-	}
+				PlayerDialog.QUALITY -> Column(Modifier.fillMaxSize()) {
+					PanelChoiceRow("Remember for this anime", rememberPick) { rememberPick = !rememberPick }
+					LazyColumn(Modifier.fillMaxSize()) {
+						itemsIndexed(AnimePlaybackSession.streams) { i, st ->
+							PanelChoiceRow(st.video.videoTitle.ifBlank { "Stream ${i + 1}" }, i == streamIndex && !chooseServer) { switchStream(i) }
+						}
+					}
+				}
 
-	@Composable
-	private fun DialogRow(label: String, selected: Boolean, onClick: () -> Unit) {
-		Row(
-			Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 14.dp),
-			verticalAlignment = Alignment.CenterVertically,
-		) {
-			Text(label, color = if (selected) Color(0xFFEFC32B) else Color.White, fontSize = 16.sp, modifier = Modifier.weight(1f))
-			if (selected) {
-				Icon(painterResource(R.drawable.ic_ap_check), null, tint = Color(0xFFEFC32B), modifier = Modifier.size(20.dp))
+				PlayerDialog.SUBTITLES, PlayerDialog.AUDIO -> {
+					val options = if (dialog == PlayerDialog.SUBTITLES) trackOptions(C.TRACK_TYPE_TEXT) else audioOptions()
+					if (options.isEmpty()) {
+						PanelEmpty("None available")
+					} else {
+						LazyColumn(Modifier.fillMaxSize()) {
+							items(options) { o ->
+								PanelChoiceRow(o.label, o.selected) { o.onSelect(); dialog = PlayerDialog.NONE }
+							}
+						}
+					}
+				}
+
+				PlayerDialog.EPISODES -> {
+					val shown = AnimePlaybackSession.manga
+					val listState = androidx.compose.foundation.lazy.rememberLazyListState(
+						initialFirstVisibleItemIndex = (index - 1).coerceAtLeast(0),
+					)
+					LazyColumn(Modifier.fillMaxSize(), state = listState) {
+						itemsIndexed(chapters) { i, chapter ->
+							if (shown != null) {
+								EpisodePanelRow(chapter, shown, coil, i == index) {
+									dialog = PlayerDialog.NONE
+									go(i)
+								}
+							}
+						}
+					}
+				}
+
+				PlayerDialog.NONE -> Unit
 			}
 		}
 	}

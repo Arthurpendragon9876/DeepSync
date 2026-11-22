@@ -1,6 +1,7 @@
 package org.koitharu.kotatsu.local.data.index
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.core.content.edit
 import androidx.room.withTransaction
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -40,7 +41,11 @@ class LocalMangaIndex @Inject constructor(
 		}
 	}
 
-	suspend fun update() = mutex.withLock {
+	suspend fun update() = mutex.withLock { rebuild() }
+
+	private suspend fun rebuild() {
+		// Taken before scanning: anything added while the scan runs makes the next check rebuild again
+		val fingerprint = currentFingerprint()
 		db.withTransaction {
 			val dao = db.getLocalMangaIndexDao()
 			dao.clear()
@@ -49,11 +54,24 @@ class LocalMangaIndex @Inject constructor(
 				.collect { upsert(it) }
 		}
 		currentVersion = VERSION
+		storedFingerprint = fingerprint.orEmpty()
 	}
 
+	/**
+	 * Rebuilds the index when its format changed or when the storage on disk is no longer the one it was built from.
+	 * The index used to be built once, so titles that were already in a folder the app was pointed at later (such as
+	 * another app's download folder) were found by the details screen but were missing from the index, and every
+	 * filter that reads the index ("On device" in Favourites and History) came back empty.
+	 */
 	suspend fun updateIfRequired() {
-		if (isUpdateRequired()) {
-			update()
+		if (!isUpdateRequired() && !isStorageChanged(throttled = true)) {
+			return
+		}
+		mutex.withLock {
+			// Another caller may have rebuilt while this one waited for the lock
+			if (isUpdateRequired() || isStorageChanged(throttled = false)) {
+				rebuild()
+			}
 		}
 	}
 
@@ -108,10 +126,35 @@ class LocalMangaIndex @Inject constructor(
 
 	private fun isUpdateRequired() = currentVersion < VERSION
 
+	private var storedFingerprint: String
+		get() = prefs.getString(KEY_FINGERPRINT, null).orEmpty()
+		set(value) = prefs.edit { putString(KEY_FINGERPRINT, value) }
+
+	private var lastFingerprintCheck = 0L
+
+	private suspend fun currentFingerprint(): String? = runCatchingCancellable {
+		localMangaRepositoryProvider.get().getStorageFingerprint()
+	}.onFailure {
+		it.printStackTraceDebug()
+	}.getOrNull()
+
+	private suspend fun isStorageChanged(throttled: Boolean): Boolean {
+		val now = SystemClock.elapsedRealtime()
+		// Lists ask for this once per title, so a burst of calls shares one check
+		if (throttled && now - lastFingerprintCheck < FINGERPRINT_CHECK_INTERVAL_MS) {
+			return false
+		}
+		lastFingerprintCheck = now
+		val current = currentFingerprint() ?: return false
+		return current != storedFingerprint
+	}
+
 	companion object {
 
 		private const val PREF_NAME = "_local_index"
 		private const val KEY_VERSION = "ver"
+		private const val KEY_FINGERPRINT = "storage_fp"
+		private const val FINGERPRINT_CHECK_INTERVAL_MS = 5_000L
 		private const val VERSION = 1
 	}
 }

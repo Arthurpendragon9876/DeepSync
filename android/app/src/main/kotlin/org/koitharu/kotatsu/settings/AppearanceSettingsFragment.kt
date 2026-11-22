@@ -278,6 +278,7 @@ private fun AppearanceScreen(
 	val maxGridColumns = remember { GridColumns.maxColumns(ctx.resources, gridWidth) }
 	var quickFilter by rememberBooleanPref(AppSettings.KEY_QUICK_FILTER, true)
 	var listCheckpoint by rememberBooleanPref(AppSettings.KEY_LIST_CHECKPOINT, true)
+	var showEmptyModeCategories by rememberBooleanPref(AppSettings.KEY_SHOW_EMPTY_MODE_CATEGORIES, false)
 	var readingIndicator by rememberReadingIndicatorPref(AppSettings.KEY_PROGRESS_INDICATORS)
 	val badgeDefaults = remember { ctx.resources.getStringArray(R.array.values_list_badges_default).toSet() }
 	var mangaListBadges by rememberStringSetPref(AppSettings.KEY_MANGA_LIST_BADGES, badgeDefaults)
@@ -453,6 +454,17 @@ private fun AppearanceScreen(
 						checked = quickFilter,
 						onCheckedChange = { quickFilter = it },
 						icon = R.drawable.ic_filter_menu,
+
+						shape = pos.shape,
+					)
+				}
+				item { pos ->
+					SwitchSettingsItem(
+						title = stringResource(R.string.show_empty_mode_categories),
+						subtitle = stringResource(R.string.show_empty_mode_categories_summary),
+						checked = showEmptyModeCategories,
+						onCheckedChange = { showEmptyModeCategories = it },
+						icon = R.drawable.ic_heart,
 
 						shape = pos.shape,
 					)

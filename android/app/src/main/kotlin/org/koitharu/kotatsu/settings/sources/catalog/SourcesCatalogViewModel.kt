@@ -1109,8 +1109,51 @@ class SourcesCatalogViewModel @Inject constructor(
 		return AnimeRows(updates.sortedWith(byTitle), installed.sortedWith(byTitle))
 	}
 
+	/**
+	 * Anime counterpart of [computeRecommendedExtensions]: Aniyomi extensions the library needs but that aren't
+	 * installed. Library entries from an anime source are stored as `ANIME_<sourceId>` (see [AnimeMangaSource]),
+	 * and the store's index lists the source ids each extension provides, so every id the library uses that no
+	 * installed extension provides is mapped back to the package that does.
+	 */
+	private suspend fun computeRecommendedAnimeExtensions(
+		available: List<ExternalExtensionRepoEntry>,
+		localPackages: Set<String>,
+		inProgress: Set<String>,
+		query: String?,
+		store: ExtensionStoreRecord,
+	): List<SourceCatalogItem.Extension> {
+		val wantedIds = runCatching { mangaDatabase.getMangaDao().findExternalSourcesInLibrary() }
+			.getOrDefault(emptyList())
+			.mapNotNullTo(LinkedHashSet()) { name ->
+				if (name.startsWith(ANIME_SOURCE_PREFIX)) name.removePrefix(ANIME_SOURCE_PREFIX).substringBefore(':').toLongOrNull() else null
+			}
+		if (wantedIds.isEmpty()) return emptyList()
+		// Source ids that an installed extension already provides are not missing, whatever package they came from
+		val installedIds = animeManager.extensions.value.flatMapTo(HashSet()) { ext -> ext.sources.map { it.id } }
+		val missingIds = wantedIds - installedIds
+		if (missingIds.isEmpty()) return emptyList()
+		val byPackage = LinkedHashMap<String, ExternalExtensionRepoEntry>()
+		for (entry in available) {
+			if (entry.packageName in localPackages || entry.packageName in byPackage) continue
+			if (entry.sources.any { src -> src.id.toLongOrNull()?.let { it in missingIds } == true }) byPackage[entry.packageName] = entry
+		}
+		return byPackage.values.mapNotNull { entry ->
+			if (!matchesExtensionQuery(query, entry.name, entry.packageName)) return@mapNotNull null
+			SourceCatalogItem.Extension(
+				packageName = entry.packageName,
+				title = extensionDisplayName(entry.name),
+				subtitle = appContext.getString(R.string.recommended_extension_subtitle),
+				action = SourceCatalogItem.Extension.Action.INSTALL,
+				isInProgress = entry.packageName in inProgress,
+				iconUrl = entry.iconUrl ?: externalRepoRepository.resolveIconUrl(store.indexUrl, entry.packageName),
+				storeId = store.id,
+				isPrivateMode = true,
+			)
+		}.sortedBy { it.title.lowercase() }
+	}
+
 	/** A store tab of the Anime kind: what this store installed, then what it offers. */
-	private fun buildAnimeStoreList(
+	private suspend fun buildAnimeStoreList(
 		filter: SourcesCatalogFilter,
 		query: String?,
 		storeState: ExtensionStoreState,
@@ -1124,8 +1167,18 @@ class SourcesCatalogViewModel @Inject constructor(
 		val localByPkg = animeManager.extensions.value.associateBy { it.pkg }
 		val installedRows = animeRows(statesById, filter, q, onlyStoreId = store.id).installed
 
+		val recommendedRows = computeRecommendedAnimeExtensions(
+			available = available,
+			localPackages = localByPkg.keys,
+			inProgress = inProgress,
+			query = q,
+			store = store,
+		)
+		val recommendedPackages = recommendedRows.mapTo(HashSet(recommendedRows.size)) { it.packageName }
+
 		val availableRows = ArrayList<SourceCatalogItem.Extension>()
 		for (entry in available) {
+			if (entry.packageName in recommendedPackages) continue // surfaced in the Recommended section
 			if (entry.contentWarning > contentFilter.value) continue
 			if (filter.locale != null && entry.lang != filter.locale) continue
 			if (!matchesExtensionQuery(q, entry.name, entry.packageName)) continue
@@ -1152,6 +1205,10 @@ class SourcesCatalogViewModel @Inject constructor(
 		return buildList {
 			if (storeState.health == StoreHealth.UNAVAILABLE) {
 				add(SourceCatalogItem.Hint(R.drawable.ic_error_large, R.string.error, R.string.extensions_repo_load_error))
+			}
+			if (recommendedRows.isNotEmpty()) {
+				add(ListHeader(R.string.recommended_to_install))
+				addAll(recommendedRows)
 			}
 			if (installedRows.isNotEmpty()) {
 				add(ListHeader(R.string.installed))
@@ -1278,6 +1335,9 @@ class SourcesCatalogViewModel @Inject constructor(
 
 /** Library rows for novel plugins are stored as `LN_<pluginId>`. */
 private const val LN_SOURCE_PREFIX = "LN_"
+
+/** Library key of an Aniyomi anime source, see AnimeMangaSource.name. */
+private const val ANIME_SOURCE_PREFIX = "ANIME_"
 
 internal fun buildAvailablePageItems(
 	updates: List<SourceCatalogItem.Extension>,

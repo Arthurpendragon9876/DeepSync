@@ -40,9 +40,12 @@ import org.koitharu.kotatsu.anime.player.AnimePlayerPrefs
 import org.koitharu.kotatsu.settings.compose.BaseComposeSettingsFragment
 import org.koitharu.kotatsu.settings.compose.DropSauceTheme
 import org.koitharu.kotatsu.settings.compose.ListSettingsItem
+import org.koitharu.kotatsu.settings.compose.PlayerStylePreviewRow
 import org.koitharu.kotatsu.settings.compose.SettingsGroup
+import org.koitharu.kotatsu.settings.compose.SettingsItem
 import org.koitharu.kotatsu.settings.compose.SettingsScaffold
 import org.koitharu.kotatsu.settings.compose.SwitchSettingsItem
+import org.koitharu.kotatsu.settings.compose.playerStylePreviewOptions
 import org.koitharu.kotatsu.settings.compose.rememberBooleanPref
 import org.koitharu.kotatsu.settings.compose.rememberStringPref
 
@@ -63,6 +66,7 @@ class AnimePlayerSettingsFragment : BaseComposeSettingsFragment(R.string.ds_play
 @Composable
 private fun AnimePlayerSettingsContent() {
 	val context = LocalContext.current
+	var style by rememberStringPref(AnimePlayerPrefs.KEY_PLAYER_STYLE, AnimePlayerPrefs.STYLE_YUGEN)
 	var direct by rememberBooleanPref(AnimePlayerPrefs.KEY_DIRECT_LANDSCAPE, false)
 	var autoPick by rememberBooleanPref(AnimePlayerPrefs.KEY_AUTO_PICK, true)
 	var quality by rememberStringPref(AnimePlayerPrefs.KEY_PREFERRED_QUALITY, AnimePlayerPrefs.QUALITY_BEST)
@@ -84,7 +88,41 @@ private fun AnimePlayerSettingsContent() {
 		stringResource(R.string.ds_player_quality_lowest),
 	)
 
+	val styleOptions = playerStylePreviewOptions(
+		listOf(
+			stringResource(R.string.ds_player_style_yugen),
+			stringResource(R.string.ds_player_style_kototoro),
+			stringResource(R.string.ds_player_style_modern),
+		),
+	)
+	val styleSummaries = listOf(
+		stringResource(R.string.ds_player_style_yugen_summary),
+		stringResource(R.string.ds_player_style_kototoro_summary),
+		stringResource(R.string.ds_player_style_modern_summary),
+	)
+	val styleIndex = AnimePlayerPrefs.STYLE_VALUES.indexOf(style).coerceAtLeast(0)
+
 	SettingsScaffold {
+		item {
+			SettingsGroup(title = stringResource(R.string.ds_player_group_style)) {
+				item { pos ->
+					SettingsItem(
+						title = stringResource(R.string.ds_player_style),
+						subtitle = styleSummaries[styleIndex],
+						icon = R.drawable.ic_ap_play,
+						shape = pos.shape,
+						below = {
+							PlayerStylePreviewRow(
+								options = styleOptions,
+								selectedIndex = styleIndex,
+								onSelected = { style = AnimePlayerPrefs.STYLE_VALUES[it] },
+							)
+						},
+					)
+				}
+			}
+		}
+		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
 		item {
 			SettingsGroup(title = stringResource(R.string.ds_player_group_opening)) {
 				item { pos ->

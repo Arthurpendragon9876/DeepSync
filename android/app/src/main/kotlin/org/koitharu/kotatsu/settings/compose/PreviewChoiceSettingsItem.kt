@@ -7,6 +7,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -16,7 +17,9 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,6 +37,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -287,4 +291,118 @@ fun listModePreviewOptions(labels: List<String>): List<PreviewOption> {
 			}
 		},
 	)
+}
+
+/**
+ * Yugen / Kototoro / Modern as mini players on a dark picture; [labels] in that order. Each draws the arrangement of
+ * that style's controls. Colours are fixed (a video is dark in either theme); only Yugen's accents follow the theme.
+ */
+@Composable
+fun playerStylePreviewOptions(labels: List<String>): List<PreviewOption> {
+	val accent = MaterialTheme.colorScheme.primary
+	val container = MaterialTheme.colorScheme.primaryContainer
+	val video = Color(0xFF17171D)
+	val ink = Color.White
+	val dim = Color.White.copy(alpha = 0.6f)
+	val faint = Color.White.copy(alpha = 0.22f)
+	val modernRed = Color(0xFFE50914)
+	fun DrawScope.disc(color: Color, cx: Float, cy: Float, r: Float) =
+		drawCircle(color = color, radius = r * size.width, center = Offset(cx * size.width, cy * size.height))
+	fun DrawScope.ring(color: Color, cx: Float, cy: Float, r: Float) =
+		drawCircle(
+			color = color,
+			radius = r * size.width,
+			center = Offset(cx * size.width, cy * size.height),
+			style = Stroke(width = size.width * 0.014f),
+		)
+	return listOf(
+		// Yugen: big transport in the middle, skip pill on the right, quick toggles under the bar.
+		PreviewOption(labels[0]) {
+			drawRect(video)
+			block(ink, 0.04f, 0.08f, 0.05f, 0.1f, radius = 0.01f)
+			block(ink, 0.12f, 0.08f, 0.26f, 0.05f, radius = 0.01f)
+			block(dim, 0.12f, 0.16f, 0.18f, 0.04f, radius = 0.01f)
+			repeat(3) { i -> disc(dim, 0.74f + i * 0.08f, 0.13f, 0.022f) }
+			disc(faint, 0.33f, 0.45f, 0.05f)
+			disc(ink, 0.5f, 0.45f, 0.075f)
+			disc(faint, 0.67f, 0.45f, 0.05f)
+			block(container, 0.76f, 0.6f, 0.2f, 0.1f, radius = 0.03f)
+			block(faint, 0.12f, 0.78f, 0.76f, 0.03f, radius = 0.015f)
+			block(accent, 0.12f, 0.78f, 0.3f, 0.03f, radius = 0.015f)
+			disc(accent, 0.42f, 0.795f, 0.018f)
+			repeat(3) { i -> block(dim, 0.06f + i * 0.07f, 0.88f, 0.045f, 0.07f, radius = 0.01f) }
+		},
+		// Kototoro: plain glyphs, no pills. Title top left, three icons top right; play + thin bar + time; two rows of glyphs and text.
+		PreviewOption(labels[1]) {
+			drawRect(video)
+			block(ink, 0.05f, 0.1f, 0.04f, 0.09f, radius = 0.01f)
+			block(ink, 0.13f, 0.08f, 0.22f, 0.06f, radius = 0.01f)
+			block(ink, 0.13f, 0.17f, 0.14f, 0.045f, radius = 0.01f)
+			repeat(3) { i -> block(ink, 0.73f + i * 0.08f, 0.09f, 0.05f, 0.08f, radius = 0.01f) }
+			block(ink, 0.05f, 0.69f, 0.03f, 0.09f, radius = 0.005f)
+			block(ink, 0.095f, 0.69f, 0.03f, 0.09f, radius = 0.005f)
+			block(faint, 0.17f, 0.735f, 0.62f, 0.012f, radius = 0.006f)
+			block(ink, 0.17f, 0.735f, 0.33f, 0.012f, radius = 0.006f)
+			disc(ink, 0.5f, 0.741f, 0.017f)
+			block(ink, 0.82f, 0.725f, 0.13f, 0.035f, radius = 0.01f)
+			repeat(3) { i -> block(ink, 0.05f + i * 0.08f, 0.86f, 0.05f, 0.08f, radius = 0.01f) }
+			block(ink, 0.56f, 0.875f, 0.09f, 0.04f, radius = 0.01f)
+			block(ink, 0.68f, 0.875f, 0.06f, 0.04f, radius = 0.01f)
+			block(ink, 0.77f, 0.875f, 0.07f, 0.04f, radius = 0.01f)
+			block(ink, 0.88f, 0.86f, 0.035f, 0.08f, radius = 0.01f)
+			block(ink, 0.935f, 0.86f, 0.035f, 0.08f, radius = 0.01f)
+		},
+		// Modern: black, small centred title and an X; back 10 / bare play / forward 10; thin red bar; Audio & Subtitles.
+		PreviewOption(labels[2]) {
+			drawRect(Color.Black)
+			block(ink, 0.4f, 0.1f, 0.2f, 0.05f, radius = 0.01f)
+			block(ink, 0.92f, 0.1f, 0.03f, 0.06f, radius = 0.01f)
+			ring(ink, 0.27f, 0.46f, 0.045f)
+			val tri = Path().apply {
+				moveTo(0.46f * size.width, 0.32f * size.height)
+				lineTo(0.46f * size.width, 0.6f * size.height)
+				lineTo(0.58f * size.width, 0.46f * size.height)
+				close()
+			}
+			drawPath(tri, ink)
+			ring(ink, 0.73f, 0.46f, 0.045f)
+			block(faint, 0.05f, 0.74f, 0.8f, 0.012f, radius = 0.006f)
+			block(modernRed, 0.05f, 0.74f, 0.1f, 0.012f, radius = 0.006f)
+			disc(modernRed, 0.15f, 0.746f, 0.017f)
+			block(dim, 0.88f, 0.73f, 0.07f, 0.035f, radius = 0.01f)
+			block(ink, 0.43f, 0.87f, 0.04f, 0.06f, radius = 0.01f)
+			block(ink, 0.49f, 0.88f, 0.2f, 0.04f, radius = 0.01f)
+		},
+	)
+}
+
+/** The player-style tiles as wide 16:9 cards; three do not fit across a phone, so the row scrolls sideways. */
+@Composable
+fun PlayerStylePreviewRow(
+	options: List<PreviewOption>,
+	selectedIndex: Int,
+	onSelected: (Int) -> Unit,
+	modifier: Modifier = Modifier,
+) {
+	val haptic = rememberHapticEffect()
+	Row(
+		modifier = modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+		horizontalArrangement = Arrangement.spacedBy(10.dp),
+	) {
+		options.forEachIndexed { index, option ->
+			PreviewTile(
+				label = option.label,
+				selected = index == selectedIndex,
+				enabled = true,
+				onClick = {
+					haptic(HapticEffect.CONFIRM)
+					onSelected(index)
+				},
+				modifier = Modifier.width(220.dp),
+				aspectRatio = 16f / 9f,
+			) {
+				Canvas(modifier = Modifier.matchParentSize(), onDraw = option.draw)
+			}
+		}
+	}
 }

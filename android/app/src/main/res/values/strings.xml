@@ -709,6 +709,8 @@
     <string name="related_manga_summary">Show a list of related titles. In some cases it may be inaccurate or missing</string>
     <string name="advanced">Advanced</string>
     <string name="manga_list">Manga list</string>
+    <string name="show_empty_mode_categories">Keep favourite categories in every mode</string>
+    <string name="show_empty_mode_categories_summary">Don\'t hide a favourites category when switching between Manga, Anime and Novel, even if it is empty there</string>
     <string name="list_checkpoint">Last position</string>
     <string name="list_checkpoint_settings">Jump back to where you left off</string>
     <string name="list_checkpoint_settings_summary">Show a button in History that returns you to the spot you last scrolled to</string>
@@ -1571,9 +1573,11 @@
     <string name="ds_track_no_matches_all">No matches found on your trackers</string>
     <string name="ds_track_on_tracker">On %1$s</string>
     <string name="ds_sync_library">Sync library</string>
+    <string name="ds_library_search">Search %1$s</string>
     <string name="ds_sync_library_count">%1$d titles · %2$d trackers</string>
     <string name="ds_sync_out_of_sync">Out of sync</string>
     <string name="ds_sync_filter_all">All trackers</string>
+    <string name="ds_library_filter_tracker">Tracker</string>
     <string name="ds_sync_empty">Nothing here yet. Add titles to a tracker list and they will show up.</string>
     <string name="ds_sync_not_on">Not on %1$s</string>
     <string name="ds_sync_unreachable">Couldn\'t reach %1$s</string>
@@ -1697,6 +1701,14 @@
     <string name="ds_player_sub_edge">Edge style</string>
     <string name="ds_player_sub_background">Background box</string>
     <string name="ds_player_sub_position">Position</string>
+    <string name="ds_player_group_style">Player style</string>
+    <string name="ds_player_style">Control layout</string>
+    <string name="ds_player_style_yugen">Yugen</string>
+    <string name="ds_player_style_kototoro">Kototoro</string>
+    <string name="ds_player_style_modern">Simple modern</string>
+    <string name="ds_player_style_yugen_summary">The default Yugen layout: a big play button in the middle, a skip pill and quick toggles underneath. Applies the next time a video opens.</string>
+    <string name="ds_player_style_kototoro_summary">Like Kototoro: title bar on top, play, seek bar and time in one row, small pills underneath. Applies the next time a video opens.</string>
+    <string name="ds_player_style_modern_summary">A clean, minimal layout: back and forward 10 seconds around a bare play button, a thin red seek bar and captioned buttons. Applies the next time a video opens.</string>
 	<string name="extensions_per_row">Extensions per row</string>
 	<string name="tts_customize_voices">Customize voices</string>
 	<string name="tts_get_more_voices">Get more voices</string>

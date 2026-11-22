@@ -59,6 +59,7 @@ import org.koitharu.kotatsu.home.ui.model.HomeSectionState
 import org.koitharu.kotatsu.home.ui.model.HomeUiState
 import org.koitharu.kotatsu.image.ui.CoverImageView
 import org.koitharu.kotatsu.main.ui.MainViewModel
+import org.koitharu.kotatsu.main.ui.MainActivity
 import org.koitharu.kotatsu.main.ui.owners.AppBarOwner
 import org.koitharu.kotatsu.scrobbling.common.domain.model.TrackerReadingEntry
 import org.koitharu.kotatsu.scrobbling.common.ui.SyncLibraryDialog
@@ -190,19 +191,19 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 
 	override fun onStart() {
 		super.onStart()
-		if (!isHidden) setMainAppBarHidden(true)
+		if (!isHidden) syncMainAppBar()
 	}
 
 	override fun onResume() {
 		super.onResume()
 		// Home draws its own header, so the activity's top bar (settings, search, overflow) steps aside
-		if (!isHidden) setMainAppBarHidden(true)
+		if (!isHidden) syncMainAppBar()
 	}
 
 	/** Switching tabs hides this fragment without stopping it, so the bar comes back (or goes) here. */
 	override fun onHiddenChanged(hidden: Boolean) {
 		super.onHiddenChanged(hidden)
-		setMainAppBarHidden(!hidden)
+		syncMainAppBar()
 	}
 
 	/**
@@ -210,24 +211,17 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 	 * then made the old search bar flash for a moment. onStop comes once the other screen has covered it.
 	 */
 	override fun onStop() {
-		setMainAppBarHidden(false)
+		(activity as? MainActivity)?.syncAppBarVisibility(forceShow = true)
 		super.onStop()
 	}
 
 	/**
 	 * Hiding the bar with GONE left the page below it offset by the bar's old height (a gap above the header that
-	 * showed up after coming back from another screen). A zero-height, invisible bar keeps the offset at zero.
+	 * showed up after coming back from another screen). MainActivity keeps a zero-height, invisible bar instead, and
+	 * decides from the tab that is shown, because Explore collapses the bar the same way.
 	 */
-	private fun setMainAppBarHidden(hidden: Boolean) {
-		val appBar = (activity as? AppBarOwner)?.appBar ?: return
-		if (hidden) {
-			appBar.setExpanded(true, false)
-			appBar.updateLayoutParams { height = 0 }
-			appBar.visibility = View.INVISIBLE
-		} else {
-			appBar.updateLayoutParams { height = ViewGroup.LayoutParams.WRAP_CONTENT }
-			appBar.visibility = View.VISIBLE
-		}
+	private fun syncMainAppBar() {
+		(activity as? MainActivity)?.syncAppBarVisibility()
 	}
 
 	override fun onDestroyView() {

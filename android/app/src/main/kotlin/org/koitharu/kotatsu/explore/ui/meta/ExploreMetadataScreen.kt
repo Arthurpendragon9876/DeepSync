@@ -55,6 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.alpha
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.home.ui.model.HomeMetadata
 import org.koitharu.kotatsu.home.ui.model.HomeMode
@@ -239,11 +241,13 @@ internal fun FiltersSheet(
 	mode: HomeMode,
 	provider: HomeMetadata,
 	current: DiscoverFilters,
+	adultAllowed: Boolean,
 	onApply: (DiscoverFilters) -> Unit,
 	onDismiss: () -> Unit,
 ) {
-	var include by remember { mutableStateOf(current.include) }
-	var exclude by remember { mutableStateOf(current.exclude) }
+	// Hentai is an adult-only genre: its chip exists only while NSFW is on, and a hidden chip never keeps filtering
+	var include by remember { mutableStateOf(if (adultAllowed) current.include else current.include - ADULT_GENRE) }
+	var exclude by remember { mutableStateOf(if (adultAllowed) current.exclude else current.exclude - ADULT_GENRE) }
 	var sort by remember { mutableStateOf(current.sort) }
 	var status by remember { mutableStateOf(current.status) }
 	var format by remember { mutableStateOf(current.format) }
@@ -289,7 +293,8 @@ internal fun FiltersSheet(
 			}
 			SheetLabel("Genres (tap once to include, twice to exclude)")
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-				DISCOVER_GENRES.forEach { genre -> TermChip(genre, genre in include, genre in exclude) { cycle(genre) } }
+				val genres = if (adultAllowed) DISCOVER_GENRES + ADULT_GENRE else DISCOVER_GENRES
+				genres.forEach { genre -> TermChip(genre, genre in include, genre in exclude) { cycle(genre) } }
 			}
 			SheetLabel("Tags: BL, Yaoi, Yuri, Harem, Reverse Harem, Isekai and more")
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -464,44 +469,57 @@ private fun ListingBody(
 	imageLoader: ImageLoader,
 	onOpen: (MetadataTitle) -> Unit,
 ) {
-	when {
-		listing.error != null -> Text(
-			"Could not load: ${listing.error}",
-			color = MaterialTheme.colorScheme.error,
-			style = MaterialTheme.typography.bodyMedium,
-			modifier = Modifier.padding(horizontal = 8.dp),
-		)
+	// A page change keeps the old posters on screen while the next page loads; dim them and show a spinner so the
+	// tap clearly did something, instead of the grid freezing and then jumping.
+	val refreshing = listing.isLoading && listing.items.isNotEmpty()
+	val dim by animateFloatAsState(if (refreshing) 0.35f else 1f, label = "pageDim")
+	Box(contentAlignment = Alignment.TopCenter) {
+		Box(Modifier.alpha(dim)) {
+			when {
+				listing.error != null -> Text(
+					"Could not load: ${listing.error}",
+					color = MaterialTheme.colorScheme.error,
+					style = MaterialTheme.typography.bodyMedium,
+					modifier = Modifier.padding(horizontal = 8.dp),
+				)
 
-		listing.isLoading && listing.items.isEmpty() || !listing.isLoaded && listing.items.isEmpty() ->
-			Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
-				CircularProgressIndicator()
-			}
-
-		listing.items.isEmpty() -> Text(
-			emptyText,
-			style = MaterialTheme.typography.bodyMedium,
-			color = MaterialTheme.colorScheme.onSurfaceVariant,
-			modifier = Modifier.padding(horizontal = 8.dp),
-		)
-
-		isListView -> Column(
-			verticalArrangement = Arrangement.spacedBy(12.dp),
-			modifier = Modifier.padding(horizontal = 4.dp),
-		) {
-			listing.items.forEach { title -> ListRowCard(title, imageLoader, onOpen) }
-		}
-
-		else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-			listing.items.chunked(COLUMNS).forEach { row ->
-				Row(
-					modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-					horizontalArrangement = Arrangement.spacedBy(8.dp),
-				) {
-					row.forEach { title ->
-						Box(Modifier.weight(1f)) { PosterCard(title, imageLoader, onOpen) }
+				listing.isLoading && listing.items.isEmpty() || !listing.isLoaded && listing.items.isEmpty() ->
+					Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+						CircularProgressIndicator()
 					}
-					repeat(COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
+
+				listing.items.isEmpty() -> Text(
+					emptyText,
+					style = MaterialTheme.typography.bodyMedium,
+					color = MaterialTheme.colorScheme.onSurfaceVariant,
+					modifier = Modifier.padding(horizontal = 8.dp),
+				)
+
+				isListView -> Column(
+					verticalArrangement = Arrangement.spacedBy(12.dp),
+					modifier = Modifier.padding(horizontal = 4.dp),
+				) {
+					listing.items.forEach { title -> ListRowCard(title, imageLoader, onOpen) }
 				}
+
+				else -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+					listing.items.chunked(COLUMNS).forEach { row ->
+						Row(
+							modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+							horizontalArrangement = Arrangement.spacedBy(8.dp),
+						) {
+							row.forEach { title ->
+								Box(Modifier.weight(1f)) { PosterCard(title, imageLoader, onOpen) }
+							}
+							repeat(COLUMNS - row.size) { Spacer(Modifier.weight(1f)) }
+						}
+					}
+				}
+			}
+		}
+		if (refreshing) {
+			Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
+				CircularProgressIndicator()
 			}
 		}
 	}
@@ -518,7 +536,15 @@ private fun PagerBar(listing: MetaListing, onPrevious: () -> Unit, onNext: () ->
 	) {
 		OutlinedButton(onClick = onPrevious, enabled = listing.page > 1 && !listing.isLoading) { Text("Previous") }
 		Text("Page ${listing.page}", style = MaterialTheme.typography.labelLarge)
-		FilledTonalButton(onClick = onNext, enabled = listing.hasNext && !listing.isLoading) { Text("Next page") }
+		FilledTonalButton(onClick = onNext, enabled = listing.hasNext && !listing.isLoading) {
+			if (listing.isLoading) {
+				CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+				Spacer(Modifier.size(8.dp))
+				Text("Loading")
+			} else {
+				Text("Next page")
+			}
+		}
 	}
 }
 
@@ -745,3 +771,5 @@ private fun hookOf(description: String): String {
 	val cut = clean.lastIndexOfAny(charArrayOf('.', '!', '?'), startIndex = 220)
 	return if (cut in 90..219) clean.substring(0, cut + 1) else clean.substring(0, 220).trimEnd() + "\u2026"
 }
+
+private const val ADULT_GENRE = "Hentai"

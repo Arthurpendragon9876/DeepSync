@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A tracker library (one tracker's list, or the merged Sync library), built like the Favourites tab:
+     the same top row (back button, rounded search bar, filter, action), the same kind tabs and cover
+     grid. The search bar searches this library only; the status filters are in the filter sheet. -->
+<LinearLayout
+	xmlns:android="http://schemas.android.com/apk/res/android"
+	xmlns:app="http://schemas.android.com/apk/res-auto"
+	xmlns:tools="http://schemas.android.com/tools"
+	android:layout_width="match_parent"
+	android:layout_height="match_parent"
+	android:background="?android:attr/colorBackground"
+	android:orientation="vertical">
+
+	<LinearLayout
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:clipToPadding="false"
+		android:gravity="center_vertical"
+		android:orientation="horizontal"
+		android:paddingHorizontal="4dp"
+		android:paddingBottom="12dp">
+
+		<com.google.android.material.button.MaterialButton
+			android:id="@+id/button_close"
+			style="?materialIconButtonStyle"
+			android:layout_width="48dp"
+			android:layout_height="48dp"
+			android:layout_marginEnd="8dp"
+			android:contentDescription="@string/close"
+			android:padding="0dp"
+			android:insetLeft="0dp"
+			android:insetTop="0dp"
+			android:insetRight="0dp"
+			android:insetBottom="0dp"
+			app:icon="@drawable/ic_arrow_back"
+			app:iconGravity="textStart"
+			app:iconPadding="0dp"
+			app:iconSize="24dp"
+			app:iconTint="?attr/colorTopBarIcon" />
+
+		<!-- Same pill as the app's search bar; typing filters this library only -->
+		<com.google.android.material.card.MaterialCardView
+			android:id="@+id/search_card"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_marginEnd="8dp"
+			android:layout_weight="1"
+			android:minHeight="@dimen/search_bar_min_height"
+			app:cardBackgroundColor="?attr/colorSurfaceContainer"
+			app:cardCornerRadius="32dp"
+			app:cardElevation="3dp"
+			app:strokeColor="?attr/colorOutlineVariant"
+			app:strokeWidth="1dp">
+
+			<LinearLayout
+				android:layout_width="match_parent"
+				android:layout_height="match_parent"
+				android:gravity="center_vertical"
+				android:minHeight="@dimen/search_bar_min_height"
+				android:orientation="horizontal"
+				android:paddingStart="20dp"
+				android:paddingEnd="8dp">
+
+				<ImageView
+					android:layout_width="24dp"
+					android:layout_height="24dp"
+					android:importantForAccessibility="no"
+					android:src="@drawable/ic_search"
+					app:tint="?attr/colorOnSurfaceVariant" />
+
+				<EditText
+					android:id="@+id/edit_search"
+					android:layout_width="0dp"
+					android:layout_height="wrap_content"
+					android:layout_marginStart="12dp"
+					android:layout_weight="1"
+					android:background="@null"
+					android:imeOptions="actionSearch"
+					android:importantForAutofill="no"
+					android:inputType="text"
+					android:maxLines="1"
+					android:minHeight="48dp"
+					android:textAppearance="?attr/textAppearanceBodyLarge"
+					android:textColorHint="?attr/colorOnSurfaceVariant"
+					tools:hint="Search AniList" />
+
+				<ImageButton
+					android:id="@+id/button_clear"
+					android:layout_width="40dp"
+					android:layout_height="40dp"
+					android:background="?attr/selectableItemBackgroundBorderless"
+					android:contentDescription="@string/clear"
+					android:src="@drawable/ic_close"
+					android:visibility="gone"
+					app:tint="?attr/colorOnSurfaceVariant" />
+
+			</LinearLayout>
+
+		</com.google.android.material.card.MaterialCardView>
+
+		<!-- Status (and tracker) filters live in a sheet, like Explore's filter icon, so the grid keeps the space.
+		     The dot shows that something other than the default is selected. -->
+		<FrameLayout
+			android:layout_width="48dp"
+			android:layout_height="48dp">
+
+			<com.google.android.material.button.MaterialButton
+				android:id="@+id/button_filter"
+				style="?materialIconButtonStyle"
+				android:layout_width="48dp"
+				android:layout_height="48dp"
+				android:contentDescription="@string/filter"
+				android:padding="0dp"
+				android:insetLeft="0dp"
+				android:insetTop="0dp"
+				android:insetRight="0dp"
+				android:insetBottom="0dp"
+				app:icon="@drawable/ic_filter_funnel"
+				app:iconGravity="textStart"
+				app:iconPadding="0dp"
+				app:iconSize="24dp"
+				app:iconTint="?attr/colorTopBarIcon" />
+
+			<View
+				android:id="@+id/filter_dot"
+				android:layout_width="9dp"
+				android:layout_height="9dp"
+				android:layout_gravity="top|end"
+				android:layout_marginTop="9dp"
+				android:layout_marginEnd="9dp"
+				android:background="@drawable/bg_filter_dot"
+				android:importantForAccessibility="no"
+				android:visibility="gone" />
+
+		</FrameLayout>
+
+	</LinearLayout>
+
+	<!-- Second line: the Manga | Anime tabs (styled like the Favourites category tabs) and, on the Sync library only,
+	     the synchronize button at the far end, directly under the filter icon of the line above. The row only shows
+	     when it has something to hold (tabs and/or the sync button). -->
+	<LinearLayout
+		android:id="@+id/tabs_row"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_marginTop="-10dp"
+		android:gravity="center_vertical|end"
+		android:orientation="horizontal"
+		android:paddingEnd="4dp"
+		android:visibility="gone"
+		tools:visibility="visible">
+
+		<com.google.android.material.tabs.TabLayout
+			android:id="@+id/tabs"
+			android:layout_width="0dp"
+			android:layout_height="wrap_content"
+			android:layout_weight="1"
+			android:background="@null"
+			android:visibility="gone"
+			app:tabGravity="start"
+			app:tabMode="scrollable"
+			tools:visibility="visible" />
+
+		<!-- Synchronize: only on the Sync library -->
+		<com.google.android.material.button.MaterialButton
+			android:id="@+id/button_sync"
+			style="?materialIconButtonStyle"
+			android:layout_width="48dp"
+			android:layout_height="48dp"
+			android:contentDescription="@string/ds_sync_now"
+			android:padding="0dp"
+			android:insetLeft="0dp"
+			android:insetTop="0dp"
+			android:insetRight="0dp"
+			android:insetBottom="0dp"
+			android:visibility="gone"
+			app:icon="@drawable/ic_sync"
+			app:iconGravity="textStart"
+			app:iconPadding="0dp"
+			app:iconSize="24dp"
+			app:iconTint="?attr/colorTopBarIcon"
+			tools:visibility="visible" />
+
+	</LinearLayout>
+
+	<TextView
+		android:id="@+id/text_warning"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:paddingHorizontal="20dp"
+		android:paddingBottom="4dp"
+		android:textAppearance="?attr/textAppearanceBodySmall"
+		android:textColor="?attr/colorError"
+		android:visibility="gone" />
+
+	<FrameLayout
+		android:layout_width="match_parent"
+		android:layout_height="0dp"
+		android:layout_weight="1">
+
+		<androidx.recyclerview.widget.RecyclerView
+			android:id="@+id/list"
+			android:layout_width="match_parent"
+			android:layout_height="match_parent"
+			android:clipChildren="false"
+			android:clipToPadding="false"
+			android:padding="@dimen/list_spacing_normal" />
+
+		<com.google.android.material.progressindicator.CircularProgressIndicator
+			android:id="@+id/progress"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_gravity="center"
+			android:indeterminate="true" />
+
+		<TextView
+			android:id="@+id/text_empty"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_gravity="center"
+			android:gravity="center"
+			android:paddingHorizontal="32dp"
+			android:text="@string/ds_sync_empty"
+			android:textColor="?attr/colorOnSurfaceVariant"
+			android:visibility="gone" />
+
+	</FrameLayout>
+
+</LinearLayout>

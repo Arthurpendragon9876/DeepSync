@@ -54,14 +54,28 @@ class ReadingProgressView @JvmOverloads constructor(
 	private var text: String = ""
 	private var isCompleted: Boolean = false
 
+	/** The text the current [progress] asks for; empty when there is nothing to show. */
+	private var progressText: String = ""
+
+	/**
+	 * A plain count ("141"), drawn in this same pill when there is no [progress] to show (the title's length is
+	 * unknown, so there is no "read/total" ratio). Zero or less shows nothing. Used by the tracker libraries so a
+	 * count and a ratio look alike instead of the count getting a separate round badge.
+	 */
+	var count: Int = 0
+		set(value) {
+			if (field == value) return
+			field = value
+			refresh()
+		}
+
 	var progress: ReadingProgress? = null
 		set(value) {
 			field = value
-			val oldCompleted = isCompleted
-			isCompleted = value != null && value.mode != NONE && (
+			isCompletedPending = value != null && value.mode != NONE && (
 				value.isCompleted() || (value.mode == CHAPTERS_READ && value.totalChapters > 0 && (value.percent * value.totalChapters).roundToInt() >= value.totalChapters)
 			)
-			val newText = when (value?.mode) {
+			progressText = when (value?.mode) {
 				null, NONE -> ""
 				PERCENT_READ -> if (value.percent in 0f..1f) {
 					percentPattern.format(ReadingProgress.percentToString(value.percent))
@@ -75,12 +89,27 @@ class ReadingProgressView @JvmOverloads constructor(
 					""
 				}
 			}
-			if (newText != text || isCompleted != oldCompleted) {
-				text = newText
-				requestLayout()
-				invalidate()
-			}
+			refresh()
 		}
+
+	private var isCompletedPending: Boolean = false
+
+	/** A real progress always wins; the count only fills the pill when there is none. */
+	private fun refresh() {
+		val hasProgress = progressText.isNotEmpty() || isCompletedPending
+		val newCompleted = hasProgress && isCompletedPending
+		val newText = when {
+			hasProgress -> progressText
+			count > 0 -> count.toString()
+			else -> ""
+		}
+		if (newText != text || newCompleted != isCompleted) {
+			text = newText
+			isCompleted = newCompleted
+			requestLayout()
+			invalidate()
+		}
+	}
 
 	init {
 		if (isInEditMode) {

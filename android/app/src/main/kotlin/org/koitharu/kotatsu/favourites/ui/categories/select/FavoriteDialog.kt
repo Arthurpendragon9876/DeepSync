@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.Icon
@@ -67,7 +65,9 @@ class FavoriteDialog : ComposeAlertDialogFragment() {
 			icon = painterResource(R.drawable.ic_heart),
 			title = title,
 		) {
-			Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+			// ExpressiveDialogCard already wraps its body in a verticalScroll; nesting another one here
+			// crashes with infinite max height constraints, so this Column must not scroll itself.
+			Column(modifier = Modifier.fillMaxWidth()) {
 				val categories = content.filterIsInstance<MangaCategoryItem>()
 				if (categories.isNotEmpty()) {
 					FlowRow(

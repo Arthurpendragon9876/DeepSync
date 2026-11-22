@@ -222,26 +222,36 @@ class FavouritesListViewModel @Inject constructor(
 			quickFilter.appliedOptions.combineWithSettings(),
 			limit,
 			pinnedIds,
-			mihonExtensionManager.isReady,
-		) { order, filters, limit, pinned, _ ->
+			readyAndMode(),
+		) { order, filters, limit, pinned, mode ->
 			isPaginationReady.set(false)
-			repository.observeAll(order, filters, limit, pinned.takeIfDefaultState(filters))
-		}.flattenLatest().filterByMode()
+			repository.observeAll(order, filters, limit, pinned.takeIfDefaultState(filters)).filterByMode(mode, filters)
+		}.flattenLatest()
 	} else {
 		combine(
 			quickFilter.appliedOptions.combineWithSettings(),
 			limit,
 			pinnedIds,
-			mihonExtensionManager.isReady,
-		) { filters, limit, pinned, _ ->
-			repository.observeAll(categoryId, filters, limit, pinned.takeIfDefaultState(filters))
-		}.flattenLatest().filterByMode()
+			readyAndMode(),
+		) { filters, limit, pinned, mode ->
+			repository.observeAll(categoryId, filters, limit, pinned.takeIfDefaultState(filters)).filterByMode(mode, filters)
+		}.flattenLatest()
 	}
 
-	/** Anime / Manga / Novel are separate worlds: keep only the active mode's titles. */
-	private fun kotlinx.coroutines.flow.Flow<List<Manga>>.filterByMode() = combine(
+	/** Extensions loading finished + the active content mode, so either one re-runs the query. */
+	private fun readyAndMode() = combine(
+		mihonExtensionManager.isReady,
 		settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
-	) { list, mode -> list.filter { it.source.contentMode == mode } }
+	) { _, mode -> mode }
+
+	/**
+	 * Anime / Manga / Novel are separate worlds: keep only the active mode's titles. The "On device" filter already
+	 * did this on the original titles (its results are downloaded copies whose source is always "Local").
+	 */
+	private fun kotlinx.coroutines.flow.Flow<List<Manga>>.filterByMode(
+		mode: org.koitharu.kotatsu.home.ui.model.HomeMode,
+		filters: Set<ListFilterOption>,
+	) = if (ListFilterOption.Downloaded in filters) this else map { list -> list.filter { it.source.contentMode == mode } }
 
 	// Pins apply only in the default (unfiltered) state; the global SFW option is a setting, not a user filter
 	private fun List<Long>.takeIfDefaultState(filters: Set<ListFilterOption>): List<Long> =

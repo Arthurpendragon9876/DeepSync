@@ -7,6 +7,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-22
+
+Stable release. It follows three betas (0.1.2-beta.1 to beta.3) and is meant for everyday use, but it is still young software: please report anything odd. If Android refuses to install it over an earlier version, uninstall once and restore from your backup or cloud sync.
+
+This section lists what is new since 0.1.2-beta.3. Everything from the betas below is included.
+
+### Added
+- **Player style**: Settings > Player > Player style lets you pick the control layout from preview tiles: **Yugen** (the default), **Kototoro** or **Simple modern**. It applies the next time a video opens.
+- **Redesigned player pop-ups**: settings, speed, subtitles, audio, servers and episodes open as a side panel in landscape and as a bottom sheet in portrait. A new **Episodes** list in the player's More menu shows a preview image for each episode.
+- **Extension recommendations for anime**: the extension catalog now also suggests the Aniyomi extensions your library needs but you have not installed, as it already did for manga.
+- **Keep favourite categories in every mode** (Settings > Appearance): favourites lists show the titles of the current mode (Manga, Anime or Novel), and a category that is empty in a mode is hidden there unless this switch is on.
+- **Search in the tracker libraries**: the Sync library and the tracker libraries have a search field.
+
+### Changed
+- **Library filters moved behind a filter icon** next to the search bar, like Explore's. The Reading / Planning / Completed / ... chips and the tracker chips no longer take space above the covers. The sheet keeps the counts, and a small dot on the icon shows that something other than Reading is selected.
+- Tracker library entries show their count in the same pill as reading progress, instead of a separate round badge.
+- **Explore's header matches Home's**: the same height, and the Manga | Anime | Novel chip has no background on either tab.
+
+### Fixed
+- **A new episode (or chapter) no longer moves your progress forward by itself.** When the source changed an episode's internal id, the app worked out where you were from the saved percentage measured against the *new*, longer list, so 6 of 6 became 7 of 7 the moment episode 7 appeared, with nothing in the feed and no notification. It now uses the count that was saved with your position.
+- **Anime updates now show in the Feed.** Entries were cut to the 20 most recent *before* the Manga / Anime / Novel filter was applied, so a run of manga updates pushed anime out of view, and switching mode did not refresh the list.
+- **No empty strip above Home and Explore.** The top bar collapses cleanly while either tab is shown, so the page below it is no longer pushed down by the bar's old height.
+- **The local library keeps up with your files.** The local index now notices when the files on disk changed and rebuilds itself.
+
 ## [0.1.2-beta.3] - 2026-11-21
 
 Third beta of **Yugen**, the Android app of the **DeepSync** project. It follows 0.1.2-beta.2 and is meant for testing, so expect rough edges and please report them. It installs over beta 2, beta 1 and 0.1.0 (same package id). Everything below is new since beta 2; the changes are ported from DropSauce 1.1.3 and 1.1.4.

@@ -92,14 +92,18 @@ abstract class MangaDao {
 	abstract suspend fun findMigratedMangaWithAbsoluteUrl(): List<MangaWithTags>
 
 	/**
-	 * Distinct external (`MIHON_<id>`) source names referenced by the user's library (favourites or
-	 * history). Used to recommend installing the matching extensions for migrated entries whose
+	 * Distinct external (`MIHON_<id>`, `LN_<id>`, `ANIME_<id>`) source names referenced by the user's library
+	 * (favourites or history). Used to recommend installing the matching extensions for entries whose
 	 * extension isn't installed yet.
 	 */
 	@Query(
 		"""
 		SELECT DISTINCT source FROM manga
-		WHERE (source LIKE 'MIHON\_%' ESCAPE '\' OR source LIKE 'LN\_%' ESCAPE '\')
+		WHERE (
+				source LIKE 'MIHON\_%' ESCAPE '\'
+				OR source LIKE 'LN\_%' ESCAPE '\'
+				OR source LIKE 'ANIME\_%' ESCAPE '\'
+			)
 			AND manga_id IN (
 				SELECT manga_id FROM favourites WHERE deleted_at = 0
 				UNION SELECT manga_id FROM history WHERE deleted_at = 0
