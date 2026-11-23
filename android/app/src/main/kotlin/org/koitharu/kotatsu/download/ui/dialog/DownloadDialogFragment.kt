@@ -110,7 +110,7 @@ class DownloadDialogFragment : ComposeAlertDialogFragment() {
 		) {
 			Column(
 				modifier = Modifier
-					.verticalScroll(rememberScrollState())
+					.fillMaxWidth()
 					.animateContentSize(),
 			) {
 				// Whole manga
