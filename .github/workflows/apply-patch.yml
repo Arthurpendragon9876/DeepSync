@@ -1,0 +1,45 @@
+name: Apply patch
+
+on:
+  workflow_dispatch:
+    inputs:
+      patch_file:
+        description: Patch file path in the repo
+        default: novel-reader-bar-and-settings.patch
+      branch:
+        description: Branch to create with the result
+        default: patch/novel-reader-bar-and-settings
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check patch applies
+        run: git apply --check -p2 "${{ inputs.patch_file }}"
+
+      - name: Apply patch
+        run: |
+          git apply -p2 --whitespace=nowarn "${{ inputs.patch_file }}"
+          git rm -q --cached "${{ inputs.patch_file }}" || true
+          rm -f "${{ inputs.patch_file }}"
+
+      - name: Commit to new branch and open PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${{ inputs.branch }}"
+          git add -A
+          git commit -m "Apply novel reader bar and settings patch"
+          git push origin "${{ inputs.branch }}"
+          gh pr create --base "${{ github.event.repository.default_branch }}" \
+            --head "${{ inputs.branch }}" \
+            --title "Novel reader bar and settings" \
+            --body "Applied from patch file via workflow."
