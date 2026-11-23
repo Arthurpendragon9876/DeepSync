@@ -389,6 +389,11 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		get() = prefs.getString(KEY_EPUB_TTS_VOICE_NAME, null)
 		set(value) = prefs.edit { if (value == null) remove(KEY_EPUB_TTS_VOICE_NAME) else putString(KEY_EPUB_TTS_VOICE_NAME, value) }
 
+	/** Shows the floating Listen button in the novel reader; off until the user turns it on in the reader settings. */
+	var isEpubTtsEnabled: Boolean
+		get() = prefs.getBoolean(KEY_EPUB_TTS_ENABLED, false)
+		set(value) = prefs.edit { putBoolean(KEY_EPUB_TTS_ENABLED, value) }
+
 	/** Keep the spoken sentence on screen while listening. */
 	var isEpubTtsFollowEnabled: Boolean
 		get() = prefs.getBoolean(KEY_EPUB_TTS_FOLLOW, true)
@@ -1725,6 +1730,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_EPUB_TTS_SPEED = "epub_tts_speed"
 		const val KEY_EPUB_TTS_VOICE_NAME = "epub_tts_voice_name"
 		const val KEY_EPUB_TTS_SLOT_VOICES = "epub_tts_slot_voices_"
+		const val KEY_EPUB_TTS_ENABLED = "epub_tts_enabled"
 		const val KEY_EPUB_TTS_FOLLOW = "epub_tts_follow"
 		const val KEY_EPUB_TTS_AUTO_ADVANCE = "epub_tts_auto_advance"
 		const val KEY_EPUB_TTS_VOICE = "epub_tts_voice_index"

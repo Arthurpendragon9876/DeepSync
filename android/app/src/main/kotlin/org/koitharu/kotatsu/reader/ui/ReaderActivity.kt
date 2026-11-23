@@ -308,6 +308,11 @@ class ReaderActivity :
             viewModel.getCurrentState()?.chapterId?.let { viewModel.openChapterInBrowser(it, external = true) }
         }
         novelChrome.onChaptersClick = { router.showChapterPagesSheet() }
+        novelChrome.onRotateClick = ::toggleScreenOrientation
+        novelChrome.isRotationLocked = { screenOrientationHelper.isLocked }
+        novelChrome.onPrevChapter = { (readerManager.currentReader as? EpubReaderFragment)?.skipChapter(-1) }
+        novelChrome.onNextChapter = { (readerManager.currentReader as? EpubReaderFragment)?.skipChapter(1) }
+        novelChrome.onSeekChapter = { permille -> (readerManager.currentReader as? EpubReaderFragment)?.seekChapterPermille(permille) }
         novelChrome.onListenClick = ::onTextToSpeechClick
         novelChrome.onSearchClick = ::openEpubSearch
         novelChrome.onAutoScrollClick = { onScrollTimerClick(isLongClick = true) }
