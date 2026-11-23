@@ -53,6 +53,7 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -219,6 +220,15 @@ internal fun rememberChromeColors(): ChromeColors {
 
 internal val Bar: ChromeColors
 	@Composable @ReadOnlyComposable get() = LocalChromeColors.current
+
+/**
+ * Bumped after every write to [AppSettings]. The settings are plain SharedPreferences, not Compose state, so
+ * every page of the sheet reads this (through [observeSettingsRevision]) to be redrawn with the new values.
+ */
+internal val LocalSettingsRevision = compositionLocalOf { 0 }
+
+@Composable
+internal fun observeSettingsRevision(): Int = LocalSettingsRevision.current
 
 @Composable
 fun NovelReaderChrome(state: NovelChromeState, settings: AppSettings, tts: ReaderTts) {
@@ -741,6 +751,7 @@ private fun NovelSettingsPanel(
 	LaunchedEffect(sheet, page) { scroll.scrollTo(0) }
 	DisposableEffect(Unit) { onDispose { state.setRegion("panel", null) } }
 
+	CompositionLocalProvider(LocalSettingsRevision provides tick) {
 	Surface(
 		modifier = Modifier
 			.fillMaxWidth()
@@ -800,6 +811,7 @@ private fun NovelSettingsPanel(
 			}
 		}
 	}
+	}
 }
 
 // ---- main sheet pages -----------------------------------------------------------------------
@@ -815,6 +827,7 @@ private fun ReadingPage(
 	onOpenAdvanced: () -> Unit,
 	onOpenPresets: () -> Unit,
 ) {
+	observeSettingsRevision()
 	val modes = NovelMode.entries.filter { ttsEnabled || it != NovelMode.TTS }
 	val current = when {
 		state.ttsOpen -> NovelMode.TTS
@@ -999,6 +1012,7 @@ private fun MorePage(
 	refresh: () -> Unit,
 	onTtsEnabledChange: (Boolean) -> Unit,
 ) {
+	observeSettingsRevision()
 	ToggleRow("Bionic reading", settings.isEpubBionicReadingEnabled, "Bold word prefixes for faster scanning") {
 		settings.isEpubBionicReadingEnabled = it; refresh()
 	}
@@ -1019,6 +1033,7 @@ private fun MorePage(
 
 @Composable
 private fun ExtraPage(state: NovelChromeState, settings: AppSettings, rev: Int, refresh: () -> Unit, onDismiss: () -> Unit) {
+	observeSettingsRevision()
 	ToggleRow("Translate chapters", settings.isNovelTranslationEnabled, "Auto-localize translated webnovel prose") {
 		settings.isNovelTranslationEnabled = it; refresh()
 	}
@@ -1053,6 +1068,7 @@ private fun AdvancedView(
 	onBack: () -> Unit,
 	onPresets: () -> Unit,
 ) {
+	observeSettingsRevision()
 	val modified = countModified(settings)
 	Row(
 		modifier = Modifier.fillMaxWidth(),
@@ -1217,6 +1233,7 @@ private fun SheetCard(content: @Composable () -> Unit) {
 
 @Composable
 private inline fun PresetsTab(settings: AppSettings, noinline refresh: () -> Unit, rev: Int) {
+	observeSettingsRevision()
 	Surface(
 		shape = RoundedCornerShape(12.dp),
 		color = Bar.accentSubtle,
@@ -1318,6 +1335,7 @@ private inline fun PresetsTab(settings: AppSettings, noinline refresh: () -> Uni
 
 @Composable
 private inline fun TextTab(settings: AppSettings, noinline refresh: () -> Unit, rev: Int) {
+	observeSettingsRevision()
 	Section("Font size", "${settings.epubFontSize}%") {
 		SliderRow(settings.epubFontSize.toFloat(), 50f..200f) { settings.epubFontSize = it.roundToInt(); refresh() }
 	}
@@ -1356,6 +1374,7 @@ private inline fun TextTab(settings: AppSettings, noinline refresh: () -> Unit, 
 
 @Composable
 private inline fun LayoutTab(settings: AppSettings, noinline refresh: () -> Unit, rev: Int) {
+	observeSettingsRevision()
 	Section("Horizontal margin", "${settings.epubHorizontalPadding} dp") {
 		SliderRow(settings.epubHorizontalPadding.toFloat(), 0f..64f) { settings.epubHorizontalPadding = it.roundToInt(); refresh() }
 	}
@@ -1381,6 +1400,7 @@ private inline fun LayoutTab(settings: AppSettings, noinline refresh: () -> Unit
 
 @Composable
 private inline fun ThemeTab(settings: AppSettings, noinline refresh: () -> Unit, rev: Int) {
+	observeSettingsRevision()
 	val themes = listOf(
 		Triple("system", Color(0xFF1B1B1F), Color(0xFFE4E4E8)),
 		Triple("white", Color(0xFFFFFFFF), Color(0xFF1B1B1F)),
@@ -1550,8 +1570,14 @@ internal fun ChipFlow(
 
 @Composable
 internal fun ToggleRow(label: String, checked: Boolean, subtitle: String? = null, onChange: (Boolean) -> Unit) {
+	// The row keeps the value it shows, so the switch flips the moment it is tapped and the next tap reverses it,
+	// even if the caller only learns the new value from a preference that Compose cannot observe.
+	var shown by remember(checked) { mutableStateOf(checked) }
 	Surface(
-		onClick = { onChange(!checked) },
+		onClick = {
+			shown = !shown
+			onChange(shown)
+		},
 		shape = RoundedCornerShape(18.dp),
 		color = Bar.surfaceVariant,
 	) {
@@ -1569,12 +1595,12 @@ internal fun ToggleRow(label: String, checked: Boolean, subtitle: String? = null
 				}
 			}
 			Spacer(Modifier.size(12.dp))
-			val knobX by animateDpAsState(if (checked) 20.dp else 0.dp, label = "knob")
+			val knobX by animateDpAsState(if (shown) 20.dp else 0.dp, label = "knob")
 			Box(
 				modifier = Modifier
 					.size(46.dp, 26.dp)
 					.clip(CircleShape)
-					.background(if (checked) Bar.textPrimary else Bar.surfaceElevated)
+					.background(if (shown) Bar.textPrimary else Bar.surfaceElevated)
 					.padding(3.dp),
 			) {
 				Box(
@@ -1582,7 +1608,7 @@ internal fun ToggleRow(label: String, checked: Boolean, subtitle: String? = null
 						.offset(x = knobX)
 						.size(20.dp)
 						.clip(CircleShape)
-						.background(if (checked) Bar.background else Bar.textMuted),
+						.background(if (shown) Bar.background else Bar.textMuted),
 				)
 			}
 		}
