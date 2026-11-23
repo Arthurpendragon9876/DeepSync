@@ -5,12 +5,16 @@ package org.koitharu.kotatsu.reader.ui.epub
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -64,6 +68,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -319,7 +326,7 @@ private fun NovelTopBar(state: NovelChromeState) {
 						modifier = Modifier
 							.size(48.dp)
 							.combinedClickable(
-								indication = null,
+								indication = LocalIndication.current,
 								interactionSource = remember { MutableInteractionSource() },
 								onClick = state.onWebClick,
 								onLongClick = state.onWebLongClick,
@@ -366,7 +373,7 @@ private fun NovelTopBar(state: NovelChromeState) {
 // Bottom bar
 // ---------------------------------------------------------------------------------------------
 
-private val BottomBarHeight = 58.dp
+private val BottomBarHeight = 68.dp
 
 @Composable
 private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
@@ -414,8 +421,8 @@ private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
 				Row(
 					modifier = Modifier
 						.fillMaxSize()
-						.padding(horizontal = 8.dp),
-					horizontalArrangement = Arrangement.spacedBy(6.dp),
+						.padding(horizontal = 10.dp),
+					horizontalArrangement = Arrangement.spacedBy(4.dp),
 					verticalAlignment = Alignment.CenterVertically,
 				) {
 					BarIconButton(R.drawable.ic_list, "Chapters", Bar.textPrimary) { state.onChaptersClick() }
@@ -430,6 +437,7 @@ private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
 						icon = if (showSettings) R.drawable.ic_close else R.drawable.ic_tune,
 						label = "Settings",
 						tint = if (showSettings) Bar.accent else Bar.textPrimary,
+						rotation = if (showSettings) 90f else 0f,
 					) { showSettings = !showSettings }
 				}
 			}
@@ -445,7 +453,7 @@ private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
 				modifier = Modifier
 					.align(Alignment.BottomEnd)
 					.padding(end = 14.dp, bottom = state.bottomInset + 8.dp + BottomBarHeight + 12.dp)
-					.size(44.dp)
+					.size(52.dp)
 					.onGloballyPositioned { state.setRegion("fab", it.boundsInWindow()) },
 			) {
 				Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -453,7 +461,7 @@ private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
 						painter = painterResource(R.drawable.ic_novel_headphones),
 						contentDescription = "Listen",
 						tint = Bar.background,
-						modifier = Modifier.size(22.dp),
+						modifier = Modifier.size(26.dp),
 					)
 				}
 			}
@@ -461,14 +469,50 @@ private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
 	}
 }
 
+/**
+ * Bottom-bar button: a soft halo fades in behind the icon while the finger is down, and the icon itself
+ * dips with the app's pulse press effect (the halo is drawn before the clickable, so only the icon moves).
+ */
 @Composable
-private fun BarIconButton(icon: Int, label: String, tint: Color, small: Boolean = false, onClick: () -> Unit) {
-	IconButton(onClick = onClick, modifier = Modifier.size(if (small) 32.dp else 40.dp, 44.dp)) {
+private fun BarIconButton(
+	icon: Int,
+	label: String,
+	tint: Color,
+	small: Boolean = false,
+	rotation: Float = 0f,
+	onClick: () -> Unit,
+) {
+	val source = remember { MutableInteractionSource() }
+	val pressed by source.collectIsPressedAsState()
+	val halo = animateFloatAsState(if (pressed) 1f else 0f, tween(if (pressed) 70 else 260), label = "halo")
+	val turn by animateFloatAsState(rotation, tween(240), label = "turn")
+	val haloColor = Bar.textPrimary
+	Box(
+		modifier = Modifier
+			.size(if (small) 42.dp else 50.dp, 54.dp)
+			.drawBehind {
+				val a = 0.16f * halo.value
+				if (a > 0f) {
+					drawRoundRect(haloColor.copy(alpha = a), cornerRadius = CornerRadius(size.minDimension / 2f))
+				}
+			}
+			.clip(CircleShape)
+			.clickable(
+				interactionSource = source,
+				indication = LocalIndication.current,
+				role = Role.Button,
+				onClickLabel = label,
+				onClick = onClick,
+			),
+		contentAlignment = Alignment.Center,
+	) {
 		Icon(
 			painter = painterResource(icon),
 			contentDescription = label,
 			tint = tint,
-			modifier = Modifier.size(if (small) 18.dp else 22.dp),
+			modifier = Modifier
+				.size(if (small) 22.dp else 26.dp)
+				.rotate(turn),
 		)
 	}
 }
@@ -486,9 +530,11 @@ private fun CapsuleSlider(permille: Int, onSeek: (Int) -> Unit, modifier: Modifi
 	val rail = Bar.surfaceVariant
 	val fill = Bar.textPrimary
 	val dot = Bar.surface
+	// The capsule swells while a finger is on it, so touching it gives visible feedback
+	val swell = animateFloatAsState(if (drag != null) 1f else 0f, tween(160), label = "swell")
 	Canvas(
 		modifier = modifier
-			.height(28.dp)
+			.height(40.dp)
 			.pointerInput(Unit) {
 				awaitEachGesture {
 					val down = awaitFirstDown(requireUnconsumed = false)
@@ -517,15 +563,15 @@ private fun CapsuleSlider(permille: Int, onSeek: (Int) -> Unit, modifier: Modifi
 				}
 			},
 	) {
-		val railH = 12.dp.toPx()
+		val railH = (16f + 6f * swell.value).dp.toPx()
 		val top = (size.height - railH) / 2f
 		val radius = CornerRadius(railH / 2f, railH / 2f)
 		drawRoundRect(rail, Offset(0f, top), Size(size.width, railH), radius)
 		if (fraction > 0.002f) {
 			val fillW = (size.width * fraction).coerceAtLeast(railH)
 			drawRoundRect(fill, Offset(0f, top), Size(fillW, railH), radius)
-			val dotR = 1.65.dp.toPx()
-			val pitch = 7.8.dp.toPx()
+			val dotR = 1.9.dp.toPx()
+			val pitch = 9.dp.toPx()
 			clipRect(left = 0f, top = top, right = fillW, bottom = top + railH) {
 				var x = 6.dp.toPx() + dotR
 				while (x < fillW) {
@@ -537,14 +583,14 @@ private fun CapsuleSlider(permille: Int, onSeek: (Int) -> Unit, modifier: Modifi
 			val markX = (size.width * fraction - markW / 2f).coerceIn(0f, size.width - markW)
 			drawRoundRect(
 				fill.copy(alpha = 0.35f),
-				Offset(markX - 2.dp.toPx(), size.height / 2f - 11.dp.toPx()),
-				Size(markW + 4.dp.toPx(), 22.dp.toPx()),
+				Offset(markX - 2.dp.toPx(), size.height / 2f - 14.dp.toPx()),
+				Size(markW + 4.dp.toPx(), 28.dp.toPx()),
 				CornerRadius(3.5.dp.toPx()),
 			)
 			drawRoundRect(
 				fill,
-				Offset(markX, size.height / 2f - 9.dp.toPx()),
-				Size(markW, 18.dp.toPx()),
+				Offset(markX, size.height / 2f - 12.dp.toPx()),
+				Size(markW, 24.dp.toPx()),
 				CornerRadius(markW / 2f),
 			)
 		}
