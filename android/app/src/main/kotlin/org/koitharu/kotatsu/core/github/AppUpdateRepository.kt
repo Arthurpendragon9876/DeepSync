@@ -24,6 +24,9 @@ import javax.inject.Singleton
 
 private const val CONTENT_TYPE_APK = "application/vnd.android.package-archive"
 
+// The repository also hosts the desktop apps (shinkai-v*, yomi-v*): only Android tags are updates
+private const val ANDROID_TAG_PREFIX = "android-v"
+
 @Singleton
 class AppUpdateRepository @Inject constructor(
 	@BaseHttpClient private val okHttp: OkHttpClient,
@@ -34,7 +37,7 @@ class AppUpdateRepository @Inject constructor(
 	private val releasesUrl = buildString {
 		append("https://api.github.com/repos/")
 		append(context.getString(R.string.github_updates_repo))
-		append("/releases?page=1&per_page=10")
+		append("/releases?page=1&per_page=30")
 	}
 	private val currentVersionName = context.packageManager
 		.getPackageInfo(context.packageName, 0)
@@ -52,16 +55,25 @@ class AppUpdateRepository @Inject constructor(
 			.url(releasesUrl)
 		val jsonArray = okHttp.newCall(request.build()).await().parseJsonArray()
 		return jsonArray.mapJSONNotNull { json ->
+			if (json.optBoolean("draft")) {
+				return@mapJSONNotNull null
+			}
+			val tag = json.optString("tag_name")
+			if (!tag.startsWith(ANDROID_TAG_PREFIX)) {
+				return@mapJSONNotNull null
+			}
 			val asset = json.optJSONArray("assets")?.find { jo ->
-				jo.optString("content_type") == CONTENT_TYPE_APK
+				jo.optString("content_type") == CONTENT_TYPE_APK ||
+					jo.optString("name").endsWith(".apk", ignoreCase = true)
 			} ?: return@mapJSONNotNull null
 			AppVersion(
 				id = json.getLong("id"),
 				url = json.getString("html_url"),
-				name = json.getString("name").removePrefix("v"),
+				// The release title is "Yugen 0.1.3", so the version is read from the tag (android-v0.1.3)
+				name = tag.removePrefix(ANDROID_TAG_PREFIX),
 				apkSize = asset.getLong("size"),
 				apkUrl = asset.getString("browser_download_url"),
-				description = json.getString("body"),
+				description = if (json.isNull("body")) "" else json.getString("body"),
 			)
 		}
 	}
@@ -87,14 +99,13 @@ class AppUpdateRepository @Inject constructor(
 	}
 
 	/**
-	 * Off on purpose: this build is a fork, and the release feed it would poll belongs to the original
-	 * DropSauce. Offering its APKs here replaced the fork with upstream. With this `false`,
-	 * [fetchUpdate] never queries GitHub, so the Settings banner, the main-screen prompt and the
-	 * dot on the settings button never appear.
+	 * On: the feed is this fork's own repository (github_updates_repo) and only its android-v* releases
+	 * count, so the desktop releases and the original DropSauce can never be offered here. Normal
+	 * releases and patch releases (0.1.3-patch.1) both arrive through it.
 	 */
 	@Suppress("RedundantSuspendModifier")
 	suspend fun isUpdateSupported(): Boolean {
-		return false
+		return true
 	}
 
 	private inline fun JSONArray.find(predicate: (JSONObject) -> Boolean): JSONObject? {

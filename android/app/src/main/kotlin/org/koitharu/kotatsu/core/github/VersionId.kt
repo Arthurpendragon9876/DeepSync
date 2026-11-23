@@ -36,12 +36,18 @@ data class VersionId(
 		"b", "beta" -> 2
 		"rc" -> 4
 		"" -> 8
+		// A patch (0.1.3-patch.1) is a fix shipped on top of the stable 0.1.3, so it ranks above it
+		"patch" -> 16
 		else -> 0
 	}
 }
 
+val VersionId.isPatch: Boolean
+	get() = variantType.equals("patch", ignoreCase = true)
+
+/** Patches count as stable: they are published as normal releases, not pre-releases. */
 val VersionId.isStable: Boolean
-	get() = variantType.isEmpty()
+	get() = variantType.isEmpty() || isPatch
 
 fun VersionId(versionName: String): VersionId {
 	if (versionName.contains("nightly", ignoreCase = true) ||
