@@ -529,6 +529,9 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 	private val headerTitlePaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
 	private val headerCountPaint = TextPaint(Paint.ANTI_ALIAS_FLAG)
 
+	/** Chapter title -> its name without the "Chapter 12:" lead-in, so the header isn't redrawn every frame. */
+	private val headerNames = HashMap<String, String>()
+
 	/** Height reserved above each chapter for its header block (scroll mode only). */
 	private val chapterHeaderHeightPx: Int
 		get() = if (settings.isEpubChapterHeaderEnabled) (CHAPTER_HEADER_HEIGHT_DP * resources.displayMetrics.density).toInt() else 0
@@ -559,14 +562,18 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 				val top = child.top + child.translationY - height
 				val chapter = chapters[position]
 				val label = getString(R.string.epub_chapter_header_label, position + 1)
-				val title = chapter.title.ifBlank { label }
+				// The small label above already carries the number, so the title shows only the chapter's name
+				val name = headerNames.getOrPut(chapter.title) {
+					ChapterTitles.nameOf(chapter.title, maxOf(chapters.size * 2, 999))
+				}
+				val title = name.ifBlank { chapter.title.ifBlank { label } }
 				val maxWidth = parent.width - 48f * density
 				val fitted = TextUtils.ellipsize(title, headerTitlePaint, maxWidth, TextUtils.TruncateAt.END).toString()
 				val count = getString(R.string.epub_chapter_header_count, position + 1, chapters.size)
 				headerLabelPaint.textAlign = Paint.Align.CENTER
 				headerTitlePaint.textAlign = Paint.Align.CENTER
 				headerCountPaint.textAlign = Paint.Align.CENTER
-				canvas.drawText(label, centerX, top + 36f * density, headerLabelPaint)
+				if (name.isNotBlank()) canvas.drawText(label, centerX, top + 36f * density, headerLabelPaint)
 				canvas.drawText(fitted, centerX, top + 76f * density, headerTitlePaint)
 				canvas.drawText(count, centerX, top + 102f * density, headerCountPaint)
 			}
