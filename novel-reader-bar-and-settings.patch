@@ -1,0 +1,1408 @@
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt	2026-11-23 04:23:22.000000000 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt	2026-11-23 07:26:05.905047883 +0000
+@@ -389,6 +389,11 @@
+ 		get() = prefs.getString(KEY_EPUB_TTS_VOICE_NAME, null)
+ 		set(value) = prefs.edit { if (value == null) remove(KEY_EPUB_TTS_VOICE_NAME) else putString(KEY_EPUB_TTS_VOICE_NAME, value) }
+ 
++	/** Shows the floating Listen button in the novel reader; off until the user turns it on in the reader settings. */
++	var isEpubTtsEnabled: Boolean
++		get() = prefs.getBoolean(KEY_EPUB_TTS_ENABLED, false)
++		set(value) = prefs.edit { putBoolean(KEY_EPUB_TTS_ENABLED, value) }
++
+ 	/** Keep the spoken sentence on screen while listening. */
+ 	var isEpubTtsFollowEnabled: Boolean
+ 		get() = prefs.getBoolean(KEY_EPUB_TTS_FOLLOW, true)
+@@ -1725,6 +1730,7 @@
+ 		const val KEY_EPUB_TTS_SPEED = "epub_tts_speed"
+ 		const val KEY_EPUB_TTS_VOICE_NAME = "epub_tts_voice_name"
+ 		const val KEY_EPUB_TTS_SLOT_VOICES = "epub_tts_slot_voices_"
++		const val KEY_EPUB_TTS_ENABLED = "epub_tts_enabled"
+ 		const val KEY_EPUB_TTS_FOLLOW = "epub_tts_follow"
+ 		const val KEY_EPUB_TTS_AUTO_ADVANCE = "epub_tts_auto_advance"
+ 		const val KEY_EPUB_TTS_VOICE = "epub_tts_voice_index"
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt	2026-11-23 04:23:22.000000000 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt	2026-11-23 07:43:37.567316350 +0000
+@@ -308,6 +308,11 @@
+             viewModel.getCurrentState()?.chapterId?.let { viewModel.openChapterInBrowser(it, external = true) }
+         }
+         novelChrome.onChaptersClick = { router.showChapterPagesSheet() }
++        novelChrome.onRotateClick = ::toggleScreenOrientation
++        novelChrome.isRotationLocked = { screenOrientationHelper.isLocked }
++        novelChrome.onPrevChapter = { (readerManager.currentReader as? EpubReaderFragment)?.skipChapter(-1) }
++        novelChrome.onNextChapter = { (readerManager.currentReader as? EpubReaderFragment)?.skipChapter(1) }
++        novelChrome.onSeekChapter = { permille -> (readerManager.currentReader as? EpubReaderFragment)?.seekChapterPermille(permille) }
+         novelChrome.onListenClick = ::onTextToSpeechClick
+         novelChrome.onSearchClick = ::openEpubSearch
+         novelChrome.onAutoScrollClick = { onScrollTimerClick(isLongClick = true) }
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/EpubReaderFragment.kt proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/EpubReaderFragment.kt
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/EpubReaderFragment.kt	2026-11-23 04:23:22.000000000 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/EpubReaderFragment.kt	2026-11-23 07:26:05.907962565 +0000
+@@ -720,6 +720,23 @@
+ 	}
+ 
+ 	/** Previous/next chapter from the TTS player; keeps speaking from the start of the target. */
++	/** Bottom bar |< / >|: jumps to the start of the previous / next chapter. */
++	fun skipChapter(delta: Int) {
++		if (chapters.isEmpty()) return
++		val target = currentLocator().clamped().chapter + delta
++		if (target !in chapters.indices) return
++		goTo(Locator(target, 0))
++	}
++
++	/** Bottom bar capsule: moves to [permille] (0..1000) of the chapter being read. */
++	fun seekChapterPermille(permille: Int) {
++		if (chapters.isEmpty()) return
++		val index = currentLocator().clamped().chapter
++		val length = chapters[index].text.length
++		if (length <= 0) return
++		goTo(Locator(index, (length.toLong() * permille.coerceIn(0, 1000) / 1000).toInt()))
++	}
++
+ 	fun ttsSkipChapter(delta: Int) {
+ 		val current = tts.position.value?.chapter ?: currentLocator().clamped().chapter
+ 		val target = current + delta
+@@ -1164,6 +1181,10 @@
+ 		if (reflowLocator == null) reflowLocator = currentLocator()
+ 		root.removeCallbacks(rebuildRunnable)
+ 		refreshVisibleStyles()
++		// notifyDataSetChanged keeps the chapter's pixel offset, so a different line height / font size moves the
++		// text under the reader (it looked like scrolling up while dragging the slider). Pin the reading position
++		// again straight away instead of waiting for the delayed rebuild. `restoring` guards against queueing twice.
++		if (!isPagedMode && !restoring) reflowLocator?.let { positionVertical(it) }
+ 		root.postDelayed(rebuildRunnable, REPAGINATE_DELAY_MS)
+ 	}
+ 
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/NovelReaderChrome.kt proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/NovelReaderChrome.kt
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/NovelReaderChrome.kt	2026-11-23 04:23:22.000000000 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/NovelReaderChrome.kt	2026-11-23 07:45:33.197311162 +0000
+@@ -4,6 +4,7 @@
+ 
+ import androidx.compose.animation.AnimatedVisibility
+ import androidx.compose.animation.core.tween
++import androidx.compose.animation.core.animateDpAsState
+ import androidx.compose.animation.fadeIn
+ import androidx.compose.animation.fadeOut
+ import androidx.compose.animation.slideInVertically
+@@ -13,6 +14,7 @@
+ import androidx.compose.foundation.combinedClickable
+ import androidx.compose.foundation.ExperimentalFoundationApi
+ import androidx.compose.foundation.background
++import androidx.compose.foundation.Canvas
+ import androidx.compose.foundation.border
+ import androidx.compose.foundation.horizontalScroll
+ import androidx.compose.foundation.layout.Arrangement
+@@ -25,6 +27,8 @@
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.heightIn
+ import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.IntrinsicSize
++import androidx.compose.foundation.layout.offset
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.shape.CircleShape
+@@ -51,6 +55,7 @@
+ import androidx.compose.runtime.DisposableEffect
+ import androidx.compose.runtime.Stable
+ import androidx.compose.runtime.getValue
++import androidx.compose.runtime.rememberUpdatedState
+ import androidx.compose.runtime.mutableFloatStateOf
+ import androidx.compose.runtime.mutableIntStateOf
+ import androidx.compose.runtime.mutableStateOf
+@@ -58,7 +63,11 @@
+ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.geometry.CornerRadius
+ import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.Size
++import androidx.compose.ui.graphics.drawscope.clipRect
+ import androidx.compose.ui.geometry.Rect
+ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
+@@ -122,6 +131,17 @@
+ 	var onWebLongClick: () -> Unit = {}
+ 	var canOpenWeb: () -> Boolean = { false }
+ 	var onChaptersClick: () -> Unit = {}
++
++	/** Jump to the start of the previous / next chapter (bottom bar |< and >| buttons). */
++	var onPrevChapter: () -> Unit = {}
++	var onNextChapter: () -> Unit = {}
++
++	/** Dragging the capsule: 0..1000 is the position inside the current chapter. */
++	var onSeekChapter: (Int) -> Unit = {}
++
++	/** Rotate-screen tile in the settings sheet: toggles the orientation lock and reports whether it is locked. */
++	var onRotateClick: () -> Unit = {}
++	var isRotationLocked: () -> Boolean = { false }
+ 	var onListenClick: () -> Unit = {}
+ 	var onSearchClick: () -> Unit = {}
+ 	var onAutoScrollClick: () -> Unit = {}
+@@ -193,14 +213,6 @@
+ internal val Bar: ChromeColors
+ 	@Composable @ReadOnlyComposable get() = LocalChromeColors.current
+ 
+-private enum class NovelTab(val title: String, val icon: Int) {
+-	PRESETS("Presets", R.drawable.ic_sparkles),
+-	TEXT("Text", R.drawable.ic_title),
+-	LAYOUT("Layout", R.drawable.ic_move_horizontal),
+-	THEME("Theme", R.drawable.ic_novel_palette),
+-	OPTIONS("Options", R.drawable.ic_settings),
+-}
+-
+ @Composable
+ fun NovelReaderChrome(state: NovelChromeState, settings: AppSettings, tts: ReaderTts) {
+ 	if (!state.active) return
+@@ -354,120 +366,186 @@
+ // Bottom bar
+ // ---------------------------------------------------------------------------------------------
+ 
++private val BottomBarHeight = 58.dp
++
+ @Composable
+ private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
+ 	var showSettings by remember { mutableStateOf(false) }
++	// Hoisted here (not read from AppSettings each frame) so the floating button reacts to the Options toggle.
++	var ttsEnabled by remember { mutableStateOf(settings.isEpubTtsEnabled) }
+ 	androidx.compose.runtime.LaunchedEffect(state.openSettingsTick) {
+ 		if (state.openSettingsTick > 0) showSettings = true
+ 	}
+-	Column(
+-		modifier = Modifier
+-			.fillMaxWidth()
+-			.padding(horizontal = 12.dp)
+-			.padding(bottom = state.bottomInset + 8.dp),
+-	) {
+-		AnimatedVisibility(
+-			visible = showSettings,
+-			enter = slideInVertically(tween(260)) { it } + fadeIn(tween(200)),
+-			exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(150)),
+-		) {
+-			Column {
+-				NovelSettingsPanel(
+-					state = state,
+-					settings = settings,
+-					onDismiss = { showSettings = false },
+-				)
+-				Spacer(Modifier.height(8.dp))
+-			}
+-		}
+-		DisposableEffect(Unit) { onDispose { state.setRegion("bar", null) } }
+-		Surface(
++	Box(modifier = Modifier.fillMaxWidth()) {
++		Column(
+ 			modifier = Modifier
++				.align(Alignment.BottomCenter)
+ 				.fillMaxWidth()
+-				.onGloballyPositioned { state.setRegion("bar", it.boundsInWindow()) },
+-			shape = RoundedCornerShape(Bar.radius),
+-			color = Color.Transparent,
+-			shadowElevation = 0.dp,
++				.padding(horizontal = 12.dp)
++				.padding(bottom = state.bottomInset + 8.dp),
+ 		) {
+-			Box(
++			AnimatedVisibility(
++				visible = showSettings,
++				enter = slideInVertically(tween(260)) { it } + fadeIn(tween(200)),
++				exit = slideOutVertically(tween(200)) { it } + fadeOut(tween(150)),
++			) {
++				Column {
++					NovelSettingsPanel(
++						state = state,
++						settings = settings,
++						ttsEnabled = ttsEnabled,
++						onTtsEnabledChange = { ttsEnabled = it },
++						onDismiss = { showSettings = false },
++					)
++					Spacer(Modifier.height(8.dp))
++				}
++			}
++			DisposableEffect(Unit) { onDispose { state.setRegion("bar", null) } }
++			Surface(
+ 				modifier = Modifier
+ 					.fillMaxWidth()
+-					.background(Bar.surface)
++					.height(BottomBarHeight)
++					.onGloballyPositioned { state.setRegion("bar", it.boundsInWindow()) },
++				shape = RoundedCornerShape(Bar.radius),
++				color = Bar.surface,
++				shadowElevation = 0.dp,
+ 			) {
++				// Chapters | prev chapter | dotted capsule progress | next chapter | settings
+ 				Row(
+ 					modifier = Modifier
+-						.fillMaxWidth()
+-						.padding(horizontal = 8.dp, vertical = 12.dp),
+-					horizontalArrangement = Arrangement.SpaceEvenly,
++						.fillMaxSize()
++						.padding(horizontal = 8.dp),
++					horizontalArrangement = Arrangement.spacedBy(6.dp),
+ 					verticalAlignment = Alignment.CenterVertically,
+ 				) {
+-					BarButton(R.drawable.ic_novel_menu_book, "Chapters", false) { state.onChaptersClick() }
+-					ListenButton { state.onListenClick() }
+-					BarButton(
++					BarIconButton(R.drawable.ic_list, "Chapters", Bar.textPrimary) { state.onChaptersClick() }
++					BarIconButton(R.drawable.ic_novel_chapter_prev, "Previous chapter", Bar.textPrimary, small = true) { state.onPrevChapter() }
++					CapsuleSlider(
++						permille = state.progressPermille,
++						onSeek = { state.onSeekChapter(it) },
++						modifier = Modifier.weight(1f),
++					)
++					BarIconButton(R.drawable.ic_novel_chapter_next, "Next chapter", Bar.textPrimary, small = true) { state.onNextChapter() }
++					BarIconButton(
+ 						icon = if (showSettings) R.drawable.ic_close else R.drawable.ic_tune,
+ 						label = "Settings",
+-						active = showSettings,
++						tint = if (showSettings) Bar.accent else Bar.textPrimary,
+ 					) { showSettings = !showSettings }
+ 				}
+ 			}
+ 		}
++		// Round white Listen button floating above the bar; hidden while the settings panel is open
++		if (ttsEnabled && !showSettings) {
++			DisposableEffect(Unit) { onDispose { state.setRegion("fab", null) } }
++			Surface(
++				onClick = { state.onListenClick() },
++				shape = CircleShape,
++				color = Bar.textPrimary,
++				shadowElevation = 6.dp,
++				modifier = Modifier
++					.align(Alignment.BottomEnd)
++					.padding(end = 14.dp, bottom = state.bottomInset + 8.dp + BottomBarHeight + 12.dp)
++					.size(44.dp)
++					.onGloballyPositioned { state.setRegion("fab", it.boundsInWindow()) },
++			) {
++				Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
++					Icon(
++						painter = painterResource(R.drawable.ic_novel_headphones),
++						contentDescription = "Listen",
++						tint = Bar.background,
++						modifier = Modifier.size(22.dp),
++					)
++				}
++			}
++		}
+ 	}
+ }
+ 
+ @Composable
+-private fun BarButton(icon: Int, label: String, active: Boolean, onClick: () -> Unit) {
+-	Surface(
+-		onClick = onClick,
+-		shape = RoundedCornerShape(16.dp),
+-		color = if (active) Bar.accentMuted else Color.Transparent,
+-	) {
+-		Column(
+-			modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp),
+-			horizontalAlignment = Alignment.CenterHorizontally,
+-		) {
+-			Icon(
+-				painter = painterResource(icon),
+-				contentDescription = label,
+-				tint = if (active) Bar.onAccentMuted else Bar.textMuted,
+-				modifier = Modifier.size(24.dp),
+-			)
+-			Spacer(Modifier.height(4.dp))
+-			Text(
+-				text = label,
+-				fontSize = 11.sp,
+-				fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
+-				color = if (active) Bar.onAccentMuted else Bar.textDisabled,
+-			)
+-		}
++private fun BarIconButton(icon: Int, label: String, tint: Color, small: Boolean = false, onClick: () -> Unit) {
++	IconButton(onClick = onClick, modifier = Modifier.size(if (small) 32.dp else 40.dp, 44.dp)) {
++		Icon(
++			painter = painterResource(icon),
++			contentDescription = label,
++			tint = tint,
++			modifier = Modifier.size(if (small) 18.dp else 22.dp),
++		)
+ 	}
+ }
+ 
++/**
++ * Chapter progress drawn as a capsule with dark dots inside the filled part and a thin marker at the
++ * current position. Dragging (or tapping) seeks inside the chapter; while a finger is down the capsule
++ * follows it instead of the reader's own progress, which lags behind.
++ */
+ @Composable
+-private fun ListenButton(onClick: () -> Unit) {
+-	Surface(
+-		onClick = onClick,
+-		shape = RoundedCornerShape(24.dp),
+-		color = Bar.accent,
+-		shadowElevation = 0.dp,
+-		modifier = Modifier.height(54.dp),
++private fun CapsuleSlider(permille: Int, onSeek: (Int) -> Unit, modifier: Modifier = Modifier) {
++	var drag by remember { mutableStateOf<Float?>(null) }
++	val seek by rememberUpdatedState(onSeek)
++	val fraction = (drag ?: (permille / 1000f)).coerceIn(0f, 1f)
++	val rail = Bar.surfaceVariant
++	val fill = Bar.textPrimary
++	val dot = Bar.surface
++	Canvas(
++		modifier = modifier
++			.height(28.dp)
++			.pointerInput(Unit) {
++				awaitEachGesture {
++					val down = awaitFirstDown(requireUnconsumed = false)
++					var last = -1
++					fun move(x: Float) {
++						val f = (x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
++						drag = f
++						val pm = (f * 1000).roundToInt()
++						if (pm != last) {
++							last = pm
++							seek(pm)
++						}
++					}
++					down.consume()
++					move(down.position.x)
++					do {
++						val event = awaitPointerEvent()
++						event.changes.forEach {
++							if (it.positionChanged()) {
++								it.consume()
++								move(it.position.x)
++							}
++						}
++					} while (event.changes.any { it.pressed })
++					drag = null
++				}
++			},
+ 	) {
+-		Row(
+-			modifier = Modifier.padding(horizontal = 28.dp),
+-			verticalAlignment = Alignment.CenterVertically,
+-			horizontalArrangement = Arrangement.spacedBy(12.dp),
+-		) {
+-			Icon(
+-				painter = painterResource(R.drawable.ic_novel_headphones),
+-				contentDescription = null,
+-				tint = Bar.onAccent,
+-				modifier = Modifier.size(22.dp),
++		val railH = 12.dp.toPx()
++		val top = (size.height - railH) / 2f
++		val radius = CornerRadius(railH / 2f, railH / 2f)
++		drawRoundRect(rail, Offset(0f, top), Size(size.width, railH), radius)
++		if (fraction > 0.002f) {
++			val fillW = (size.width * fraction).coerceAtLeast(railH)
++			drawRoundRect(fill, Offset(0f, top), Size(fillW, railH), radius)
++			val dotR = 1.65.dp.toPx()
++			val pitch = 7.8.dp.toPx()
++			clipRect(left = 0f, top = top, right = fillW, bottom = top + railH) {
++				var x = 6.dp.toPx() + dotR
++				while (x < fillW) {
++					drawCircle(dot, dotR, Offset(x, size.height / 2f))
++					x += pitch
++				}
++			}
++			val markW = 3.dp.toPx()
++			val markX = (size.width * fraction - markW / 2f).coerceIn(0f, size.width - markW)
++			drawRoundRect(
++				fill.copy(alpha = 0.35f),
++				Offset(markX - 2.dp.toPx(), size.height / 2f - 11.dp.toPx()),
++				Size(markW + 4.dp.toPx(), 22.dp.toPx()),
++				CornerRadius(3.5.dp.toPx()),
+ 			)
+-			Text(
+-				text = "Listen",
+-				style = MaterialTheme.typography.labelLarge,
+-				fontWeight = FontWeight.Bold,
+-				letterSpacing = 0.5.sp,
+-				color = Bar.onAccent,
++			drawRoundRect(
++				fill,
++				Offset(markX, size.height / 2f - 9.dp.toPx()),
++				Size(markW, 18.dp.toPx()),
++				CornerRadius(markW / 2f),
+ 			)
+ 		}
+ 	}
+@@ -568,183 +646,525 @@
+ 	if (p.lineHeight != NOVEL_DEFAULT.lineHeight) append(" \u00B7 ${"%.1f".format(p.lineHeight / 100f)}x line")
+ }
+ 
++private enum class NovelSheet { MAIN, ADVANCED, PRESETS }
++
++private enum class NovelPage(val title: String, val icon: Int) {
++	READING("Reading", R.drawable.ic_novel_menu_book),
++	MORE("More", R.drawable.ic_list_group),
++	EXTRA("Extra", R.drawable.ic_tune),
++}
++
++private enum class NovelMode(val label: String, val icon: Int, val caption: String) {
++	PAGED("Paged", R.drawable.ic_novel_mode_paged, "Page-by-page novel cards"),
++	CONTINUOUS("Continuous", R.drawable.ic_novel_mode_continuous, "Smooth vertical scroll"),
++	OVERSCROLL("Overscroll", R.drawable.ic_novel_mode_overscroll, "Pull past the edge for the next chapter"),
++	TTS("TTS", R.drawable.ic_novel_headphones, "Voice narration"),
++}
++
++private val THEME_IDS = listOf("system", "white", "gray", "black", "sepia", "dusk", "forest")
++
++private fun resetReaderSettings(settings: AppSettings) {
++	applyPreset(settings, NOVEL_DEFAULT)
++	settings.epubReadingMode = "scroll"
++	settings.epubScrollStyle = "continuous"
++	settings.isEpubBionicReadingEnabled = false
++	settings.isEpubPublisherStyleEnabled = false
++}
++
++/**
++ * The reader's quick settings sheet. Main page: mode selector, four tiles and a way into the advanced
++ * options, with Reading / More / Extra pages along the bottom. Advanced options and presets are sub-screens.
++ */
+ @Composable
+-private fun NovelSettingsPanel(state: NovelChromeState, settings: AppSettings, onDismiss: () -> Unit) {
+-	var tab by remember { mutableStateOf(NovelTab.PRESETS) }
+-	// Bumped after every write so the panel re-reads AppSettings.
++private fun NovelSettingsPanel(
++	state: NovelChromeState,
++	settings: AppSettings,
++	ttsEnabled: Boolean,
++	onTtsEnabledChange: (Boolean) -> Unit,
++	onDismiss: () -> Unit,
++) {
++	var sheet by remember { mutableStateOf(NovelSheet.MAIN) }
++	var page by remember { mutableStateOf(NovelPage.READING) }
++	// Where the back arrow of the presets list leads: it opens from the Reading page and from Advanced options
++	var presetsBack by remember { mutableStateOf(NovelSheet.MAIN) }
++	// Bumped after every write so the panel re-reads AppSettings (it is not observable Compose state).
+ 	var revision by remember { mutableIntStateOf(0) }
+ 	val refresh: () -> Unit = { revision++ }
+-	// Passed to every tab: AppSettings is not observable state, so without a changing argument Compose
+-	// skips the tab and the slider handle / value label keep showing the old value while dragging.
+ 	val tick = revision
++	val scroll = rememberScrollState()
++	LaunchedEffect(sheet, page) { scroll.scrollTo(0) }
+ 	DisposableEffect(Unit) { onDispose { state.setRegion("panel", null) } }
+ 
+ 	Surface(
+ 		modifier = Modifier
+ 			.fillMaxWidth()
+-			.heightIn(max = 450.dp)
++			.heightIn(max = 540.dp)
+ 			.onGloballyPositioned { state.setRegion("panel", it.boundsInWindow()) },
+-		shape = RoundedCornerShape(Bar.radiusMedium),
+-		color = Color.Transparent,
++		shape = RoundedCornerShape(Bar.radius),
++		color = Bar.surface,
+ 		shadowElevation = 0.dp,
+ 	) {
+-		Box(
+-			modifier = Modifier
+-				.fillMaxWidth()
+-				.background(Bar.surfaceVariant)
+-		) {
+-			Column {
+-				val modified = countModified(settings)
+-				PanelHeader(
+-					modified = modified,
+-					onReset = {
+-						applyPreset(settings, NOVEL_DEFAULT)
+-						settings.epubReadingMode = "scroll"
+-						settings.epubScrollStyle = "continuous"
+-						settings.isEpubBionicReadingEnabled = false
+-						settings.isEpubPublisherStyleEnabled = false
+-						refresh()
+-					},
+-					onDismiss = onDismiss,
++		Column {
++			Box(
++				modifier = Modifier
++					.fillMaxWidth()
++					.padding(top = 10.dp, bottom = 8.dp),
++				contentAlignment = Alignment.Center,
++			) {
++				Box(
++					Modifier
++						.size(36.dp, 4.dp)
++						.clip(CircleShape)
++						.background(Bar.textDisabled.copy(alpha = 0.5f)),
+ 				)
+-				TabBar(tab) { tab = it }
+-				Column(
+-					modifier = Modifier
+-						.weight(1f, fill = false)
+-						.verticalScroll(rememberScrollState())
+-						.padding(16.dp),
+-					verticalArrangement = Arrangement.spacedBy(12.dp),
+-				) {
+-					when (tab) {
+-						NovelTab.PRESETS -> PresetsTab(settings, refresh, tick)
+-						NovelTab.TEXT -> TextTab(settings, refresh, tick)
+-						NovelTab.LAYOUT -> LayoutTab(settings, refresh, tick)
+-						NovelTab.THEME -> ThemeTab(settings, refresh, tick)
+-						NovelTab.OPTIONS -> OptionsTab(state, settings, refresh, onDismiss, tick)
++			}
++			Column(
++				modifier = Modifier
++					.weight(1f, fill = false)
++					.verticalScroll(scroll)
++					.padding(horizontal = 14.dp),
++				verticalArrangement = Arrangement.spacedBy(10.dp),
++			) {
++				when (sheet) {
++					NovelSheet.MAIN -> when (page) {
++						NovelPage.READING -> ReadingPage(
++							state, settings, ttsEnabled, tick, refresh, onDismiss,
++							onOpenAdvanced = { sheet = NovelSheet.ADVANCED },
++							onOpenPresets = { presetsBack = NovelSheet.MAIN; sheet = NovelSheet.PRESETS },
++						)
++						NovelPage.MORE -> MorePage(state, settings, tick, refresh, onTtsEnabledChange)
++						NovelPage.EXTRA -> ExtraPage(state, settings, tick, refresh, onDismiss)
++					}
++					NovelSheet.ADVANCED -> AdvancedView(
++						settings, tick, refresh,
++						onBack = { sheet = NovelSheet.MAIN },
++						onPresets = { presetsBack = NovelSheet.ADVANCED; sheet = NovelSheet.PRESETS },
++					)
++					NovelSheet.PRESETS -> {
++						SubHeader("Presets", onBack = { sheet = presetsBack })
++						PresetsTab(settings, refresh, tick)
+ 					}
+ 				}
++				Spacer(Modifier.height(2.dp))
++			}
++			if (sheet == NovelSheet.MAIN) {
++				PillTabs(page) { page = it }
++			} else {
++				Spacer(Modifier.height(12.dp))
+ 			}
+ 		}
+ 	}
+ }
+ 
++// ---- main sheet pages -----------------------------------------------------------------------
++
+ @Composable
+-private fun PanelHeader(modified: Int, onReset: () -> Unit, onDismiss: () -> Unit) {
++private fun ReadingPage(
++	state: NovelChromeState,
++	settings: AppSettings,
++	ttsEnabled: Boolean,
++	rev: Int,
++	refresh: () -> Unit,
++	onDismiss: () -> Unit,
++	onOpenAdvanced: () -> Unit,
++	onOpenPresets: () -> Unit,
++) {
++	val modes = NovelMode.entries.filter { ttsEnabled || it != NovelMode.TTS }
++	val current = when {
++		state.ttsOpen -> NovelMode.TTS
++		settings.epubReadingMode == "paged" -> NovelMode.PAGED
++		settings.epubScrollStyle == "overscroll" -> NovelMode.OVERSCROLL
++		else -> NovelMode.CONTINUOUS
++	}
+ 	Row(
+ 		modifier = Modifier
+ 			.fillMaxWidth()
+-			.padding(16.dp),
+-		horizontalArrangement = Arrangement.SpaceBetween,
+-		verticalAlignment = Alignment.CenterVertically,
++			.clip(RoundedCornerShape(22.dp))
++			.background(Bar.surfaceVariant)
++			.padding(6.dp),
++		horizontalArrangement = Arrangement.spacedBy(4.dp),
+ 	) {
+-		Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+-			Surface(shape = CircleShape, color = Bar.accentMuted, modifier = Modifier.size(38.dp)) {
+-				Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+-					Icon(
+-						painter = painterResource(R.drawable.ic_tune),
+-						contentDescription = null,
+-						tint = Bar.accent,
+-						modifier = Modifier.size(18.dp),
++		modes.forEach { mode ->
++			val selected = mode == current
++			Surface(
++				onClick = {
++					when (mode) {
++						NovelMode.PAGED -> settings.epubReadingMode = "paged"
++						NovelMode.CONTINUOUS -> {
++							settings.epubReadingMode = "scroll"
++							settings.epubScrollStyle = "continuous"
++						}
++						NovelMode.OVERSCROLL -> {
++							settings.epubReadingMode = "scroll"
++							settings.epubScrollStyle = "overscroll"
++						}
++						NovelMode.TTS -> {
++							onDismiss()
++							state.onListenClick()
++						}
++					}
++					refresh()
++				},
++				modifier = Modifier.weight(1f),
++				shape = RoundedCornerShape(17.dp),
++				color = if (selected) Bar.textPrimary else Color.Transparent,
++			) {
++				Column(
++					modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
++					horizontalAlignment = Alignment.CenterHorizontally,
++					verticalArrangement = Arrangement.spacedBy(6.dp),
++				) {
++					val tint = if (selected) Bar.background else Bar.textSecondary
++					Icon(painterResource(mode.icon), null, tint = tint, modifier = Modifier.size(20.dp))
++					Text(
++						text = mode.label,
++						fontSize = 11.sp,
++						fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
++						color = tint,
++						maxLines = 1,
+ 					)
+ 				}
+ 			}
+-			Column {
++		}
++	}
++	Text(
++		text = current.caption,
++		style = MaterialTheme.typography.labelSmall,
++		color = Bar.textMuted,
++		modifier = Modifier.padding(horizontal = 4.dp),
++	)
++	Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
++		SettingsTile(
++			title = "Auto scroll",
++			subtitle = "Set the speed",
++			modifier = Modifier.weight(1f),
++			icon = { Icon(painterResource(R.drawable.ic_timer), null, tint = Bar.textPrimary, modifier = Modifier.size(16.dp)) },
++			onClick = { onDismiss(); state.onAutoScrollClick() },
++		)
++		SettingsTile(
++			title = "Text & font",
++			subtitle = "${fontLabel(settings.epubFontFamily)} \u2022 %.1fx".format(settings.epubLineHeight / 100f),
++			badge = "${settings.epubFontSize}%",
++			modifier = Modifier.weight(1f),
++			icon = { Text("Aa", fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Serif, color = Bar.textPrimary) },
++			onClick = onOpenAdvanced,
++		)
++	}
++	Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
++		val locked = state.isRotationLocked()
++		SettingsTile(
++			title = "Rotate screen",
++			subtitle = if (locked) "Orientation locked" else "Auto-rotate enabled",
++			modifier = Modifier.weight(1f),
++			icon = {
++				Icon(
++					painterResource(if (locked) R.drawable.ic_screen_rotation_lock else R.drawable.ic_screen_rotation),
++					null,
++					tint = Bar.textPrimary,
++					modifier = Modifier.size(16.dp),
++				)
++			},
++			onClick = { state.onRotateClick(); refresh() },
++		)
++		val currentTheme = when (settings.epubTheme) {
++			"light" -> "white"
++			"dark" -> "gray"
++			else -> settings.epubTheme
++		}
++		SettingsTile(
++			title = "Color & theme",
++			subtitle = themeLabel(currentTheme),
++			modifier = Modifier.weight(1f),
++			icon = { Icon(painterResource(R.drawable.ic_novel_palette), null, tint = Bar.textPrimary, modifier = Modifier.size(16.dp)) },
++			onClick = {
++				val next = THEME_IDS[(THEME_IDS.indexOf(currentTheme) + 1) % THEME_IDS.size]
++				settings.epubTheme = next
++				refresh()
++			},
++		)
++	}
++	Surface(
++		onClick = onOpenAdvanced,
++		shape = RoundedCornerShape(20.dp),
++		color = Bar.surfaceVariant,
++	) {
++		Row(
++			modifier = Modifier
++				.fillMaxWidth()
++				.padding(horizontal = 14.dp, vertical = 12.dp),
++			horizontalArrangement = Arrangement.spacedBy(12.dp),
++			verticalAlignment = Alignment.CenterVertically,
++		) {
++			TileIcon(size = 36.dp) {
++				Icon(painterResource(R.drawable.ic_settings), null, tint = Bar.textPrimary, modifier = Modifier.size(16.dp))
++			}
++			Column(Modifier.weight(1f)) {
++				Text("Advanced reader options", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Bar.textPrimary)
+ 				Text(
+-					text = "Reader Settings",
+-					style = MaterialTheme.typography.titleSmall,
+-					fontWeight = FontWeight.Bold,
+-					color = Bar.textPrimary,
++					"Font size, fonts, margins, theme & presets",
++					style = MaterialTheme.typography.labelSmall,
++					color = Bar.textMuted,
++					maxLines = 1,
++					overflow = TextOverflow.Ellipsis,
+ 				)
+-				if (modified > 0) {
+-					Text(
+-						text = "$modified changes from default",
+-						style = MaterialTheme.typography.labelSmall,
+-						color = Bar.textMuted,
+-					)
+-				}
+ 			}
++			Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Bar.textMuted, modifier = Modifier.size(20.dp))
+ 		}
+-		Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+-			if (modified > 0) {
+-				Surface(
+-					onClick = onReset,
+-					shape = RoundedCornerShape(12.dp),
+-					color = Bar.warning.copy(alpha = 0.15f),
+-					border = BorderStroke(1.dp, Bar.warning.copy(alpha = 0.3f)),
+-				) {
+-					Row(
+-						modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+-						horizontalArrangement = Arrangement.spacedBy(8.dp),
+-						verticalAlignment = Alignment.CenterVertically,
+-					) {
+-						Icon(
+-							painter = painterResource(R.drawable.ic_restart),
+-							contentDescription = null,
+-							tint = Bar.warning,
+-							modifier = Modifier.size(16.dp),
+-						)
+-						Text(
+-							text = "Reset",
+-							style = MaterialTheme.typography.labelMedium,
+-							fontWeight = FontWeight.Medium,
+-							color = Bar.warning,
+-						)
+-					}
+-				}
++	}
++	// Active preset (yours first, then the built-in ones); "Custom" once settings drift from all of them
++	val activePreset = NovelPresetStore.load(settings).firstOrNull { NovelPresetStore.isActive(settings, it) }?.name
++		?: NOVEL_PRESETS.firstOrNull { isPresetActive(settings, it) }?.name
++		?: "Custom"
++	Surface(
++		onClick = onOpenPresets,
++		shape = RoundedCornerShape(20.dp),
++		color = Bar.surfaceVariant,
++	) {
++		Row(
++			modifier = Modifier
++				.fillMaxWidth()
++				.padding(horizontal = 14.dp, vertical = 12.dp),
++			horizontalArrangement = Arrangement.spacedBy(12.dp),
++			verticalAlignment = Alignment.CenterVertically,
++		) {
++			TileIcon(size = 36.dp) {
++				Icon(painterResource(R.drawable.ic_sparkles), null, tint = Bar.textPrimary, modifier = Modifier.size(16.dp))
+ 			}
+-			Surface(onClick = onDismiss, shape = CircleShape, color = Bar.surfaceVariant, modifier = Modifier.size(36.dp)) {
+-				Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+-					Icon(
+-						painter = painterResource(R.drawable.ic_close),
+-						contentDescription = null,
+-						tint = Bar.textMuted,
+-						modifier = Modifier.size(18.dp),
+-					)
++			Column(Modifier.weight(1f)) {
++				Text("Presets", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Bar.textPrimary)
++				Text(
++					activePreset,
++					style = MaterialTheme.typography.labelSmall,
++					color = Bar.textMuted,
++					maxLines = 1,
++					overflow = TextOverflow.Ellipsis,
++				)
++			}
++			Icon(painterResource(R.drawable.ic_chevron_right), null, tint = Bar.textMuted, modifier = Modifier.size(20.dp))
++		}
++	}
++}
++
++@Composable
++private fun MorePage(
++	state: NovelChromeState,
++	settings: AppSettings,
++	rev: Int,
++	refresh: () -> Unit,
++	onTtsEnabledChange: (Boolean) -> Unit,
++) {
++	ToggleRow("Bionic reading", settings.isEpubBionicReadingEnabled, "Bold word prefixes for faster scanning") {
++		settings.isEpubBionicReadingEnabled = it; refresh()
++	}
++	ToggleRow("Use book formatting", settings.isEpubPublisherStyleEnabled, "Follow the book's own typography") {
++		settings.isEpubPublisherStyleEnabled = it; refresh()
++	}
++	ToggleRow("Chapter header", settings.isEpubChapterHeaderEnabled, "Display the chapter title above the text") {
++		settings.isEpubChapterHeaderEnabled = it; refresh()
++	}
++	ToggleRow("Text-to-speech", settings.isEpubTtsEnabled, "Show the Listen button and the TTS mode") {
++		settings.isEpubTtsEnabled = it
++		// turning it off while it is playing also stops it, so nothing keeps talking without a way to stop
++		if (!it && state.ttsOpen) state.onTtsClose()
++		onTtsEnabledChange(it)
++		refresh()
++	}
++}
++
++@Composable
++private fun ExtraPage(state: NovelChromeState, settings: AppSettings, rev: Int, refresh: () -> Unit, onDismiss: () -> Unit) {
++	ToggleRow("Translate chapters", settings.isNovelTranslationEnabled, "Auto-localize translated webnovel prose") {
++		settings.isNovelTranslationEnabled = it; refresh()
++	}
++	if (settings.isNovelTranslationEnabled) {
++		SheetCard {
++			Section("Translate to", NovelTranslationLanguages.nameOf(settings.novelTranslationTarget)) {
++				ChipFlow(
++					options = NovelTranslationLanguages.all,
++					selected = settings.novelTranslationTarget,
++				) { settings.novelTranslationTarget = it; refresh() }
++			}
++		}
++		SheetCard {
++			Section("Translate from", NovelTranslationLanguages.nameOf(settings.novelTranslationSource)) {
++				ChipFlow(
++					options = listOf(NovelTranslationLanguages.AUTO to "Auto") + NovelTranslationLanguages.all,
++					selected = settings.novelTranslationSource,
++				) { settings.novelTranslationSource = it; refresh() }
++			}
++		}
++	}
++	ActionRow("Search in book", R.drawable.ic_search) { onDismiss(); state.onSearchClick() }
++}
++
++// ---- advanced options sub-screen --------------------------------------------------------------
++
++@Composable
++private fun AdvancedView(
++	settings: AppSettings,
++	rev: Int,
++	refresh: () -> Unit,
++	onBack: () -> Unit,
++	onPresets: () -> Unit,
++) {
++	val modified = countModified(settings)
++	Row(
++		modifier = Modifier.fillMaxWidth(),
++		verticalAlignment = Alignment.CenterVertically,
++		horizontalArrangement = Arrangement.spacedBy(8.dp),
++	) {
++		Row(
++			modifier = Modifier
++				.weight(1f)
++				.clip(RoundedCornerShape(12.dp))
++				.combinedClickable(onClick = onBack)
++				.padding(vertical = 6.dp),
++			verticalAlignment = Alignment.CenterVertically,
++			horizontalArrangement = Arrangement.spacedBy(8.dp),
++		) {
++			Icon(painterResource(R.drawable.ic_arrow_back), null, tint = Bar.textPrimary, modifier = Modifier.size(20.dp))
++			Column {
++				Text("Advanced reader options", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Bar.textPrimary, maxLines = 1)
++				if (modified > 0) {
++					Text("$modified changes from default", style = MaterialTheme.typography.labelSmall, color = Bar.textMuted)
+ 				}
+ 			}
+ 		}
++		SmallChip("Presets", onPresets)
++		SmallChip("Reset") { resetReaderSettings(settings); refresh() }
+ 	}
++	SheetCard { TextTab(settings, refresh, rev) }
++	SheetCard { LayoutTab(settings, refresh, rev) }
++	SheetCard { Section("Theme", null) { ThemeTab(settings, refresh, rev) } }
+ }
+ 
+ @Composable
+-private fun TabBar(selected: NovelTab, onSelect: (NovelTab) -> Unit) {
++private fun SubHeader(title: String, onBack: () -> Unit) {
+ 	Row(
+ 		modifier = Modifier
+ 			.fillMaxWidth()
+-			.horizontalScroll(rememberScrollState())
+-			.padding(horizontal = 16.dp),
++			.clip(RoundedCornerShape(12.dp))
++			.combinedClickable(onClick = onBack)
++			.padding(vertical = 6.dp),
++		verticalAlignment = Alignment.CenterVertically,
+ 		horizontalArrangement = Arrangement.spacedBy(8.dp),
+ 	) {
+-		NovelTab.entries.forEach { t ->
+-			val isSelected = t == selected
++		Icon(painterResource(R.drawable.ic_arrow_back), null, tint = Bar.textPrimary, modifier = Modifier.size(20.dp))
++		Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Bar.textPrimary)
++	}
++}
++
++// ---- sheet pieces -------------------------------------------------------------------------------
++
++@Composable
++private fun PillTabs(selected: NovelPage, onSelect: (NovelPage) -> Unit) {
++	Row(
++		modifier = Modifier
++			.fillMaxWidth()
++			.padding(horizontal = 14.dp)
++			.padding(top = 8.dp, bottom = 12.dp)
++			.clip(CircleShape)
++			.background(Bar.surfaceVariant)
++			.padding(4.dp),
++		horizontalArrangement = Arrangement.spacedBy(4.dp),
++	) {
++		NovelPage.entries.forEach { p ->
++			val sel = p == selected
+ 			Surface(
+-				onClick = { onSelect(t) },
+-				shape = RoundedCornerShape(12.dp),
+-				color = if (isSelected) Bar.accent else Bar.surfaceVariant,
++				onClick = { onSelect(p) },
++				modifier = Modifier.weight(1f),
++				shape = CircleShape,
++				color = if (sel) Bar.textPrimary else Color.Transparent,
+ 			) {
+ 				Row(
+-					modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+-					horizontalArrangement = Arrangement.spacedBy(8.dp),
++					modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
++					horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+ 					verticalAlignment = Alignment.CenterVertically,
+ 				) {
+-					val color = if (isSelected) Bar.onAccent else Bar.textMuted
+-					Icon(
+-						painter = painterResource(t.icon),
+-						contentDescription = null,
+-						tint = color,
+-						modifier = Modifier.size(16.dp),
+-					)
+-					Text(
+-						text = t.title,
+-						style = MaterialTheme.typography.labelMedium,
+-						fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+-						color = color,
+-					)
++					val tint = if (sel) Bar.background else Bar.textSecondary
++					Icon(painterResource(p.icon), null, tint = tint, modifier = Modifier.size(14.dp))
++					Text(p.title, fontSize = 12.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.SemiBold, color = tint, maxLines = 1)
++				}
++			}
++		}
++	}
++}
++
++@Composable
++private fun TileIcon(size: Dp = 32.dp, content: @Composable () -> Unit) {
++	Surface(shape = CircleShape, color = Bar.surfaceElevated, modifier = Modifier.size(size)) {
++		Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) { content() }
++	}
++}
++
++@Composable
++private fun SettingsTile(
++	title: String,
++	subtitle: String,
++	modifier: Modifier = Modifier,
++	badge: String? = null,
++	icon: @Composable () -> Unit,
++	onClick: () -> Unit,
++) {
++	Surface(
++		onClick = onClick,
++		modifier = modifier.height(108.dp),
++		shape = RoundedCornerShape(20.dp),
++		color = Bar.surfaceVariant,
++	) {
++		Column(
++			modifier = Modifier
++				.fillMaxSize()
++				.padding(14.dp),
++			verticalArrangement = Arrangement.SpaceBetween,
++		) {
++			Row(
++				modifier = Modifier.fillMaxWidth(),
++				horizontalArrangement = Arrangement.SpaceBetween,
++				verticalAlignment = Alignment.Top,
++			) {
++				TileIcon { icon() }
++				if (badge != null) {
++					Text(badge, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = Bar.textMuted)
+ 				}
+ 			}
++			Column {
++				Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Bar.textPrimary, maxLines = 1)
++				Text(
++					subtitle,
++					style = MaterialTheme.typography.labelSmall,
++					color = Bar.textMuted,
++					maxLines = 1,
++					overflow = TextOverflow.Ellipsis,
++				)
++			}
+ 		}
+ 	}
+-	Spacer(Modifier.height(8.dp))
++}
++
++@Composable
++private fun SmallChip(label: String, onClick: () -> Unit) {
++	Surface(onClick = onClick, shape = CircleShape, color = Bar.surfaceElevated) {
++		Text(
++			label,
++			style = MaterialTheme.typography.labelMedium,
++			fontWeight = FontWeight.SemiBold,
++			color = Bar.textPrimary,
++			modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
++		)
++	}
++}
++
++@Composable
++private fun SheetCard(content: @Composable () -> Unit) {
++	Column(
++		modifier = Modifier
++			.fillMaxWidth()
++			.clip(RoundedCornerShape(18.dp))
++			.background(Bar.surfaceVariant)
++			.padding(12.dp),
++		verticalArrangement = Arrangement.spacedBy(14.dp),
++	) { content() }
+ }
+ 
+ // ---- tabs ----------------------------------------------------------------------------------
+@@ -768,7 +1188,7 @@
+ 				modifier = Modifier.size(20.dp),
+ 			)
+ 			Text(
+-				text = "Choose a preset for quick setup, then customize individual settings in other tabs.",
++				text = "Choose a preset for quick setup, then fine-tune it in Advanced reader options.",
+ 				style = MaterialTheme.typography.bodySmall,
+ 				color = Bar.textSecondary,
+ 			)
+@@ -890,20 +1310,6 @@
+ 
+ @Composable
+ private inline fun LayoutTab(settings: AppSettings, noinline refresh: () -> Unit, rev: Int) {
+-	Section("Reading mode", null) {
+-		ChipFlow(
+-			options = listOf("scroll" to "Scroll", "paged" to "Paged"),
+-			selected = settings.epubReadingMode,
+-		) { settings.epubReadingMode = it; refresh() }
+-	}
+-	if (settings.epubReadingMode == "scroll") {
+-		Section("Scroll style", null) {
+-			ChipFlow(
+-				options = listOf("continuous" to "Continuous", "overscroll" to "Overscroll"),
+-				selected = settings.epubScrollStyle,
+-			) { settings.epubScrollStyle = it; refresh() }
+-		}
+-	}
+ 	Section("Horizontal margin", "${settings.epubHorizontalPadding} dp") {
+ 		SliderRow(settings.epubHorizontalPadding.toFloat(), 0f..64f) { settings.epubHorizontalPadding = it.roundToInt(); refresh() }
+ 	}
+@@ -970,30 +1376,6 @@
+ 	}
+ }
+ 
+-@Composable
+-private inline fun OptionsTab(state: NovelChromeState, settings: AppSettings, noinline refresh: () -> Unit, noinline onDismiss: () -> Unit, rev: Int) {
+-	ToggleRow("Chapter header", settings.isEpubChapterHeaderEnabled) { settings.isEpubChapterHeaderEnabled = it; refresh() }
+-	ToggleRow("Bionic reading", settings.isEpubBionicReadingEnabled) { settings.isEpubBionicReadingEnabled = it; refresh() }
+-	ToggleRow("Use book formatting", settings.isEpubPublisherStyleEnabled) { settings.isEpubPublisherStyleEnabled = it; refresh() }
+-	ToggleRow("Translate chapters", settings.isNovelTranslationEnabled) { settings.isNovelTranslationEnabled = it; refresh() }
+-	if (settings.isNovelTranslationEnabled) {
+-		Section("Translate to", NovelTranslationLanguages.nameOf(settings.novelTranslationTarget)) {
+-			ChipFlow(
+-				options = NovelTranslationLanguages.all,
+-				selected = settings.novelTranslationTarget,
+-			) { settings.novelTranslationTarget = it; refresh() }
+-		}
+-		Section("Translate from", NovelTranslationLanguages.nameOf(settings.novelTranslationSource)) {
+-			ChipFlow(
+-				options = listOf(NovelTranslationLanguages.AUTO to "Auto") + NovelTranslationLanguages.all,
+-				selected = settings.novelTranslationSource,
+-			) { settings.novelTranslationSource = it; refresh() }
+-		}
+-	}
+-	ActionRow("Search in book", R.drawable.ic_search) { onDismiss(); state.onSearchClick() }
+-	ActionRow("Auto scroll", R.drawable.ic_timer) { onDismiss(); state.onAutoScrollClick() }
+-}
+-
+ // ---- building blocks -----------------------------------------------------------------------
+ 
+ @Composable
+@@ -1002,18 +1384,24 @@
+ 		Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+ 			Text(
+ 				text = title,
+-				style = MaterialTheme.typography.labelLarge,
+-				fontWeight = FontWeight.Medium,
++				fontSize = 12.sp,
++				fontWeight = FontWeight.Bold,
+ 				color = Bar.textPrimary,
+ 			)
+ 			if (value != null) {
+-				Text(text = value, style = MaterialTheme.typography.labelMedium, color = Bar.textMuted)
++				Text(text = value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Bar.textSecondary)
+ 			}
+ 		}
+ 		content()
+ 	}
+ }
+ 
++/**
++ * Slider drawn as a rail with a white fill and a thin vertical marker. While a finger is down the handle
++ * follows the finger from local state, so it moves every frame even when the settings behind it (not
++ * observable by Compose) or the reader reflow are slow. Every pointer movement is consumed so a finger that
++ * drifts up or down while dragging cannot scroll the panel.
++ */
+ @Composable
+ internal fun SliderRow(
+ 	value: Float,
+@@ -1021,38 +1409,58 @@
+ 	onFinished: () -> Unit = {},
+ 	onChange: (Float) -> Unit,
+ ) {
+-	// While a finger is down the handle follows the finger from this local state, so it moves every frame
+-	// even when the settings behind it (not observable by Compose) or the reader reflow are slow.
+-	var dragValue by remember { mutableStateOf<Float?>(null) }
+-	// The panel scrolls vertically. A finger that drifts up or down while dragging the handle must not scroll
+-	// it, so once the slider has seen the movement, mark it consumed before it reaches the scroll container.
+-	Box(
+-		modifier = Modifier.pointerInput(Unit) {
+-			awaitEachGesture {
+-				awaitFirstDown(requireUnconsumed = false)
+-				do {
+-					val event = awaitPointerEvent()
+-					event.changes.forEach { if (it.positionChanged()) it.consume() }
+-				} while (event.changes.any { it.pressed })
+-			}
+-		},
+-	) {
+-		Slider(
+-			value = (dragValue ?: value).coerceIn(range.start, range.endInclusive),
+-			onValueChange = {
+-				dragValue = it
+-				onChange(it)
+-			},
+-			onValueChangeFinished = {
+-				dragValue = null
+-				onFinished()
++	var drag by remember { mutableStateOf<Float?>(null) }
++	val change by rememberUpdatedState(onChange)
++	val finished by rememberUpdatedState(onFinished)
++	val shown = (drag ?: value).coerceIn(range.start, range.endInclusive)
++	val span = (range.endInclusive - range.start).coerceAtLeast(0.0001f)
++	val fraction = ((shown - range.start) / span).coerceIn(0f, 1f)
++	val rail = Bar.surfaceElevated
++	val fill = Bar.textPrimary
++	val endDot = Bar.textMuted
++	Canvas(
++		modifier = Modifier
++			.fillMaxWidth()
++			.height(28.dp)
++			.pointerInput(range.start, range.endInclusive) {
++				awaitEachGesture {
++					val down = awaitFirstDown(requireUnconsumed = false)
++					fun move(x: Float) {
++						val f = (x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
++						val v = range.start + f * span
++						drag = v
++						change(v)
++					}
++					down.consume()
++					move(down.position.x)
++					do {
++						val event = awaitPointerEvent()
++						event.changes.forEach {
++							if (it.positionChanged()) {
++								it.consume()
++								move(it.position.x)
++							}
++						}
++					} while (event.changes.any { it.pressed })
++					drag = null
++					finished()
++				}
+ 			},
+-			valueRange = range,
+-			colors = SliderDefaults.colors(
+-				thumbColor = Bar.accent,
+-				activeTrackColor = Bar.accent,
+-				inactiveTrackColor = Bar.surfaceVariant,
+-			),
++	) {
++		val railH = 11.dp.toPx()
++		val top = (size.height - railH) / 2f
++		val radius = CornerRadius(railH / 2f, railH / 2f)
++		drawRoundRect(rail, Offset(0f, top), Size(size.width, railH), radius)
++		val fillW = (size.width * fraction).coerceAtLeast(railH)
++		drawRoundRect(fill, Offset(0f, top), Size(fillW, railH), radius)
++		drawCircle(endDot, 2.dp.toPx(), Offset(size.width - 10.dp.toPx(), size.height / 2f))
++		val markW = 3.dp.toPx()
++		val markX = (size.width * fraction - markW / 2f).coerceIn(0f, size.width - markW)
++		drawRoundRect(
++			fill,
++			Offset(markX, size.height / 2f - 10.dp.toPx()),
++			Size(markW, 20.dp.toPx()),
++			CornerRadius(markW / 2f),
+ 		)
+ 	}
+ }
+@@ -1064,26 +1472,26 @@
+ 	fontFor: (String) -> FontFamily? = { null },
+ 	onSelect: (String) -> Unit,
+ ) {
+-	Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
++	Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+ 		options.chunked(3).forEach { row ->
+-			Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
++			Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+ 				row.forEach { (value, label) ->
+ 					val isSelected = selected == value
+ 					Surface(
+ 						onClick = { onSelect(value) },
+ 						modifier = Modifier.weight(1f),
+ 						shape = RoundedCornerShape(12.dp),
+-						color = if (isSelected) Bar.accentMuted else Bar.surfaceVariant,
+-						border = BorderStroke(1.dp, if (isSelected) Bar.accent else Bar.border.copy(alpha = 0.5f)),
++						color = if (isSelected) Bar.textPrimary else Bar.surfaceElevated,
+ 					) {
+-						Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp)) {
++						Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp)) {
+ 							Text(
+ 								text = label,
+ 								fontFamily = fontFor(value),
+-								fontSize = 14.sp,
++								fontSize = 12.sp,
++								fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+ 								maxLines = 1,
+ 								overflow = TextOverflow.Ellipsis,
+-								color = if (isSelected) Bar.onAccentMuted else Bar.textSecondary,
++								color = if (isSelected) Bar.background else Bar.textSecondary,
+ 							)
+ 						}
+ 					}
+@@ -1095,31 +1503,40 @@
+ }
+ 
+ @Composable
+-internal fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
++internal fun ToggleRow(label: String, checked: Boolean, subtitle: String? = null, onChange: (Boolean) -> Unit) {
+ 	Surface(
+ 		onClick = { onChange(!checked) },
+-		shape = RoundedCornerShape(12.dp),
+-		color = Bar.surfaceVariant.copy(alpha = 0.5f),
+-		border = BorderStroke(1.dp, Bar.border.copy(alpha = 0.5f)),
++		shape = RoundedCornerShape(18.dp),
++		color = Bar.surfaceVariant,
+ 	) {
+ 		Row(
+ 			modifier = Modifier
+ 				.fillMaxWidth()
+-				.padding(horizontal = 16.dp, vertical = 12.dp),
++				.padding(horizontal = 14.dp, vertical = 10.dp),
+ 			horizontalArrangement = Arrangement.SpaceBetween,
+ 			verticalAlignment = Alignment.CenterVertically,
+ 		) {
+-			Text(text = label, style = MaterialTheme.typography.bodyMedium, color = Bar.textPrimary)
+-			Surface(
+-				shape = RoundedCornerShape(50),
+-				color = if (checked) Bar.accent else Bar.surfaceElevated,
+-				border = BorderStroke(1.dp, Bar.border),
++			Column(Modifier.weight(1f)) {
++				Text(text = label, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Bar.textPrimary)
++				if (subtitle != null) {
++					Text(text = subtitle, style = MaterialTheme.typography.labelSmall, color = Bar.textMuted)
++				}
++			}
++			Spacer(Modifier.size(12.dp))
++			val knobX by animateDpAsState(if (checked) 20.dp else 0.dp, label = "knob")
++			Box(
++				modifier = Modifier
++					.size(46.dp, 26.dp)
++					.clip(CircleShape)
++					.background(if (checked) Bar.textPrimary else Bar.surfaceElevated)
++					.padding(3.dp),
+ 			) {
+-				Text(
+-					text = if (checked) "On" else "Off",
+-					style = MaterialTheme.typography.labelMedium,
+-					color = if (checked) Bar.onAccent else Bar.textMuted,
+-					modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
++				Box(
++					modifier = Modifier
++						.offset(x = knobX)
++						.size(20.dp)
++						.clip(CircleShape)
++						.background(if (checked) Bar.background else Bar.textMuted),
+ 				)
+ 			}
+ 		}
+@@ -1130,19 +1547,18 @@
+ internal fun ActionRow(label: String, icon: Int, onClick: () -> Unit) {
+ 	Surface(
+ 		onClick = onClick,
+-		shape = RoundedCornerShape(12.dp),
+-		color = Bar.surfaceVariant.copy(alpha = 0.5f),
+-		border = BorderStroke(1.dp, Bar.border.copy(alpha = 0.5f)),
++		shape = RoundedCornerShape(18.dp),
++		color = Bar.surfaceVariant,
+ 	) {
+ 		Row(
+ 			modifier = Modifier
+ 				.fillMaxWidth()
+-				.padding(horizontal = 16.dp, vertical = 12.dp),
++				.padding(horizontal = 14.dp, vertical = 12.dp),
+ 			horizontalArrangement = Arrangement.spacedBy(12.dp),
+ 			verticalAlignment = Alignment.CenterVertically,
+ 		) {
+ 			Icon(painter = painterResource(icon), contentDescription = null, tint = Bar.textSecondary, modifier = Modifier.size(20.dp))
+-			Text(text = label, style = MaterialTheme.typography.bodyMedium, color = Bar.textPrimary)
++			Text(text = label, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Bar.textPrimary)
+ 		}
+ 	}
+ }
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_chapter_next.xml proj/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_chapter_next.xml
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_chapter_next.xml	1970-01-01 00:00:00.000000000 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_chapter_next.xml	2026-11-23 07:26:05.905259822 +0000
+@@ -0,0 +1,4 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#FFFFFF" android:pathData="M6,18l8.5,-6L6,6v12zM16,6v12h2V6h-2z" />
++</vector>
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_chapter_prev.xml proj/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_chapter_prev.xml
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_chapter_prev.xml	1970-01-01 00:00:00.000000000 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_chapter_prev.xml	2026-11-23 07:26:05.905206215 +0000
+@@ -0,0 +1,4 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#FFFFFF" android:pathData="M6,6h2v12H6zM9.5,12l8.5,6V6z" />
++</vector>
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_continuous.xml proj/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_continuous.xml
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_continuous.xml	1970-01-01 00:00:00.000000000 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_continuous.xml	2026-11-23 07:43:37.565582309 +0000
+@@ -0,0 +1,4 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M7.5,4h9a1.5,1.5 0,0 1,1.5 1.5v3a1.5,1.5 0,0 1,-1.5 1.5h-9a1.5,1.5 0,0 1,-1.5 -1.5v-3a1.5,1.5 0,0 1,1.5 -1.5z M7.5,14h9a1.5,1.5 0,0 1,1.5 1.5v3a1.5,1.5 0,0 1,-1.5 1.5h-9a1.5,1.5 0,0 1,-1.5 -1.5v-3a1.5,1.5 0,0 1,1.5 -1.5z M12,10v4" />
++</vector>
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_overscroll.xml proj/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_overscroll.xml
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_overscroll.xml	1970-01-01 00:00:00.000000000 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_overscroll.xml	2026-11-23 07:43:37.565614618 +0000
+@@ -0,0 +1,4 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M12,3v14 M8,13l4,4 4,-4 M5,20h14" />
++</vector>
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_paged.xml proj/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_paged.xml
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_paged.xml	1970-01-01 00:00:00.000000000 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/res/drawable/ic_novel_mode_paged.xml	2026-11-23 07:43:37.565495329 +0000
+@@ -0,0 +1,4 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
++    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M4,5.5A2.5,2.5 0,0 1,6.5 3H20v18H6.5A2.5,2.5 0,0 1,4 18.5v-13z M8,7h8 M8,11h8" />
++</vector>
