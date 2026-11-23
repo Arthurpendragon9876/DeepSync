@@ -532,50 +532,95 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 	/** Chapter title -> its name without the "Chapter 12:" lead-in, so the header isn't redrawn every frame. */
 	private val headerNames = HashMap<String, String>()
 
-	/** Height reserved above each chapter for its header block (scroll mode only). */
-	private val chapterHeaderHeightPx: Int
-		get() = if (settings.isEpubChapterHeaderEnabled) (CHAPTER_HEADER_HEIGHT_DP * resources.displayMetrics.density).toInt() else 0
+	/** Wrapped header titles, so long names are laid out once instead of every frame. */
+	private val headerTitleLayouts = HashMap<String, StaticLayout>()
+
+	private fun prepareHeaderPaints() {
+		val density = resources.displayMetrics.density
+		val color = foregroundColor
+		val typeface = readerTypeface
+		headerLabelPaint.apply { this.color = color; alpha = 160; textSize = 14f * density; this.typeface = typeface }
+		headerTitlePaint.apply {
+			this.color = color
+			textSize = 30f * density
+			this.typeface = Typeface.create(typeface, Typeface.BOLD)
+		}
+		headerCountPaint.apply { this.color = color; alpha = 120; textSize = 12f * density; this.typeface = typeface }
+	}
+
+	/** The title line for a chapter: its name only, or the title exactly as the book gives it. */
+	private fun headerTitleText(chapter: NativeChapter, label: String): String {
+		if (!settings.isEpubHeaderNameOnly) return chapter.title.ifBlank { label }
+		val name = headerNames.getOrPut(chapter.title) {
+			ChapterTitles.nameOf(chapter.title, maxOf(chapters.size * 2, 999))
+		}
+		return name.ifBlank { chapter.title.ifBlank { label } }
+	}
+
+	/** The title wrapped to the screen (3 lines at most, then "…") instead of cut off after one. */
+	private fun headerTitleLayout(text: String, width: Int): StaticLayout {
+		if (headerTitleLayouts.size > 120) headerTitleLayouts.clear()
+		val key = "$width|${headerTitlePaint.textSize}|${readerTypeface.hashCode()}|$text"
+		return headerTitleLayouts.getOrPut(key) {
+			StaticLayout.Builder.obtain(text, 0, text.length, headerTitlePaint, width.coerceAtLeast(1))
+				.setAlignment(Layout.Alignment.ALIGN_CENTER)
+				.setMaxLines(HEADER_TITLE_MAX_LINES)
+				.setEllipsize(TextUtils.TruncateAt.END)
+				.setIncludePad(false)
+				.build()
+		}
+	}
+
+	private fun headerTitleWidthPx(parentWidth: Int): Int =
+		(parentWidth - 48f * resources.displayMetrics.density).toInt()
+
+	/** The small "Chapter N" label is dropped when the title already starts with its own number. */
+	private fun showsHeaderLabel(chapter: NativeChapter): Boolean =
+		settings.isEpubHeaderNameOnly || ChapterTitles.split(chapter.title).number.isEmpty()
+
+	/** Height reserved above chapter [position] for its header block (scroll mode only); grows with wrapped titles. */
+	private fun chapterHeaderHeightPx(position: Int, parentWidth: Int = verticalView?.width ?: 0): Int {
+		if (!settings.isEpubChapterHeaderEnabled) return 0
+		val base = (CHAPTER_HEADER_HEIGHT_DP * resources.displayMetrics.density).toInt()
+		val chapter = chapters.getOrNull(position) ?: return base
+		if (parentWidth <= 0) return base
+		prepareHeaderPaints()
+		val layout = headerTitleLayout(
+			headerTitleText(chapter, getString(R.string.epub_chapter_header_label, position + 1)),
+			headerTitleWidthPx(parentWidth),
+		)
+		return base + layout.getLineBottom(layout.lineCount - 1) - layout.getLineBottom(0)
+	}
 
 	private val chapterHeaderDecoration = object : RecyclerView.ItemDecoration() {
 		override fun getItemOffsets(outRect: Rect, view: View, parent: RecyclerView, state: RecyclerView.State) {
-			if (parent.getChildAdapterPosition(view) in chapters.indices) outRect.top = chapterHeaderHeightPx
+			val position = parent.getChildAdapterPosition(view)
+			if (position in chapters.indices) outRect.top = chapterHeaderHeightPx(position, parent.width)
 		}
 
 		override fun onDraw(canvas: Canvas, parent: RecyclerView, state: RecyclerView.State) {
-			val height = chapterHeaderHeightPx
-			if (height <= 0) return
+			if (!settings.isEpubChapterHeaderEnabled) return
 			val density = resources.displayMetrics.density
-			val color = foregroundColor
-			val typeface = readerTypeface
-			headerLabelPaint.apply { this.color = color; alpha = 160; textSize = 14f * density; this.typeface = typeface }
-			headerTitlePaint.apply {
-				this.color = color
-				textSize = 30f * density
-				this.typeface = Typeface.create(typeface, Typeface.BOLD)
-			}
-			headerCountPaint.apply { this.color = color; alpha = 120; textSize = 12f * density; this.typeface = typeface }
+			prepareHeaderPaints()
 			val centerX = parent.width / 2f
 			for (index in 0 until parent.childCount) {
 				val child = parent.getChildAt(index)
 				val position = parent.getChildAdapterPosition(child)
 				if (position !in chapters.indices) continue
-				val top = child.top + child.translationY - height
 				val chapter = chapters[position]
 				val label = getString(R.string.epub_chapter_header_label, position + 1)
-				// The small label above already carries the number, so the title shows only the chapter's name
-				val name = headerNames.getOrPut(chapter.title) {
-					ChapterTitles.nameOf(chapter.title, maxOf(chapters.size * 2, 999))
-				}
-				val title = name.ifBlank { chapter.title.ifBlank { label } }
-				val maxWidth = parent.width - 48f * density
-				val fitted = TextUtils.ellipsize(title, headerTitlePaint, maxWidth, TextUtils.TruncateAt.END).toString()
+				val title = headerTitleLayout(headerTitleText(chapter, label), headerTitleWidthPx(parent.width))
+				val extra = title.getLineBottom(title.lineCount - 1) - title.getLineBottom(0)
+				val top = child.top + child.translationY - ((CHAPTER_HEADER_HEIGHT_DP * density).toInt() + extra)
 				val count = getString(R.string.epub_chapter_header_count, position + 1, chapters.size)
 				headerLabelPaint.textAlign = Paint.Align.CENTER
-				headerTitlePaint.textAlign = Paint.Align.CENTER
 				headerCountPaint.textAlign = Paint.Align.CENTER
-				if (name.isNotBlank()) canvas.drawText(label, centerX, top + 36f * density, headerLabelPaint)
-				canvas.drawText(fitted, centerX, top + 76f * density, headerTitlePaint)
-				canvas.drawText(count, centerX, top + 102f * density, headerCountPaint)
+				if (showsHeaderLabel(chapter)) canvas.drawText(label, centerX, top + 36f * density, headerLabelPaint)
+				canvas.save()
+				canvas.translate((parent.width - title.width) / 2f, top + 76f * density - title.getLineBaseline(0))
+				title.draw(canvas)
+				canvas.restore()
+				canvas.drawText(count, centerX, top + 102f * density + extra, headerCountPaint)
 			}
 		}
 	}
@@ -689,6 +734,14 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
 		settings.observeAsFlow(AppSettings.KEY_NOVEL_TRANSLATE_TARGET) { novelTranslationTarget }
 			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
+		settings.observeAsFlow(AppSettings.KEY_EPUB_REMOVE_REDUNDANCY) { epubRemoveRedundancy }
+			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
+		settings.observeAsFlow(AppSettings.KEY_EPUB_CHAPTER_HEADER) { isEpubChapterHeaderEnabled }
+			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
+		settings.observeAsFlow(AppSettings.KEY_EPUB_READING_MODE) { epubReadingMode }
+			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
+		settings.observeAsFlow(AppSettings.KEY_EPUB_HEADER_NAME_ONLY) { isEpubHeaderNameOnly }
+			.observe(viewLifecycleOwner) { scheduleReflow() }
 		viewLifecycleOwner.lifecycleScope.launch {
 			novelTranslator.failures.collect { reason ->
 				android.widget.Toast.makeText(
@@ -1055,8 +1108,10 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 		}
 	}
 
+	/** Everything that changes a chapter's parsed text: translation languages and the title clean-up. */
 	private fun translationKey(): String =
-		if (settings.isNovelTranslationEnabled) "${settings.novelTranslationSource}>${settings.novelTranslationTarget}" else "off"
+		(if (settings.isNovelTranslationEnabled) "${settings.novelTranslationSource}>${settings.novelTranslationTarget}" else "off") +
+			"|" + activeRedundancy().key
 
 	/** Translation was switched on or off, or its languages changed: load the chapters again in the new language. */
 	private fun onTranslationSettingsChanged() {
@@ -1099,6 +1154,7 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 			val source = image.attr("href").ifBlank { image.attr("xlink:href") }
 			if (source.isNotBlank()) svg.replaceWith(image.clone().tagName("img").attr("src", source))
 		}
+		dropRedundantTitle(document, chapter.title)
 		val parsed = HtmlCompat.fromHtml(
 			document.body().html(),
 			HtmlCompat.FROM_HTML_MODE_LEGACY,
@@ -1106,6 +1162,40 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 			null,
 		).trimmed().withPlainSpaces()
 		return SpannedString(parsed).takeIf { it.isNotEmpty() } ?: EMPTY_CHAPTER_TEXT
+	}
+
+	/** Removing the title only makes sense while the header (scroll mode) is what shows it. */
+	private fun activeRedundancy(): ChapterTitles.Redundancy =
+		if (settings.isEpubChapterHeaderEnabled && !isPagedMode) {
+			ChapterTitles.Redundancy.of(settings.epubRemoveRedundancy)
+		} else {
+			ChapterTitles.Redundancy.OFF
+		}
+
+	/**
+	 * Many novels repeat "Chapter 12: Name" as the first line of the text. With the header on, drops the number,
+	 * the name or both from the first (up to two) lines, but only lines that really are this chapter's title.
+	 */
+	private fun dropRedundantTitle(document: org.jsoup.nodes.Document, chapterTitle: String) {
+		val mode = activeRedundancy()
+		if (mode == ChapterTitles.Redundancy.OFF) return
+		val body = document.body()
+		var handled = 0
+		for (element in body.allElements) {
+			if (handled >= 2) break
+			if (element === body || element.tagName() !in TITLE_BLOCK_TAGS) continue
+			if (element.children().any { it.tagName() in TITLE_BLOCK_TAGS }) continue
+			val text = element.text().replace('\u00a0', ' ').trim()
+			if (text.isEmpty()) continue
+			if (element.selectFirst("img, svg") != null) break
+			if (!ChapterTitles.isTitleLine(text, chapterTitle)) break
+			val cleaned = ChapterTitles.cleaned(text, mode)
+			when {
+				cleaned == null -> element.remove()
+				cleaned != text -> element.text(cleaned)
+			}
+			handled++
+		}
 	}
 
 	/**
@@ -2154,10 +2244,10 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 					val bottom = layout.getLineBottom(layout.getLineForOffset((end - 1).coerceIn(offset, length)))
 					val viewport = recycler.height - recycler.paddingTop
 					val margin = ((viewport - (bottom - top)) / 2).coerceAtLeast(0)
-					recycler.scrollBy(0, chapterHeaderHeightPx + textView.totalPaddingTop + top - margin)
+					recycler.scrollBy(0, chapterHeaderHeightPx(target.chapter) + textView.totalPaddingTop + top - margin)
 				} else {
 					// offset 0 keeps the chapter header in view; otherwise skip past it
-					recycler.scrollBy(0, if (top > 0) top + chapterHeaderHeightPx else 0)
+					recycler.scrollBy(0, if (top > 0) top + chapterHeaderHeightPx(target.chapter) else 0)
 				}
 			}
 			restoring = false
@@ -2770,6 +2860,8 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 		private const val EPUB_THEME_CUSTOM = "custom"
 		private const val EPUB_FONT_CUSTOM = "custom"
 		private const val CHAPTER_HEADER_HEIGHT_DP = 132
+		private const val HEADER_TITLE_MAX_LINES = 3
+		private val TITLE_BLOCK_TAGS = setOf("h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "section", "article", "header", "center", "blockquote")
 		private const val TRANSITION_CARD_HEIGHT_DP = 292
 		private const val TRANSITION_MARGIN_DP = 24
 		private const val PULL_THRESHOLD_DP = 96

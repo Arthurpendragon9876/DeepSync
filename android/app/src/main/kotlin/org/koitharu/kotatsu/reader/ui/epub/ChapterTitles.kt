@@ -29,6 +29,70 @@ internal object ChapterTitles {
 	// "12. Name", "012 - Name", "(12) Name": only a bare number followed by punctuation, and not "3:10"
 	private val barePrefix = Regex("""^\s*[\[(]?\s*(\d+)(?:\.\d+)?\s*[\])]?\s*[.:;\-–—|)]+\s*(?!\d)""")
 
+	/** Longest line that can still be a chapter title; anything longer is story text. */
+	private const val MAX_TITLE_LINE = 200
+
+	/** What to remove from a chapter's body when the header already shows its title. */
+	enum class Redundancy(val key: String) {
+		OFF("off"), NUMBER("number"), NAME("name"), BOTH("both");
+
+		companion object {
+			fun of(key: String?): Redundancy = values().firstOrNull { it.key == key } ?: OFF
+		}
+	}
+
+	/** A title split into its numbering ("Chapter 12", empty when it has none) and its name. */
+	data class Heading(val number: String, val name: String)
+
+	fun split(title: String): Heading {
+		val text = title.trim()
+		val match = keywordPrefix.find(text) ?: cjkPrefix.find(text)
+			?: barePrefix.find(text)?.takeIf { (it.groupValues[1].toIntOrNull() ?: Int.MAX_VALUE) <= 999 }
+			?: return Heading("", text)
+		val number = text.substring(0, match.range.last + 1).trim()
+			.trimEnd(':', ';', ',', '-', '–', '—', '|', '.', '：', '、', '·', ' ')
+		return Heading(number, text.substring(match.range.last + 1).trim())
+	}
+
+	private fun normalize(text: String): String = buildString {
+		text.forEach { if (it.isLetterOrDigit()) append(it.lowercaseChar()) }
+	}
+
+	/**
+	 * True when [line] (the first text line of a chapter) is that chapter's own title: the same title or name,
+	 * the name behind a "Chapter N:" lead-in, or a bare "Chapter N".
+	 */
+	fun isTitleLine(line: String, chapterTitle: String): Boolean {
+		val text = line.trim()
+		if (text.isEmpty() || text.length > MAX_TITLE_LINE) return false
+		val heading = split(text)
+		if (heading.number.isNotEmpty() && heading.name.isBlank()) return true
+		val lineKey = normalize(text)
+		if (lineKey.isEmpty()) return false
+		if (lineKey == normalize(chapterTitle)) return true
+		val nameKey = normalize(split(chapterTitle).name)
+		return nameKey.isNotEmpty() && (lineKey == nameKey || normalize(heading.name) == nameKey)
+	}
+
+	/** What a title line should read after cleaning: null drops the line, otherwise the text to keep. */
+	fun cleaned(line: String, mode: Redundancy): String? {
+		val heading = split(line)
+		return when (mode) {
+			Redundancy.OFF -> line
+			Redundancy.BOTH -> null
+			Redundancy.NUMBER -> when {
+				heading.number.isEmpty() -> line
+				heading.name.isBlank() -> null
+				else -> heading.name
+			}
+			Redundancy.NAME -> when {
+				heading.number.isEmpty() -> null
+				heading.name.isBlank() -> line
+				else -> heading.number
+			}
+		}
+	}
+
 	/**
 	 * The chapter's name without its number, or an empty string when the title was nothing but a number.
 	 * [bareNumberLimit] stops real names that start with a year ("2001: A Space Odyssey") from being cut.

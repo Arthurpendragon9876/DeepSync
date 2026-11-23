@@ -179,6 +179,8 @@ private fun NovelReaderScreen(
 	var readingMode by rememberStringPref(AppSettings.KEY_EPUB_READING_MODE, "scroll")
 	var scrollStyle by rememberStringPref(AppSettings.KEY_EPUB_SCROLL_STYLE, "continuous")
 	var chapterHeader by rememberBooleanPref(AppSettings.KEY_EPUB_CHAPTER_HEADER, true)
+	var headerNameOnly by rememberBooleanPref(AppSettings.KEY_EPUB_HEADER_NAME_ONLY, true)
+	var removeRedundancy by rememberStringPref(AppSettings.KEY_EPUB_REMOVE_REDUNDANCY, "off")
 	var fontSize by rememberIntPref(AppSettings.KEY_EPUB_FONT_SIZE, 100)
 	var fontFamily by rememberStringPref(AppSettings.KEY_EPUB_FONT_FAMILY, "serif")
 	var lineHeight by rememberIntPref(AppSettings.KEY_EPUB_LINE_HEIGHT, 160)
@@ -251,6 +253,11 @@ private fun NovelReaderScreen(
 								enabled = isScroll,
 							)
 						}
+					}
+				}
+				item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
+				item {
+					SettingsGroup(title = "Advanced chapter header") {
 						item { pos ->
 							SwitchSettingsItem(
 								title = "Chapter header",
@@ -259,6 +266,28 @@ private fun NovelReaderScreen(
 								onCheckedChange = { chapterHeader = it },
 								shape = pos.shape,
 								enabled = isScroll,
+							)
+						}
+						item { pos ->
+							SwitchSettingsItem(
+								title = "Name only",
+								subtitle = "Remove the chapter number from the header title",
+								checked = headerNameOnly,
+								onCheckedChange = { headerNameOnly = it },
+								shape = pos.shape,
+								enabled = isScroll && chapterHeader,
+							)
+						}
+						item { pos ->
+							val modes = listOf("off", "number", "name", "both")
+							SegmentedSettingsItem(
+								title = "Remove redundancy",
+								subtitle = "Remove the chapter number, name or both when the text repeats it at the top",
+								labels = listOf("Off", "Number", "Name", "Both"),
+								selectedIndex = modes.indexOf(removeRedundancy).coerceAtLeast(0),
+								onSelected = { removeRedundancy = modes[it] },
+								shape = pos.shape,
+								enabled = isScroll && chapterHeader,
 							)
 						}
 					}

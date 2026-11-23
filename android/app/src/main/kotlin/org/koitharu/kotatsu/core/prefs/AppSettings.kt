@@ -489,6 +489,20 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		get() = prefs.getBoolean(KEY_EPUB_CHAPTER_HEADER, true)
 		set(value) = prefs.edit { putBoolean(KEY_EPUB_CHAPTER_HEADER, value) }
 
+	/** Header title shows just the chapter's name ("Chapter 12: Name" -> "Name"); off shows the title as the book gives it. */
+	var isEpubHeaderNameOnly: Boolean
+		get() = prefs.getBoolean(KEY_EPUB_HEADER_NAME_ONLY, true)
+		set(value) = prefs.edit { putBoolean(KEY_EPUB_HEADER_NAME_ONLY, value) }
+
+	/**
+	 * Drops the chapter's own title line from the top of the text when the header already shows it:
+	 * "off", "number", "name" or "both" (see ChapterTitles.Redundancy).
+	 */
+	var epubRemoveRedundancy: String
+		get() = prefs.getString(KEY_EPUB_REMOVE_REDUNDANCY, "off")
+			?.takeIf { it == "number" || it == "name" || it == "both" } ?: "off"
+		set(value) = prefs.edit { putString(KEY_EPUB_REMOVE_REDUNDANCY, value) }
+
 	var isEpubHyphenationEnabled: Boolean
 		get() = prefs.getBoolean(KEY_EPUB_HYPHENATION, false)
 		set(value) = prefs.edit { putBoolean(KEY_EPUB_HYPHENATION, value) }
@@ -1742,6 +1756,8 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_EPUB_PARAGRAPH_INDENT = "epub_paragraph_indent"
 		const val KEY_EPUB_HYPHENATION = "epub_hyphenation"
 		const val KEY_EPUB_CHAPTER_HEADER = "epub_chapter_header"
+		const val KEY_EPUB_HEADER_NAME_ONLY = "epub_header_name_only"
+		const val KEY_EPUB_REMOVE_REDUNDANCY = "epub_remove_redundancy"
 		const val KEY_EPUB_MAX_TEXT_WIDTH = "epub_max_text_width"
 		const val KEY_EPUB_CUSTOM_BACKGROUND_COLOR = "epub_custom_background_color"
 		const val KEY_EPUB_CUSTOM_TEXT_COLOR = "epub_custom_text_color"

@@ -1022,6 +1022,22 @@ private fun MorePage(
 	ToggleRow("Chapter header", settings.isEpubChapterHeaderEnabled, "Display the chapter title above the text") {
 		settings.isEpubChapterHeaderEnabled = it; refresh()
 	}
+	if (settings.isEpubChapterHeaderEnabled) {
+		ToggleRow("Name only", settings.isEpubHeaderNameOnly, "Remove the chapter number from the header title") {
+			settings.isEpubHeaderNameOnly = it; refresh()
+		}
+		val redundancyLabels = listOf("off" to "Off", "number" to "Number", "name" to "Name", "both" to "Both")
+		Section("Remove redundancy", redundancyLabels.firstOrNull { it.first == settings.epubRemoveRedundancy }?.second) {
+			ChipFlow(redundancyLabels, settings.epubRemoveRedundancy) {
+				settings.epubRemoveRedundancy = it; refresh()
+			}
+		}
+		Text(
+			text = "Removes the chapter number, name or both when the text itself repeats it at the top (scroll mode)",
+			style = MaterialTheme.typography.labelSmall,
+			color = Bar.textMuted,
+		)
+	}
 	ToggleRow("Text-to-speech", settings.isEpubTtsEnabled, "Show the Listen button and the TTS mode") {
 		settings.isEpubTtsEnabled = it
 		// turning it off while it is playing also stops it, so nothing keeps talking without a way to stop
