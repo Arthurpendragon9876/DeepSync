@@ -1,0 +1,239 @@
+name: Android patch release
+
+# Publishes a small fix on top of an existing release as android-v<base>-patch.<N> (for example
+# android-v0.1.3-patch.1). It is a normal signed release, not a pre-release, so the in-app updater
+# offers it to everyone on the base version (or an earlier patch) and it installs over the app.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_version:
+        description: 'Release this patches (e.g. 0.1.3). It must already be published as android-v<base_version>'
+        required: true
+        type: string
+      patch_number:
+        description: 'Optional. Leave empty to use the next free number (patch.1, patch.2, ...)'
+        required: false
+        type: string
+
+concurrency:
+  group: release-workflow
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: android
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      BASE_VERSION: ${{ inputs.base_version }}
+      PATCH_INPUT: ${{ inputs.patch_number }}
+
+    steps:
+    - name: Validate inputs
+      # Runs before checkout, when the android/ folder does not exist yet.
+      working-directory: ${{ github.workspace }}
+      run: |
+        if ! echo "$BASE_VERSION" | grep -qE '^[0-9]+(\.[0-9]+)*$'; then
+          echo "::error::base_version '${BASE_VERSION}' is invalid. Use the plain version being patched, such as 0.1.3 (no suffix, no leading v)."
+          exit 1
+        fi
+        if [ -n "$PATCH_INPUT" ] && ! echo "$PATCH_INPUT" | grep -qE '^[1-9][0-9]*$'; then
+          echo "::error::patch_number '${PATCH_INPUT}' is invalid. Leave it empty or use a whole number such as 1."
+          exit 1
+        fi
+
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+
+    - name: Work out the patch version
+      id: ver
+      working-directory: ${{ github.workspace }}
+      run: |
+        set -euo pipefail
+
+        # A patch only makes sense for a release that exists.
+        if ! gh release view "android-v${BASE_VERSION}" >/dev/null 2>&1; then
+          echo "::error::Release android-v${BASE_VERSION} was not found. A patch needs a published release to sit on top of."
+          exit 1
+        fi
+
+        if [ -n "$PATCH_INPUT" ]; then
+          N="$PATCH_INPUT"
+        else
+          LAST=$(git tag -l "android-v${BASE_VERSION}-patch.*" | sed -E "s/.*-patch\.([0-9]+)$/\1/" | sort -n | tail -n1)
+          N=$(( ${LAST:-0} + 1 ))
+        fi
+
+        VERSION="${BASE_VERSION}-patch.${N}"
+        TAG="android-v${VERSION}"
+
+        if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null || gh release view "$TAG" >/dev/null 2>&1; then
+          echo "::error::${TAG} already exists. Pick another patch_number or leave it empty."
+          exit 1
+        fi
+
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+        echo "Patch version: ${VERSION} (tag ${TAG})"
+
+    - name: Set up JDK
+      uses: actions/setup-java@v5
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+        cache: 'gradle'
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Decode keystore
+      env:
+        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      run: |
+        # A patch has to install over the app that is already on the phone, so it must be signed with
+        # the same permanent key as the release it patches. A random key would be refused by Android.
+        if [ -z "$KEYSTORE_BASE64" ]; then
+          echo "::error::A patch release must be signed with your permanent key. Add the KEYSTORE_BASE64, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS and RELEASE_KEY_PASSWORD repository secrets first."
+          exit 1
+        fi
+        echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+
+    - name: Update versionName and increment versionCode
+      run: |
+        VERSION_NAME="${{ steps.ver.outputs.version }}"
+        BUILD_GRADLE="app/build.gradle"
+
+        sed -i -E "s/(versionName = ')[^']*(')/\1${VERSION_NAME}\2/" "$BUILD_GRADLE"
+        CURRENT_CODE=$(grep -E "versionCode = [0-9]+" "$BUILD_GRADLE" | head -n1 | sed -E "s/.*= ([0-9]+)/\1/")
+        NEXT_CODE=$((CURRENT_CODE + 1))
+        sed -i -E "s/versionCode = [0-9]+/versionCode = ${NEXT_CODE}/" "$BUILD_GRADLE"
+        echo "versionName ${VERSION_NAME}, versionCode ${NEXT_CODE}"
+
+    - name: Build Release APK
+      run: |
+        ./gradlew assembleRelease --no-daemon --stacktrace \
+          -PRELEASE_STORE_FILE=../release.keystore \
+          -PRELEASE_STORE_PASSWORD="${{ secrets.RELEASE_STORE_PASSWORD }}" \
+          -PRELEASE_KEY_ALIAS="${{ secrets.RELEASE_KEY_ALIAS }}" \
+          -PRELEASE_KEY_PASSWORD="${{ secrets.RELEASE_KEY_PASSWORD }}"
+
+    - name: Commit version updates
+      id: version_commit
+      run: |
+        BRANCH_NAME="${{ github.ref_name }}"
+
+        if git diff --quiet -- app/build.gradle; then
+          echo "No version changes to commit"
+          echo "commit_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add app/build.gradle
+        git commit -m "chore(release): set versionName ${{ steps.ver.outputs.version }} and bump versionCode"
+
+        # Use refs/heads/ explicitly to avoid ambiguity with any tag that shares the branch name
+        for attempt in 1 2 3; do
+          if git push origin "HEAD:refs/heads/$BRANCH_NAME"; then
+            break
+          fi
+          if [ "$attempt" -eq 3 ]; then
+            echo "Failed to push version commit after 3 attempts"
+            exit 1
+          fi
+          git pull --rebase origin "refs/heads/$BRANCH_NAME"
+          sleep 2
+        done
+
+        echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Prepare changelog from repo files
+      env:
+        VERSION_NAME: ${{ steps.ver.outputs.version }}
+        COMMIT_SHA: ${{ steps.version_commit.outputs.commit_sha }}
+      run: |
+        set -euo pipefail
+        OUT="release_changelog.md"
+        : > "$OUT"
+
+        # 1) changelogs/v<version>.md, e.g. changelogs/v0.1.3-patch.1.md. Its "## " title line is dropped.
+        PER_RELEASE="changelogs/v${VERSION_NAME}.md"
+        if [ -f "$PER_RELEASE" ]; then
+          echo "Using $PER_RELEASE"
+          sed '1{/^## /d}' "$PER_RELEASE" > "$OUT"
+        fi
+
+        # 2) The "## [<version>]" section of CHANGELOG.md.
+        if [ ! -s "$OUT" ] && [ -f CHANGELOG.md ]; then
+          awk -v v="[${VERSION_NAME}]" '
+            /^## / { if (found) exit; if (index($0, v) > 0) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > "$OUT"
+          if [ -s "$OUT" ]; then echo "Using the [${VERSION_NAME}] section of CHANGELOG.md"; fi
+        fi
+
+        # 3) Last resort: git log since the previous Android release (the base release or an earlier patch).
+        if [ ! -s "$OUT" ]; then
+          echo "::warning::No changelog file found for ${VERSION_NAME} (looked for ${PER_RELEASE} and a '## [${VERSION_NAME}]' section in CHANGELOG.md). Falling back to git log."
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match 'android-v*' "$COMMIT_SHA" 2>/dev/null || true)
+          if [ -n "$PREVIOUS_TAG" ]; then RANGE="$PREVIOUS_TAG..$COMMIT_SHA"; else RANGE="$COMMIT_SHA"; fi
+          git log --pretty=format:"- %s" --no-merges -n 50 --invert-grep --grep='^chore(release): set versionName ' $RANGE > "$OUT" || true
+          if [ ! -s "$OUT" ]; then echo "- No changes since ${PREVIOUS_TAG:-the last release}" > "$OUT"; fi
+        fi
+
+        echo "--- patch changelog ---"
+        cat "$OUT"
+
+    - name: Collect Release APK
+      run: |
+        mkdir -p release
+        shopt -s nullglob
+        APK_FILES=(app/build/outputs/apk/release/*.apk)
+        if [ ${#APK_FILES[@]} -eq 0 ]; then
+          echo "Error: No APK file found"
+          exit 1
+        fi
+
+        for apk in "${APK_FILES[@]}"; do
+          if [ ${#APK_FILES[@]} -eq 1 ]; then
+            target="release/Yugen-v${{ steps.ver.outputs.version }}.apk"
+          else
+            original_apk_name=$(basename "$apk" .apk)
+            target="release/Yugen-v${{ steps.ver.outputs.version }}-${original_apk_name}.apk"
+          fi
+          cp "$apk" "$target"
+        done
+
+    - name: Create Release
+      env:
+        VERSION_NAME: ${{ steps.ver.outputs.version }}
+        TAG: ${{ steps.ver.outputs.tag }}
+        TARGET_SHA: ${{ steps.version_commit.outputs.commit_sha }}
+      run: |
+        NOTES_FILE="release_notes.md"
+
+        {
+          echo "### Patch for ${BASE_VERSION}"
+          echo
+          echo "This is a small fix on top of ${BASE_VERSION}. It installs over the version you have and keeps your library. Yugen offers it in the app (home screen and About settings), or download the apk below."
+          echo
+          echo "### Changelog"
+          echo
+          cat release_changelog.md
+        } > "$NOTES_FILE"
+
+        # Not a pre-release on purpose: the in-app updater only offers stable versions (and patches) to
+        # people on a stable version.
+        gh release create "$TAG" release/*.apk \
+          --title "Yugen ${VERSION_NAME}" \
+          --target "$TARGET_SHA" \
+          --notes-file "$NOTES_FILE"
