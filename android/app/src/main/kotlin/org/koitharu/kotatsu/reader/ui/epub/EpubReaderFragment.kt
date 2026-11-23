@@ -720,6 +720,23 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 	}
 
 	/** Previous/next chapter from the TTS player; keeps speaking from the start of the target. */
+	/** Bottom bar |< / >|: jumps to the start of the previous / next chapter. */
+	fun skipChapter(delta: Int) {
+		if (chapters.isEmpty()) return
+		val target = currentLocator().clamped().chapter + delta
+		if (target !in chapters.indices) return
+		goTo(Locator(target, 0))
+	}
+
+	/** Bottom bar capsule: moves to [permille] (0..1000) of the chapter being read. */
+	fun seekChapterPermille(permille: Int) {
+		if (chapters.isEmpty()) return
+		val index = currentLocator().clamped().chapter
+		val length = chapters[index].text.length
+		if (length <= 0) return
+		goTo(Locator(index, (length.toLong() * permille.coerceIn(0, 1000) / 1000).toInt()))
+	}
+
 	fun ttsSkipChapter(delta: Int) {
 		val current = tts.position.value?.chapter ?: currentLocator().clamped().chapter
 		val target = current + delta
@@ -1164,6 +1181,10 @@ class EpubReaderFragment : BaseReaderFragment<FragmentReaderEpubBinding>() {
 		if (reflowLocator == null) reflowLocator = currentLocator()
 		root.removeCallbacks(rebuildRunnable)
 		refreshVisibleStyles()
+		// notifyDataSetChanged keeps the chapter's pixel offset, so a different line height / font size moves the
+		// text under the reader (it looked like scrolling up while dragging the slider). Pin the reading position
+		// again straight away instead of waiting for the delayed rebuild. `restoring` guards against queueing twice.
+		if (!isPagedMode && !restoring) reflowLocator?.let { positionVertical(it) }
 		root.postDelayed(rebuildRunnable, REPAGINATE_DELAY_MS)
 	}
 
