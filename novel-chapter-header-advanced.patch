@@ -1,0 +1,410 @@
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt	2026-11-23 13:28:11.586783117 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt	2026-11-23 13:28:11.688919701 +0000
+@@ -489,6 +489,20 @@
+ 		get() = prefs.getBoolean(KEY_EPUB_CHAPTER_HEADER, true)
+ 		set(value) = prefs.edit { putBoolean(KEY_EPUB_CHAPTER_HEADER, value) }
+ 
++	/** Header title shows just the chapter's name ("Chapter 12: Name" -> "Name"); off shows the title as the book gives it. */
++	var isEpubHeaderNameOnly: Boolean
++		get() = prefs.getBoolean(KEY_EPUB_HEADER_NAME_ONLY, true)
++		set(value) = prefs.edit { putBoolean(KEY_EPUB_HEADER_NAME_ONLY, value) }
++
++	/**
++	 * Drops the chapter's own title line from the top of the text when the header already shows it:
++	 * "off", "number", "name" or "both" (see ChapterTitles.Redundancy).
++	 */
++	var epubRemoveRedundancy: String
++		get() = prefs.getString(KEY_EPUB_REMOVE_REDUNDANCY, "off")
++			?.takeIf { it == "number" || it == "name" || it == "both" } ?: "off"
++		set(value) = prefs.edit { putString(KEY_EPUB_REMOVE_REDUNDANCY, value) }
++
+ 	var isEpubHyphenationEnabled: Boolean
+ 		get() = prefs.getBoolean(KEY_EPUB_HYPHENATION, false)
+ 		set(value) = prefs.edit { putBoolean(KEY_EPUB_HYPHENATION, value) }
+@@ -1742,6 +1756,8 @@
+ 		const val KEY_EPUB_PARAGRAPH_INDENT = "epub_paragraph_indent"
+ 		const val KEY_EPUB_HYPHENATION = "epub_hyphenation"
+ 		const val KEY_EPUB_CHAPTER_HEADER = "epub_chapter_header"
++		const val KEY_EPUB_HEADER_NAME_ONLY = "epub_header_name_only"
++		const val KEY_EPUB_REMOVE_REDUNDANCY = "epub_remove_redundancy"
+ 		const val KEY_EPUB_MAX_TEXT_WIDTH = "epub_max_text_width"
+ 		const val KEY_EPUB_CUSTOM_BACKGROUND_COLOR = "epub_custom_background_color"
+ 		const val KEY_EPUB_CUSTOM_TEXT_COLOR = "epub_custom_text_color"
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/ChapterTitles.kt proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/ChapterTitles.kt
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/ChapterTitles.kt	2026-11-23 13:28:11.594738519 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/ChapterTitles.kt	2026-11-23 13:28:44.232625665 +0000
+@@ -29,6 +29,70 @@
+ 	// "12. Name", "012 - Name", "(12) Name": only a bare number followed by punctuation, and not "3:10"
+ 	private val barePrefix = Regex("""^\s*[\[(]?\s*(\d+)(?:\.\d+)?\s*[\])]?\s*[.:;\-–—|)]+\s*(?!\d)""")
+ 
++	/** Longest line that can still be a chapter title; anything longer is story text. */
++	private const val MAX_TITLE_LINE = 200
++
++	/** What to remove from a chapter's body when the header already shows its title. */
++	enum class Redundancy(val key: String) {
++		OFF("off"), NUMBER("number"), NAME("name"), BOTH("both");
++
++		companion object {
++			fun of(key: String?): Redundancy = values().firstOrNull { it.key == key } ?: OFF
++		}
++	}
++
++	/** A title split into its numbering ("Chapter 12", empty when it has none) and its name. */
++	data class Heading(val number: String, val name: String)
++
++	fun split(title: String): Heading {
++		val text = title.trim()
++		val match = keywordPrefix.find(text) ?: cjkPrefix.find(text)
++			?: barePrefix.find(text)?.takeIf { (it.groupValues[1].toIntOrNull() ?: Int.MAX_VALUE) <= 999 }
++			?: return Heading("", text)
++		val number = text.substring(0, match.range.last + 1).trim()
++			.trimEnd(':', ';', ',', '-', '–', '—', '|', '.', '：', '、', '·', ' ')
++		return Heading(number, text.substring(match.range.last + 1).trim())
++	}
++
++	private fun normalize(text: String): String = buildString {
++		text.forEach { if (it.isLetterOrDigit()) append(it.lowercaseChar()) }
++	}
++
++	/**
++	 * True when [line] (the first text line of a chapter) is that chapter's own title: the same title or name,
++	 * the name behind a "Chapter N:" lead-in, or a bare "Chapter N".
++	 */
++	fun isTitleLine(line: String, chapterTitle: String): Boolean {
++		val text = line.trim()
++		if (text.isEmpty() || text.length > MAX_TITLE_LINE) return false
++		val heading = split(text)
++		if (heading.number.isNotEmpty() && heading.name.isBlank()) return true
++		val lineKey = normalize(text)
++		if (lineKey.isEmpty()) return false
++		if (lineKey == normalize(chapterTitle)) return true
++		val nameKey = normalize(split(chapterTitle).name)
++		return nameKey.isNotEmpty() && (lineKey == nameKey || normalize(heading.name) == nameKey)
++	}
++
++	/** What a title line should read after cleaning: null drops the line, otherwise the text to keep. */
++	fun cleaned(line: String, mode: Redundancy): String? {
++		val heading = split(line)
++		return when (mode) {
++			Redundancy.OFF -> line
++			Redundancy.BOTH -> null
++			Redundancy.NUMBER -> when {
++				heading.number.isEmpty() -> line
++				heading.name.isBlank() -> null
++				else -> heading.name
++			}
++			Redundancy.NAME -> when {
++				heading.number.isEmpty() -> null
++				heading.name.isBlank() -> line
++				else -> heading.number
++			}
++		}
++	}
++
+ 	/**
+ 	 * The chapter's name without its number, or an empty string when the title was nothing but a number.
+ 	 * [bareNumberLimit] stops real names that start with a year ("2001: A Space Odyssey") from being cut.
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/EpubReaderFragment.kt proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/EpubReaderFragment.kt
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/EpubReaderFragment.kt	2026-11-23 13:28:11.594757416 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/EpubReaderFragment.kt	2026-11-23 13:28:31.890499501 +0000
+@@ -532,50 +532,95 @@
+ 	/** Chapter title -> its name without the "Chapter 12:" lead-in, so the header isn't redrawn every frame. */
+ 	private val headerNames = HashMap<String, String>()
+ 
+-	/** Height reserved above each chapter for its header block (scroll mode only). */
+-	private val chapterHeaderHeightPx: Int
+-		get() = if (settings.isEpubChapterHeaderEnabled) (CHAPTER_HEADER_HEIGHT_DP * resources.displayMetrics.density).toInt() else 0
++	/** Wrapped header titles, so long names are laid out once instead of every frame. */
++	private val headerTitleLayouts = HashMap<String, StaticLayout>()
++
++	private fun prepareHeaderPaints() {
++		val density = resources.displayMetrics.density
++		val color = foregroundColor
++		val typeface = readerTypeface
++		headerLabelPaint.apply { this.color = color; alpha = 160; textSize = 14f * density; this.typeface = typeface }
++		headerTitlePaint.apply {
++			this.color = color
++			textSize = 30f * density
++			this.typeface = Typeface.create(typeface, Typeface.BOLD)
++		}
++		headerCountPaint.apply { this.color = color; alpha = 120; textSize = 12f * density; this.typeface = typeface }
++	}
++
++	/** The title line for a chapter: its name only, or the title exactly as the book gives it. */
++	private fun headerTitleText(chapter: NativeChapter, label: String): String {
++		if (!settings.isEpubHeaderNameOnly) return chapter.title.ifBlank { label }
++		val name = headerNames.getOrPut(chapter.title) {
++			ChapterTitles.nameOf(chapter.title, maxOf(chapters.size * 2, 999))
++		}
++		return name.ifBlank { chapter.title.ifBlank { label } }
++	}
++
++	/** The title wrapped to the screen (3 lines at most, then "…") instead of cut off after one. */
++	private fun headerTitleLayout(text: String, width: Int): StaticLayout {
++		if (headerTitleLayouts.size > 120) headerTitleLayouts.clear()
++		val key = "$width|${headerTitlePaint.textSize}|${readerTypeface.hashCode()}|$text"
++		return headerTitleLayouts.getOrPut(key) {
++			StaticLayout.Builder.obtain(text, 0, text.length, headerTitlePaint, width.coerceAtLeast(1))
++				.setAlignment(Layout.Alignment.ALIGN_CENTER)
++				.setMaxLines(HEADER_TITLE_MAX_LINES)
++				.setEllipsize(TextUtils.TruncateAt.END)
++				.setIncludePad(false)
++				.build()
++		}
++	}
++
++	private fun headerTitleWidthPx(parentWidth: Int): Int =
++		(parentWidth - 48f * resources.displayMetrics.density).toInt()
++
++	/** The small "Chapter N" label is dropped when the title already starts with its own number. */
++	private fun showsHeaderLabel(chapter: NativeChapter): Boolean =
++		settings.isEpubHeaderNameOnly || ChapterTitles.split(chapter.title).number.isEmpty()
++
++	/** Height reserved above chapter [position] for its header block (scroll mode only); grows with wrapped titles. */
++	private fun chapterHeaderHeightPx(position: Int, parentWidth: Int = verticalView?.width ?: 0): Int {
++		if (!settings.isEpubChapterHeaderEnabled) return 0
++		val base = (CHAPTER_HEADER_HEIGHT_DP * resources.displayMetrics.density).toInt()
++		val chapter = chapters.getOrNull(position) ?: return base
++		if (parentWidth <= 0) return base
++		prepareHeaderPaints()
++		val layout = headerTitleLayout(
++			headerTitleText(chapter, getString(R.string.epub_chapter_header_label, position + 1)),
++			headerTitleWidthPx(parentWidth),
++		)
++		return base + layout.getLineBottom(layout.lineCount - 1) - layout.getLineBottom(0)
++	}
+ 
+ 	private val chapterHeaderDecoration = object : RecyclerView.ItemDecoration() {
+ 		override fun getItemOffsets(outRect: Rect, view: View, parent: RecyclerView, state: RecyclerView.State) {
+-			if (parent.getChildAdapterPosition(view) in chapters.indices) outRect.top = chapterHeaderHeightPx
++			val position = parent.getChildAdapterPosition(view)
++			if (position in chapters.indices) outRect.top = chapterHeaderHeightPx(position, parent.width)
+ 		}
+ 
+ 		override fun onDraw(canvas: Canvas, parent: RecyclerView, state: RecyclerView.State) {
+-			val height = chapterHeaderHeightPx
+-			if (height <= 0) return
++			if (!settings.isEpubChapterHeaderEnabled) return
+ 			val density = resources.displayMetrics.density
+-			val color = foregroundColor
+-			val typeface = readerTypeface
+-			headerLabelPaint.apply { this.color = color; alpha = 160; textSize = 14f * density; this.typeface = typeface }
+-			headerTitlePaint.apply {
+-				this.color = color
+-				textSize = 30f * density
+-				this.typeface = Typeface.create(typeface, Typeface.BOLD)
+-			}
+-			headerCountPaint.apply { this.color = color; alpha = 120; textSize = 12f * density; this.typeface = typeface }
++			prepareHeaderPaints()
+ 			val centerX = parent.width / 2f
+ 			for (index in 0 until parent.childCount) {
+ 				val child = parent.getChildAt(index)
+ 				val position = parent.getChildAdapterPosition(child)
+ 				if (position !in chapters.indices) continue
+-				val top = child.top + child.translationY - height
+ 				val chapter = chapters[position]
+ 				val label = getString(R.string.epub_chapter_header_label, position + 1)
+-				// The small label above already carries the number, so the title shows only the chapter's name
+-				val name = headerNames.getOrPut(chapter.title) {
+-					ChapterTitles.nameOf(chapter.title, maxOf(chapters.size * 2, 999))
+-				}
+-				val title = name.ifBlank { chapter.title.ifBlank { label } }
+-				val maxWidth = parent.width - 48f * density
+-				val fitted = TextUtils.ellipsize(title, headerTitlePaint, maxWidth, TextUtils.TruncateAt.END).toString()
++				val title = headerTitleLayout(headerTitleText(chapter, label), headerTitleWidthPx(parent.width))
++				val extra = title.getLineBottom(title.lineCount - 1) - title.getLineBottom(0)
++				val top = child.top + child.translationY - ((CHAPTER_HEADER_HEIGHT_DP * density).toInt() + extra)
+ 				val count = getString(R.string.epub_chapter_header_count, position + 1, chapters.size)
+ 				headerLabelPaint.textAlign = Paint.Align.CENTER
+-				headerTitlePaint.textAlign = Paint.Align.CENTER
+ 				headerCountPaint.textAlign = Paint.Align.CENTER
+-				if (name.isNotBlank()) canvas.drawText(label, centerX, top + 36f * density, headerLabelPaint)
+-				canvas.drawText(fitted, centerX, top + 76f * density, headerTitlePaint)
+-				canvas.drawText(count, centerX, top + 102f * density, headerCountPaint)
++				if (showsHeaderLabel(chapter)) canvas.drawText(label, centerX, top + 36f * density, headerLabelPaint)
++				canvas.save()
++				canvas.translate((parent.width - title.width) / 2f, top + 76f * density - title.getLineBaseline(0))
++				title.draw(canvas)
++				canvas.restore()
++				canvas.drawText(count, centerX, top + 102f * density + extra, headerCountPaint)
+ 			}
+ 		}
+ 	}
+@@ -689,6 +734,14 @@
+ 			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
+ 		settings.observeAsFlow(AppSettings.KEY_NOVEL_TRANSLATE_TARGET) { novelTranslationTarget }
+ 			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
++		settings.observeAsFlow(AppSettings.KEY_EPUB_REMOVE_REDUNDANCY) { epubRemoveRedundancy }
++			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
++		settings.observeAsFlow(AppSettings.KEY_EPUB_CHAPTER_HEADER) { isEpubChapterHeaderEnabled }
++			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
++		settings.observeAsFlow(AppSettings.KEY_EPUB_READING_MODE) { epubReadingMode }
++			.observe(viewLifecycleOwner) { onTranslationSettingsChanged() }
++		settings.observeAsFlow(AppSettings.KEY_EPUB_HEADER_NAME_ONLY) { isEpubHeaderNameOnly }
++			.observe(viewLifecycleOwner) { scheduleReflow() }
+ 		viewLifecycleOwner.lifecycleScope.launch {
+ 			novelTranslator.failures.collect { reason ->
+ 				android.widget.Toast.makeText(
+@@ -1055,8 +1108,10 @@
+ 		}
+ 	}
+ 
++	/** Everything that changes a chapter's parsed text: translation languages and the title clean-up. */
+ 	private fun translationKey(): String =
+-		if (settings.isNovelTranslationEnabled) "${settings.novelTranslationSource}>${settings.novelTranslationTarget}" else "off"
++		(if (settings.isNovelTranslationEnabled) "${settings.novelTranslationSource}>${settings.novelTranslationTarget}" else "off") +
++			"|" + activeRedundancy().key
+ 
+ 	/** Translation was switched on or off, or its languages changed: load the chapters again in the new language. */
+ 	private fun onTranslationSettingsChanged() {
+@@ -1099,6 +1154,7 @@
+ 			val source = image.attr("href").ifBlank { image.attr("xlink:href") }
+ 			if (source.isNotBlank()) svg.replaceWith(image.clone().tagName("img").attr("src", source))
+ 		}
++		dropRedundantTitle(document, chapter.title)
+ 		val parsed = HtmlCompat.fromHtml(
+ 			document.body().html(),
+ 			HtmlCompat.FROM_HTML_MODE_LEGACY,
+@@ -1108,6 +1164,40 @@
+ 		return SpannedString(parsed).takeIf { it.isNotEmpty() } ?: EMPTY_CHAPTER_TEXT
+ 	}
+ 
++	/** Removing the title only makes sense while the header (scroll mode) is what shows it. */
++	private fun activeRedundancy(): ChapterTitles.Redundancy =
++		if (settings.isEpubChapterHeaderEnabled && !isPagedMode) {
++			ChapterTitles.Redundancy.of(settings.epubRemoveRedundancy)
++		} else {
++			ChapterTitles.Redundancy.OFF
++		}
++
++	/**
++	 * Many novels repeat "Chapter 12: Name" as the first line of the text. With the header on, drops the number,
++	 * the name or both from the first (up to two) lines, but only lines that really are this chapter's title.
++	 */
++	private fun dropRedundantTitle(document: org.jsoup.nodes.Document, chapterTitle: String) {
++		val mode = activeRedundancy()
++		if (mode == ChapterTitles.Redundancy.OFF) return
++		val body = document.body()
++		var handled = 0
++		for (element in body.allElements) {
++			if (handled >= 2) break
++			if (element === body || element.tagName() !in TITLE_BLOCK_TAGS) continue
++			if (element.children().any { it.tagName() in TITLE_BLOCK_TAGS }) continue
++			val text = element.text().replace('\u00a0', ' ').trim()
++			if (text.isEmpty()) continue
++			if (element.selectFirst("img, svg") != null) break
++			if (!ChapterTitles.isTitleLine(text, chapterTitle)) break
++			val cleaned = ChapterTitles.cleaned(text, mode)
++			when {
++				cleaned == null -> element.remove()
++				cleaned != text -> element.text(cleaned)
++			}
++			handled++
++		}
++	}
++
+ 	/**
+ 	 * Justified text overflowed its line whenever the line held a no-break space (`&nbsp;`, all over
+ 	 * web novels): Android's justifier budgets the extra width for plain spaces only, but the text
+@@ -2154,10 +2244,10 @@
+ 					val bottom = layout.getLineBottom(layout.getLineForOffset((end - 1).coerceIn(offset, length)))
+ 					val viewport = recycler.height - recycler.paddingTop
+ 					val margin = ((viewport - (bottom - top)) / 2).coerceAtLeast(0)
+-					recycler.scrollBy(0, chapterHeaderHeightPx + textView.totalPaddingTop + top - margin)
++					recycler.scrollBy(0, chapterHeaderHeightPx(target.chapter) + textView.totalPaddingTop + top - margin)
+ 				} else {
+ 					// offset 0 keeps the chapter header in view; otherwise skip past it
+-					recycler.scrollBy(0, if (top > 0) top + chapterHeaderHeightPx else 0)
++					recycler.scrollBy(0, if (top > 0) top + chapterHeaderHeightPx(target.chapter) else 0)
+ 				}
+ 			}
+ 			restoring = false
+@@ -2770,6 +2860,8 @@
+ 		private const val EPUB_THEME_CUSTOM = "custom"
+ 		private const val EPUB_FONT_CUSTOM = "custom"
+ 		private const val CHAPTER_HEADER_HEIGHT_DP = 132
++		private const val HEADER_TITLE_MAX_LINES = 3
++		private val TITLE_BLOCK_TAGS = setOf("h1", "h2", "h3", "h4", "h5", "h6", "p", "div", "section", "article", "header", "center", "blockquote")
+ 		private const val TRANSITION_CARD_HEIGHT_DP = 292
+ 		private const val TRANSITION_MARGIN_DP = 24
+ 		private const val PULL_THRESHOLD_DP = 96
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/NovelReaderChrome.kt proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/NovelReaderChrome.kt
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/NovelReaderChrome.kt	2026-11-23 13:28:11.594806504 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/epub/NovelReaderChrome.kt	2026-11-23 13:28:19.789960968 +0000
+@@ -1022,6 +1022,22 @@
+ 	ToggleRow("Chapter header", settings.isEpubChapterHeaderEnabled, "Display the chapter title above the text") {
+ 		settings.isEpubChapterHeaderEnabled = it; refresh()
+ 	}
++	if (settings.isEpubChapterHeaderEnabled) {
++		ToggleRow("Name only", settings.isEpubHeaderNameOnly, "Remove the chapter number from the header title") {
++			settings.isEpubHeaderNameOnly = it; refresh()
++		}
++		val redundancyLabels = listOf("off" to "Off", "number" to "Number", "name" to "Name", "both" to "Both")
++		Section("Remove redundancy", redundancyLabels.firstOrNull { it.first == settings.epubRemoveRedundancy }?.second) {
++			ChipFlow(redundancyLabels, settings.epubRemoveRedundancy) {
++				settings.epubRemoveRedundancy = it; refresh()
++			}
++		}
++		Text(
++			text = "Removes the chapter number, name or both when the text itself repeats it at the top (scroll mode)",
++			style = MaterialTheme.typography.labelSmall,
++			color = Bar.textMuted,
++		)
++	}
+ 	ToggleRow("Text-to-speech", settings.isEpubTtsEnabled, "Show the Listen button and the TTS mode") {
+ 		settings.isEpubTtsEnabled = it
+ 		// turning it off while it is playing also stops it, so nothing keeps talking without a way to stop
+diff -ruN orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/NovelReaderSettingsFragment.kt proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/NovelReaderSettingsFragment.kt
+--- orig2/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/NovelReaderSettingsFragment.kt	2026-11-23 13:28:11.596955346 +0000
++++ proj/DeepSync-android-v0.1.3/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/NovelReaderSettingsFragment.kt	2026-11-23 13:28:11.690463832 +0000
+@@ -179,6 +179,8 @@
+ 	var readingMode by rememberStringPref(AppSettings.KEY_EPUB_READING_MODE, "scroll")
+ 	var scrollStyle by rememberStringPref(AppSettings.KEY_EPUB_SCROLL_STYLE, "continuous")
+ 	var chapterHeader by rememberBooleanPref(AppSettings.KEY_EPUB_CHAPTER_HEADER, true)
++	var headerNameOnly by rememberBooleanPref(AppSettings.KEY_EPUB_HEADER_NAME_ONLY, true)
++	var removeRedundancy by rememberStringPref(AppSettings.KEY_EPUB_REMOVE_REDUNDANCY, "off")
+ 	var fontSize by rememberIntPref(AppSettings.KEY_EPUB_FONT_SIZE, 100)
+ 	var fontFamily by rememberStringPref(AppSettings.KEY_EPUB_FONT_FAMILY, "serif")
+ 	var lineHeight by rememberIntPref(AppSettings.KEY_EPUB_LINE_HEIGHT, 160)
+@@ -251,6 +253,11 @@
+ 								enabled = isScroll,
+ 							)
+ 						}
++					}
++				}
++				item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
++				item {
++					SettingsGroup(title = "Advanced chapter header") {
+ 						item { pos ->
+ 							SwitchSettingsItem(
+ 								title = "Chapter header",
+@@ -261,6 +268,28 @@
+ 								enabled = isScroll,
+ 							)
+ 						}
++						item { pos ->
++							SwitchSettingsItem(
++								title = "Name only",
++								subtitle = "Remove the chapter number from the header title",
++								checked = headerNameOnly,
++								onCheckedChange = { headerNameOnly = it },
++								shape = pos.shape,
++								enabled = isScroll && chapterHeader,
++							)
++						}
++						item { pos ->
++							val modes = listOf("off", "number", "name", "both")
++							SegmentedSettingsItem(
++								title = "Remove redundancy",
++								subtitle = "Remove the chapter number, name or both when the text repeats it at the top",
++								labels = listOf("Off", "Number", "Name", "Both"),
++								selectedIndex = modes.indexOf(removeRedundancy).coerceAtLeast(0),
++								onSelected = { removeRedundancy = modes[it] },
++								shape = pos.shape,
++								enabled = isScroll && chapterHeader,
++							)
++						}
+ 					}
+ 				}
+ 				item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
