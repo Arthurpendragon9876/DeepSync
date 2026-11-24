@@ -25,17 +25,13 @@
 			app:icon="@drawable/ic_prev" />
 	</FrameLayout>
 
-	<com.google.android.material.slider.Slider
+	<org.koitharu.kotatsu.reader.ui.CapsuleSliderView
 		android:id="@+id/slider"
 		android:layout_width="0dp"
-		android:layout_height="wrap_content"
+		android:layout_height="40dp"
+		android:layout_marginHorizontal="4dp"
 		android:layout_weight="1"
-		android:stepSize="1.0"
-		android:valueFrom="0"
-		android:visibility="visible"
-		app:labelBehavior="floating"
-		tools:value="6"
-		tools:valueTo="20" />
+		android:visibility="visible" />
 
 	<FrameLayout
 		android:layout_width="wrap_content"

@@ -16,8 +16,6 @@ import android.widget.LinearLayout
 import androidx.annotation.AttrRes
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
-import com.google.android.material.slider.LabelFormatter
-import com.google.android.material.slider.Slider
 import kotlin.math.roundToInt
 import dagger.hilt.android.AndroidEntryPoint
 import org.koitharu.kotatsu.R
@@ -31,7 +29,6 @@ import org.koitharu.kotatsu.core.util.ext.hasVisibleChildren
 import org.koitharu.kotatsu.core.util.ext.isRtl
 import org.koitharu.kotatsu.core.util.ext.setContentDescriptionAndTooltip
 import org.koitharu.kotatsu.core.util.ext.setTooltipCompat
-import org.koitharu.kotatsu.core.util.ext.setValueRounded
 import org.koitharu.kotatsu.databinding.LayoutReaderActionsBinding
 import org.koitharu.kotatsu.details.ui.pager.ChaptersPagesSheet
 import org.koitharu.kotatsu.details.ui.pager.ChaptersPagesSheet.Companion.TAB_BOOKMARKS
@@ -49,8 +46,8 @@ class ReaderActionsView @JvmOverloads constructor(
 ) : LinearLayout(context, attrs, defStyleAttr),
 	View.OnClickListener,
 	SharedPreferences.OnSharedPreferenceChangeListener,
-	Slider.OnChangeListener,
-	Slider.OnSliderTouchListener, View.OnLongClickListener {
+	CapsuleSliderView.OnChangeListener,
+	CapsuleSliderView.OnTouchListener, View.OnLongClickListener {
 
 	@Inject
 	lateinit var settings: AppSettings
@@ -72,7 +69,6 @@ class ReaderActionsView @JvmOverloads constructor(
 		get() = binding.slider.isEnabled
 		set(value) {
 			binding.slider.isEnabled = value
-			binding.slider.setThumbVisible(value)
 		}
 
 	var isNextEnabled: Boolean
@@ -132,7 +128,6 @@ class ReaderActionsView @JvmOverloads constructor(
 					binding.slider.value = binding.slider.value.roundToInt().toFloat()
 				}
 				binding.slider.stepSize = if (value) 0f else 1f
-				updateSliderLabel()
 			}
 		}
 
@@ -148,7 +143,6 @@ class ReaderActionsView @JvmOverloads constructor(
 				if (!value) {
 					scrubPreview?.dismiss()
 				}
-				updateSliderLabel()
 			}
 		}
 
@@ -163,7 +157,6 @@ class ReaderActionsView @JvmOverloads constructor(
 		binding.buttonPagesThumbs.initAction()
 		binding.buttonTimer.initAction()
 		binding.buttonBookmark.initAction()
-		binding.slider.setLabelFormatter(PageLabelFormatter())
 		binding.slider.addOnChangeListener(this)
 		binding.slider.addOnSliderTouchListener(this)
 		updateControlsVisibility()
@@ -218,7 +211,7 @@ class ReaderActionsView @JvmOverloads constructor(
 		else -> null
 	} != null
 
-	override fun onValueChange(slider: Slider, value: Float, fromUser: Boolean) {
+	override fun onValueChange(slider: CapsuleSliderView, value: Float, fromUser: Boolean) {
 		if (fromUser) {
 			if (isSliderSmooth) {
 				listener?.switchPageTo(value.toInt())
@@ -237,7 +230,7 @@ class ReaderActionsView @JvmOverloads constructor(
 		}
 	}
 
-	override fun onStartTrackingTouch(slider: Slider) {
+	override fun onStartTrackingTouch(slider: CapsuleSliderView) {
 		if (!isSliderTracking) {
 			isSliderChanged = false
 			isSliderTracking = true
@@ -246,7 +239,7 @@ class ReaderActionsView @JvmOverloads constructor(
 		showScrubPreview(slider.value.toInt())
 	}
 
-	override fun onStopTrackingTouch(slider: Slider) {
+	override fun onStopTrackingTouch(slider: CapsuleSliderView) {
 		isSliderTracking = false
 		scrubPreview?.hide()
 		if (isSliderChanged) {
@@ -261,14 +254,6 @@ class ReaderActionsView @JvmOverloads constructor(
 		val page = listener?.getPageAt(index) ?: return
 		val preview = scrubPreview ?: PageScrubPreview(binding.slider).also { scrubPreview = it }
 		preview.show(page)
-	}
-
-	private fun updateSliderLabel() {
-		binding.slider.labelBehavior = if (isSliderSmooth || isScrubPreviewEnabled) {
-			LabelFormatter.LABEL_GONE
-		} else {
-			LabelFormatter.LABEL_FLOATING
-		}
 	}
 
 	override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
@@ -438,17 +423,4 @@ class ReaderActionsView @JvmOverloads constructor(
 		Settings.System.ACCELEROMETER_ROTATION,
 		0,
 	) == 1
-
-	private fun Slider.setThumbVisible(visible: Boolean) {
-		thumbWidth = if (visible) {
-			resources.getDimensionPixelSize(materialR.dimen.m3_comp_slider_active_handle_width)
-		} else {
-			0
-		}
-		thumbHeight = if (visible) {
-			resources.getDimensionPixelSize(materialR.dimen.m3_comp_slider_active_handle_height)
-		} else {
-			0
-		}
-	}
 }

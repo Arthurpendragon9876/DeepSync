@@ -12,7 +12,6 @@ import android.view.animation.AccelerateInterpolator
 import android.view.animation.DecelerateInterpolator
 import android.widget.PopupWindow
 import coil3.size.Size
-import com.google.android.material.slider.Slider
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.util.ext.getAnimationDuration
 import org.koitharu.kotatsu.core.util.ext.isAnimationsEnabled
@@ -28,7 +27,7 @@ import kotlin.math.roundToInt
  *
  * Purely decorative: the window is untouchable, so the drag never leaves the slider.
  */
-class PageScrubPreview(private val slider: Slider) {
+class PageScrubPreview(private val slider: CapsuleSliderView) {
 
 	private val context: Context = slider.context
 	private val binding = PopupReaderScrubPreviewBinding.inflate(LayoutInflater.from(context))
