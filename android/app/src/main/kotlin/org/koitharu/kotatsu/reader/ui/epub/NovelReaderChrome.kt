@@ -410,7 +410,6 @@ private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
 					NovelSettingsPanel(
 						state = state,
 						settings = settings,
-						ttsEnabled = ttsEnabled,
 						onTtsEnabledChange = { ttsEnabled = it },
 						onDismiss = { showSettings = false },
 					)
@@ -735,7 +734,6 @@ private fun resetReaderSettings(settings: AppSettings) {
 private fun NovelSettingsPanel(
 	state: NovelChromeState,
 	settings: AppSettings,
-	ttsEnabled: Boolean,
 	onTtsEnabledChange: (Boolean) -> Unit,
 	onDismiss: () -> Unit,
 ) {
@@ -785,7 +783,7 @@ private fun NovelSettingsPanel(
 				when (sheet) {
 					NovelSheet.MAIN -> when (page) {
 						NovelPage.READING -> ReadingPage(
-							state, settings, ttsEnabled, tick, refresh, onDismiss,
+							state, settings, tick, refresh, onDismiss,
 							onOpenAdvanced = { sheet = NovelSheet.ADVANCED },
 							onOpenPresets = { presetsBack = NovelSheet.MAIN; sheet = NovelSheet.PRESETS },
 						)
@@ -820,7 +818,6 @@ private fun NovelSettingsPanel(
 private fun ReadingPage(
 	state: NovelChromeState,
 	settings: AppSettings,
-	ttsEnabled: Boolean,
 	rev: Int,
 	refresh: () -> Unit,
 	onDismiss: () -> Unit,
@@ -828,7 +825,8 @@ private fun ReadingPage(
 	onOpenPresets: () -> Unit,
 ) {
 	observeSettingsRevision()
-	val modes = NovelMode.entries.filter { ttsEnabled || it != NovelMode.TTS }
+	// The TTS mode is always there; the Options toggle only controls the floating Listen button
+	val modes = NovelMode.entries
 	val current = when {
 		state.ttsOpen -> NovelMode.TTS
 		settings.epubReadingMode == "paged" -> NovelMode.PAGED
@@ -1038,10 +1036,9 @@ private fun MorePage(
 			color = Bar.textMuted,
 		)
 	}
-	ToggleRow("Text-to-speech", settings.isEpubTtsEnabled, "Show the Listen button and the TTS mode") {
+	ToggleRow("TTS floating icon", settings.isEpubTtsEnabled, "Show the round Listen button above the bar") {
 		settings.isEpubTtsEnabled = it
-		// turning it off while it is playing also stops it, so nothing keeps talking without a way to stop
-		if (!it && state.ttsOpen) state.onTtsClose()
+		// Only the shortcut goes away: the TTS mode stays in the quick settings, and anything playing keeps playing
 		onTtsEnabledChange(it)
 		refresh()
 	}

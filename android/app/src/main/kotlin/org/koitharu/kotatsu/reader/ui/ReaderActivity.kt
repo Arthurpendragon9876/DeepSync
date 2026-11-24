@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
+import androidx.activity.OnBackPressedCallback
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -13,6 +14,8 @@ import android.os.SystemClock
 import android.view.ViewGroup
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.unit.dp
@@ -93,6 +96,7 @@ import org.koitharu.kotatsu.reader.data.TapGridSettings
 import org.koitharu.kotatsu.reader.domain.TapGridArea
 import org.koitharu.kotatsu.reader.domain.UpscaleEffect
 import org.koitharu.kotatsu.reader.ui.upscale.UpscalePreviewDialog
+import org.koitharu.kotatsu.reader.ui.config.MangaQuickSettings
 import org.koitharu.kotatsu.reader.ui.config.ReaderConfigSheet
 import org.koitharu.kotatsu.reader.ui.epub.EpubReaderFragment
 import org.koitharu.kotatsu.reader.ui.epub.NovelChromeState
@@ -158,6 +162,16 @@ class ReaderActivity :
 
     /** State of the Novery-style Compose bars that replace the toolbar/dock for novels. */
     private val novelChrome = NovelChromeState()
+
+    // Manga quick settings: an inline panel above the bottom bar (see MangaQuickSettings)
+    private var quickSettingsVisible by mutableStateOf(false)
+    private var quickSettingsMode by mutableStateOf(ReaderMode.STANDARD)
+    private var quickSettingsOverlay: ComposeView? = null
+    private val quickSettingsBackCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            setQuickSettingsVisible(false)
+        }
+    }
     private var isScrollPausedByEyeReminder = false
     private var isTtsPausedByEyeReminder = false
     private var isTimerFabShown = false
@@ -286,6 +300,7 @@ class ReaderActivity :
         observeWindowLayout()
         if (settings.isEyeReminderEnabled) setupEyeReminder()
         setupNovelChrome()
+        setupQuickSettingsOverlay()
 
         // Apply initial double-mode considering foldable setting
         applyDoubleModeAuto()
@@ -334,6 +349,75 @@ class ReaderActivity :
         viewModel.epubChapterProgress.observe(this) { (permille, minutes) ->
             novelChrome.progressPermille = permille
             novelChrome.minutesLeft = minutes
+        }
+    }
+
+    private fun setupQuickSettingsOverlay() {
+        val overlay = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            translationZ = 32 * resources.displayMetrics.density // above the XML bars
+            setContent {
+                DropSauceTheme {
+                    MangaQuickSettings(
+                        visible = quickSettingsVisible,
+                        mode = quickSettingsMode,
+                        settings = settings,
+                        viewModel = viewModel,
+                        orientationHelper = screenOrientationHelper,
+                        callback = this@ReaderActivity,
+                        router = this@ReaderActivity.router,
+                        onDismiss = { setQuickSettingsVisible(false) },
+                    )
+                }
+            }
+        }
+        viewBinding.root.addView(
+            overlay,
+            CoordinatorLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { gravity = Gravity.BOTTOM },
+        )
+        quickSettingsOverlay = overlay
+        onBackPressedDispatcher.addCallback(this, quickSettingsBackCallback)
+        // The panel sits right above the dock, so follow it when it moves (rotation, insets)
+        viewBinding.toolbarDocked?.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (quickSettingsVisible) updateQuickSettingsPosition()
+        }
+    }
+
+    private fun setQuickSettingsVisible(visible: Boolean) {
+        if (quickSettingsVisible == visible) return
+        if (visible) {
+            quickSettingsMode = readerManager.currentMode ?: return
+            viewModel.saveCurrentState(readerManager.currentReader?.getCurrentState())
+            updateQuickSettingsPosition()
+        }
+        quickSettingsVisible = visible
+        quickSettingsBackCallback.isEnabled = visible
+        viewBinding.actionsView.isSettingsOpen = visible
+    }
+
+    /** Puts the panel just above the bottom bar, with the same side margins as the bar. */
+    private fun updateQuickSettingsPosition() {
+        val overlay = quickSettingsOverlay ?: return
+        val gap = resources.getDimensionPixelSize(R.dimen.margin_small)
+        val dock = viewBinding.toolbarDocked
+        overlay.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+            if (dock != null) {
+                val dockParams = dock.layoutParams as ViewGroup.MarginLayoutParams
+                bottomMargin = viewBinding.root.height - dock.top + gap
+                leftMargin = dockParams.leftMargin
+                rightMargin = dockParams.rightMargin
+            } else {
+                // Wide layouts keep the bar in the top bar: the panel just rests at the bottom
+                val margin = resources.getDimensionPixelSize(R.dimen.screen_padding)
+                val navBar = ViewCompat.getRootWindowInsets(viewBinding.root)
+                    ?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
+                bottomMargin = margin + navBar
+                leftMargin = margin
+                rightMargin = margin
+            }
         }
     }
 
@@ -708,6 +792,7 @@ class ReaderActivity :
 
     private fun setUiIsVisible(isUiVisible: Boolean) {
         novelChrome.visible = isUiVisible
+        if (!isUiVisible) setQuickSettingsVisible(false)
         if (viewBinding.appbarTop.isVisible != isUiVisible) {
             var isAnimated = false
             if (isAnimationsEnabled) {
@@ -808,11 +893,15 @@ class ReaderActivity :
             novelChrome.openSettingsTick++
             return
         }
-        val currentMode = readerManager.currentMode ?: return
-        viewBinding.root.post {
-            viewModel.saveCurrentState(readerManager.currentReader?.getCurrentState())
-            router.showReaderConfigSheet(currentMode)
+        if (readerManager.currentMode == null) return
+        // The Settings button of the bar is a toggle: a second tap closes the panel
+        if (quickSettingsVisible) {
+            setQuickSettingsVisible(false)
+            return
         }
+        // The panel opens above the bar, so the bar has to be on screen (and laid out) first
+        if (!viewBinding.appbarTop.isVisible) setUiIsVisible(true)
+        viewBinding.root.post { setQuickSettingsVisible(true) }
     }
 
     override fun scrollBy(delta: Int, smooth: Boolean): Boolean {

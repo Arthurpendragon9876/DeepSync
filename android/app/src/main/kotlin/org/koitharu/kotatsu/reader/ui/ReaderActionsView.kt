@@ -112,6 +112,15 @@ class ReaderActionsView @JvmOverloads constructor(
 			}
 		}
 
+	/** Quick settings panel is open: the Settings button turns into a close button. */
+	var isSettingsOpen: Boolean = false
+		set(value) {
+			if (field != value) {
+				field = value
+				updateOptionsButton(animate = isAttachedToWindow)
+			}
+		}
+
 	var listener: OnInteractionListener? = null
 
 	// EPUB: the slider is a smooth in-chapter scrollbar - no tick stops, no label, live seeking
@@ -293,7 +302,6 @@ class ReaderActionsView @JvmOverloads constructor(
 
 	private fun updateControlsVisibility() {
 		val controls = settings.readerControls
-		val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 		binding.buttonPrev.isVisible = ReaderControl.PREV_CHAPTER in controls
 		binding.buttonNext.isVisible = ReaderControl.NEXT_CHAPTER in controls
 		binding.buttonPagesThumbs.isVisible = ReaderControl.PAGES_SHEET in controls
@@ -301,12 +309,16 @@ class ReaderActionsView @JvmOverloads constructor(
 		binding.buttonSave.isVisible = ReaderControl.SAVE_PAGE in controls
 		binding.buttonTimer.isVisible = ReaderControl.TIMER in controls
 		binding.buttonBookmark.isVisible = ReaderControl.BOOKMARK in controls
-		binding.buttonOptions.isVisible = isLandscape
+		binding.buttonOptions.isVisible = true
 		binding.slider.isVisible = ReaderControl.SLIDER in controls
 		// bringChildToFront moves a child to the end of the child list, so walking the ordered
-		// list left to right leaves the children in exactly that order. Options stays pinned last.
+		// list left to right leaves the children in exactly that order. Like the novel bar, Chapters
+		// stays pinned first and Settings pinned last, with the other controls in between.
+		bringChildToFront(binding.buttonPagesThumbs.slot())
 		for (control in controls) {
-			bringChildToFront(control.view())
+			if (control != ReaderControl.PAGES_SHEET) {
+				bringChildToFront(control.view())
+			}
 		}
 		bringChildToFront(binding.buttonOptions.slot())
 		adjustLayoutParams()
@@ -325,6 +337,31 @@ class ReaderActionsView @JvmOverloads constructor(
 	}
 
 	private fun View.slot(): View = parent as View
+
+	private fun updateOptionsButton(animate: Boolean) {
+		val button = binding.buttonOptions
+		val open = isSettingsOpen
+		val render = {
+			button.setIconResource(if (open) R.drawable.ic_close else R.drawable.ic_tune)
+			button.iconTint = ColorStateList.valueOf(
+				context.getThemeColor(if (open) appcompatR.attr.colorPrimary else materialR.attr.colorOnSurfaceVariant),
+			)
+			button.setContentDescriptionAndTooltip(if (open) R.string.close else R.string.options)
+		}
+		button.animate().cancel()
+		if (!animate) {
+			render()
+			button.scaleX = 1f
+			button.scaleY = 1f
+			button.rotation = if (open) 90f else 0f
+			return
+		}
+		// Shrink, swap the icon, grow back with a quarter turn: tune turns into a close cross
+		button.animate().scaleX(0f).scaleY(0f).setDuration(90L).withEndAction {
+			render()
+			button.animate().scaleX(1f).scaleY(1f).rotation(if (open) 90f else 0f).setDuration(160L).start()
+		}.start()
+	}
 
 	private fun updatePagesSheetButton() {
 		val button = binding.buttonPagesThumbs

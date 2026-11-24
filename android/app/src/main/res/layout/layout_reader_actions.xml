@@ -132,7 +132,7 @@
 			android:layout_height="48dp"
 			android:layout_gravity="center"
 			android:contentDescription="@string/options"
-			app:icon="@drawable/ic_more_vert" />
+			app:icon="@drawable/ic_tune" />
 	</FrameLayout>
 
 </merge>
