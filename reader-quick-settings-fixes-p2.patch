@@ -1,0 +1,128 @@
+diff --git a/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt b/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt
+index 1799108..e3531e6 100644
+--- a/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt
++++ b/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt
+@@ -275,7 +275,8 @@ class ReaderActivity :
+         }
+         addMenuProvider(
+             ReaderMenuProvider(
+-                onOpenMenu = ::openMenu,
++                onBookmark = ::onBookmarkClick,
++                isBookmarkAdded = { viewModel.isBookmarkAdded.value == true },
+                 onSearchBook = ::openEpubSearch,
+                 onShowUpscalePreview = ::showUpscalePreview,
+                 isEpub = { readerManager.isEpub },
+@@ -356,6 +357,8 @@ class ReaderActivity :
+         val overlay = ComposeView(this).apply {
+             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+             translationZ = 32 * resources.displayMetrics.density // above the XML bars
++            // Swallow every touch that lands on the panel so nothing reaches the pages behind it
++            isClickable = true
+             setContent {
+                 DropSauceTheme {
+                     MangaQuickSettings(
+@@ -643,6 +646,7 @@ class ReaderActivity :
+             rawY >= viewBinding.root.height - gestureInsets.bottom ||
+             viewBinding.appbarTop.hasGlobalPoint(rawX, rawY) ||
+             viewBinding.toolbarDocked?.hasGlobalPoint(rawX, rawY) == true ||
++            (quickSettingsVisible && quickSettingsOverlay?.hasGlobalPoint(rawX, rawY) == true) ||
+             novelChrome.isOnChrome(rawX, rawY)
+         ) {
+             false
+diff --git a/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderMenuProvider.kt b/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderMenuProvider.kt
+index 154d6c5..66ad7bd 100644
+--- a/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderMenuProvider.kt
++++ b/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderMenuProvider.kt
+@@ -7,7 +7,8 @@ import androidx.core.view.MenuProvider
+ import org.koitharu.kotatsu.R
+ 
+ class ReaderMenuProvider(
+-	private val onOpenMenu: () -> Unit,
++	private val onBookmark: () -> Unit,
++	private val isBookmarkAdded: () -> Boolean,
+ 	private val onSearchBook: () -> Unit,
+ 	private val onShowUpscalePreview: () -> Unit,
+ 	private val isEpub: () -> Boolean,
+@@ -20,11 +21,19 @@ class ReaderMenuProvider(
+ 
+ 	override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
+ 		menuInflater.inflate(R.menu.opt_reader, menu)
+-		menu.findItem(R.id.action_reader_menu)?.isVisible = !isLandscape
++		menu.findItem(R.id.action_bookmark)?.isVisible = !isLandscape && !isEpub()
+ 	}
+ 
+ 	override fun onPrepareMenu(menu: Menu) {
+ 		menu.findItem(R.id.action_epub_search)?.isVisible = isEpub()
++		// The old three-dot button is gone (quick settings live in the bottom bar): the top bar now
++		// carries a bookmark toggle instead.
++		menu.findItem(R.id.action_bookmark)?.let { item ->
++			val added = isBookmarkAdded()
++			item.isVisible = !isLandscape && !isEpub()
++			item.setIcon(if (added) R.drawable.ic_bookmark_added else R.drawable.ic_bookmark)
++			item.setTitle(if (added) R.string.bookmark_remove else R.string.bookmark_add)
++		}
+ 		menu.findItem(R.id.action_upscale_preview)?.isVisible = isUpscaleActive()
+ 		// Novels have their own web button in the reader bar, beside the highlighter
+ 		menu.findItem(R.id.action_webview)?.isVisible = !isEpub() && canOpenWeb()
+@@ -38,8 +47,8 @@ class ReaderMenuProvider(
+ 				true
+ 			}
+ 
+-			R.id.action_reader_menu -> {
+-				onOpenMenu()
++			R.id.action_bookmark -> {
++				onBookmark()
+ 				true
+ 			}
+ 
+diff --git a/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/config/MangaQuickSettings.kt b/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/config/MangaQuickSettings.kt
+index 04f6e32..ae25b9f 100644
+--- a/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/config/MangaQuickSettings.kt
++++ b/x/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/config/MangaQuickSettings.kt
+@@ -6,7 +6,10 @@ import androidx.compose.animation.core.Animatable
+ import androidx.compose.animation.core.FastOutSlowInEasing
+ import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.background
++import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.clickable
++import androidx.compose.foundation.gestures.detectTapGestures
++import androidx.compose.ui.input.pointer.pointerInput
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.IntrinsicSize
+ import androidx.compose.foundation.layout.aspectRatio
+@@ -125,10 +128,16 @@ internal fun MangaQuickSettings(
+         Surface(
+             modifier = Modifier
+                 .fillMaxWidth()
+-                .heightIn(max = maxHeight),
++                .heightIn(max = maxHeight)
++                // Registers the panel as a touch target so taps and drags on its empty areas
++                // are consumed here instead of falling through to the reader pages behind it.
++                .pointerInput(Unit) { detectTapGestures { } },
+             shape = RoundedCornerShape(28.dp),
+             color = MaterialTheme.colorScheme.surfaceContainerLow,
+-            shadowElevation = 8.dp,
++            // No shadow: the overlay view is exactly as big as the panel, so a shadow gets cut
++            // off at the view bounds and leaves sharp rectangular corners around the rounded shape.
++            shadowElevation = 0.dp,
++            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+         ) {
+             MangaQuickSettingsContent(mode, settings, viewModel, orientationHelper, callback, router, onDismiss)
+         }
+diff --git a/x/android/app/src/main/res/menu/opt_reader.xml b/x/android/app/src/main/res/menu/opt_reader.xml
+index 28beff7..9e8ff71 100644
+--- a/x/android/app/src/main/res/menu/opt_reader.xml
++++ b/x/android/app/src/main/res/menu/opt_reader.xml
+@@ -32,9 +32,9 @@
+ 		app:showAsAction="ifRoom" />
+ 
+ 	<item
+-		android:id="@+id/action_reader_menu"
+-		android:icon="@drawable/ic_more_vert"
+-		android:title="@string/options"
++		android:id="@+id/action_bookmark"
++		android:icon="@drawable/ic_bookmark"
++		android:title="@string/bookmark_add"
+ 		app:showAsAction="ifRoom" />
+ 
+ 	<item
