@@ -21,7 +21,7 @@ fun scrobblingMangaAD(
 		binding.textViewTitle.text = item.name
 		val endIcon = if (item.isBestMatch) R.drawable.ic_star_small else 0
 		binding.textViewTitle.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, endIcon, 0)
-		binding.textViewSubtitle.textAndVisible = item.altName
+		binding.textViewSubtitle.textAndVisible = listOfNotNull(item.details, item.altName).joinToString(" · ").ifEmpty { null }
 		binding.imageViewCover.setImageAsync(item.cover, null)
 	}
 }

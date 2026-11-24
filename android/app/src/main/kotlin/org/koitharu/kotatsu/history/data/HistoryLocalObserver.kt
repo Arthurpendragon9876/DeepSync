@@ -3,7 +3,7 @@ package org.koitharu.kotatsu.history.data
 import dagger.Reusable
 import org.koitharu.kotatsu.core.db.MangaDatabase
 import org.koitharu.kotatsu.core.db.entity.toManga
-import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInMode
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import kotlinx.coroutines.flow.map
 import org.koitharu.kotatsu.core.db.entity.toMangaTags
@@ -29,7 +29,8 @@ class HistoryLocalObserver @Inject constructor(
 	) = db.getHistoryDao().observeAll(order, filterOptions, limit).map { list ->
 		// Filter on the original source: the downloaded copy's source is always "Local" (read as Manga)
 		val mode = settings.homeMode
-		list.filter { toManga(it).source.contentMode == mode }
+		val kind = settings.streamingKind
+		list.filter { toManga(it).source.isInMode(mode, kind) }
 	}.mapToLocal()
 
 	override fun toManga(e: HistoryWithManga) = e.manga.toManga(e.tags.toMangaTags(), null)

@@ -131,5 +131,8 @@ class ScrobblerConfigActivity : BaseActivity<ActivityScrobblerConfigBinding>(),
 		const val HOST_MAL_AUTH = "mal-auth"
 		const val HOST_KITSU_AUTH = "kitsu-auth"
 		const val HOST_MANGABAKA_AUTH = "mangabaka-auth"
+
+		/** Simkl's redirect is com.kotatsu.deepsync://oauth/simkl; the scheme differs from the others, the host is shared. */
+		const val HOST_SIMKL_AUTH = "oauth"
 	}
 }

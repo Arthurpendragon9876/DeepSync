@@ -928,11 +928,15 @@ private fun FanNode(
 				Icon(painterResource(iconRes), null, tint = content, modifier = Modifier.size(22.dp))
 				Text(
 					text = title,
-					fontSize = 11.5.sp,
+					fontSize = if (title.length > 9) 10.sp else 11.5.sp,
+					lineHeight = if (title.length > 9) 11.sp else 14.sp,
 					fontWeight = FontWeight.Bold,
 					color = content,
-					maxLines = 1,
-					modifier = Modifier.padding(top = 4.dp),
+					// "TV & Movies" does not fit one line in the node: break it after the ampersand instead of clipping it
+					maxLines = 2,
+					softWrap = true,
+					textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+					modifier = Modifier.padding(top = 4.dp, start = 4.dp, end = 4.dp),
 				)
 			}
 			if (isCurrent) {
@@ -1031,11 +1035,15 @@ private fun StreamingHalf(
 		Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
 			Text(
 				text = stringResource(kind.titleRes),
-				fontSize = 10.sp,
+				fontSize = 9.sp,
+				lineHeight = 10.sp,
 				fontWeight = FontWeight.Bold,
 				color = text,
-				maxLines = 1,
-				softWrap = false,
+				// "TV & Movies" is wider than a half node: centre it and let it break after the ampersand
+				maxLines = 2,
+				softWrap = true,
+				textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+				modifier = Modifier.padding(horizontal = 2.dp),
 			)
 			if (isCurrent) {
 				Box(

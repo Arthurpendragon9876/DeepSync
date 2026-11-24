@@ -7,6 +7,7 @@ val TRACKER_PRIORITY: List<ScrobblerService> = listOf(
 	ScrobblerService.MANGABAKA,
 	ScrobblerService.KITSU,
 	ScrobblerService.SHIKIMORI,
+	ScrobblerService.SIMKL,
 )
 
 fun ScrobblerService.priority(): Int = TRACKER_PRIORITY.indexOf(this).let { if (it < 0) TRACKER_PRIORITY.size else it }
@@ -19,6 +20,7 @@ val ScrobblerService.shortName: String
 		ScrobblerService.MANGABAKA -> "MB"
 		ScrobblerService.KITSU -> "Kitsu"
 		ScrobblerService.SHIKIMORI -> "Shiki"
+		ScrobblerService.SIMKL -> "Simkl"
 	}
 
 /** Move [target] forward to [chapter]. */

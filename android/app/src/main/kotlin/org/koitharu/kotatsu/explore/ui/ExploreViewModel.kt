@@ -80,6 +80,10 @@ class ExploreViewModel @Inject constructor(
 	val currentMode: HomeMode
 		get() = settings.homeMode
 
+	/** The Streaming half Explore is showing (Anime or TV & Movies). */
+	val currentKind: StreamingKind
+		get() = settings.streamingKind
+
 	val isGrid = settings.observeAsStateFlow(
 		key = AppSettings.KEY_SOURCES_GRID,
 		scope = viewModelScope + Dispatchers.IO,

@@ -223,9 +223,12 @@ class ExploreRepository @Inject constructor(
 		val queries = names.map { it.trim() }.filter { it.isNotEmpty() }
 			.distinctBy { TitleMatcher.normalize(it) }.take(MAX_SEARCH_NAMES)
 		if (queries.isEmpty()) return@coroutineScope null
+		// Search with the wider variants too, but only ever score against the real names
+		val searches = queries.flatMap { listOf(it) + TitleMatcher.searchVariants(it) }
+			.distinctBy { TitleMatcher.normalize(it) + "|" + it.length }.take(MAX_SEARCH_QUERIES)
 		val sources = sourcesRepository.getEnabledSources().filter { it.isOfMode(mode, settings.streamingKind) }.take(MAX_SEARCH_SOURCES)
 		val found = sources.flatMap { source ->
-			queries.map { q ->
+			searches.map { q ->
 				async {
 					withTimeoutOrNull(SEARCH_TIMEOUT_MS) {
 						runCatchingCancellable {
@@ -255,6 +258,7 @@ class ExploreRepository @Inject constructor(
 		const val MAX_PICKED_SOURCES = 6
 		const val MAX_SEARCH_SOURCES = 6
 		const val MAX_SEARCH_NAMES = 5
+		const val MAX_SEARCH_QUERIES = 8
 		const val MATCH_THRESHOLD = 0.85f
 
 		val TRENDING_ORDERS = listOf(

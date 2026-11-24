@@ -451,11 +451,15 @@ class AppRouter private constructor(
 
 
 
-    fun openStatistic(mode: org.koitharu.kotatsu.home.ui.model.HomeMode? = null) {
+    fun openStatistic(
+        mode: org.koitharu.kotatsu.home.ui.model.HomeMode? = null,
+        kind: org.koitharu.kotatsu.home.ui.model.StreamingKind? = null,
+    ) {
         val context = contextOrNull() ?: return
         context.startActivity(
             Intent(context, StatsActivity::class.java).apply {
                 if (mode != null) putExtra(StatsActivity.EXTRA_MODE, mode.name)
+                if (kind != null) putExtra(StatsActivity.EXTRA_KIND, kind.name)
             },
         )
     }

@@ -130,6 +130,7 @@ object MetadataSheet {
 					iconRes = when (provider) {
 						HomeMetadata.ANILIST -> R.drawable.ic_anilist
 						HomeMetadata.MAL -> R.drawable.ic_mal
+						HomeMetadata.SIMKL -> R.drawable.ic_simkl
 						else -> R.drawable.ic_mangabaka
 					},
 					title = context.getString(provider.titleRes),
@@ -137,6 +138,7 @@ object MetadataSheet {
 						when (provider) {
 							HomeMetadata.ANILIST -> R.string.ds_meta_anilist_desc
 							HomeMetadata.MAL -> R.string.ds_meta_mal_desc
+							HomeMetadata.SIMKL -> R.string.ds_meta_simkl_desc
 							else -> R.string.ds_meta_mangabaka_desc
 						},
 					),

@@ -27,6 +27,8 @@ enum class HomeMetadata(@StringRes val titleRes: Int) {
 	ANILIST(R.string.ds_metadata_anilist),
 	MAL(R.string.ds_metadata_mal),
 	MANGABAKA(R.string.ds_metadata_mangabaka),
+	/** TV shows, movies and anime; the metadata for the TV & Movies half of Streaming. */
+	SIMKL(R.string.ds_metadata_simkl),
 }
 
 /** The look of the banner at the top of Home. Chosen in Settings, Appearance. */
@@ -49,6 +51,7 @@ enum class HomeCarousel(val key: String, @StringRes val titleRes: Int, @StringRe
 	ANILIST("anilist", R.string.ds_carousel_anilist, R.string.ds_carousel_tracker_desc),
 	MAL("mal", R.string.ds_carousel_mal, R.string.ds_carousel_tracker_desc),
 	MANGABAKA("mangabaka", R.string.ds_carousel_mangabaka, R.string.ds_carousel_tracker_desc),
+	SIMKL("simkl", R.string.ds_carousel_simkl, R.string.ds_carousel_tracker_desc),
 	LOCAL("local", R.string.ds_carousel_local, R.string.ds_carousel_local_desc),
 	RECENT("recent", R.string.ds_carousel_recent, R.string.ds_carousel_recent_desc),
 	TRENDING("trending", R.string.ds_carousel_trending, R.string.ds_carousel_trending_desc),
@@ -67,6 +70,7 @@ enum class HomeCarousel(val key: String, @StringRes val titleRes: Int, @StringRe
 			id == "tracker_${ScrobblerService.ANILIST.id}" -> ANILIST
 			id == "tracker_${ScrobblerService.MAL.id}" -> MAL
 			id == "tracker_${ScrobblerService.MANGABAKA.id}" -> MANGABAKA
+			id == "tracker_${ScrobblerService.SIMKL.id}" -> SIMKL
 			id == "local" -> LOCAL
 			id == "recent" -> RECENT
 			id == "trending" -> TRENDING

@@ -9,6 +9,8 @@ data class ScrobblerManga(
 	val cover: String?,
 	val url: String,
 	val isBestMatch: Boolean,
+	/** "2026 · Movie · United Kingdom": what tells same-named entries apart; null when the tracker gives none. */
+	val details: String? = null,
 ) : ListModel {
 
 	override fun areItemsTheSame(other: ListModel): Boolean {

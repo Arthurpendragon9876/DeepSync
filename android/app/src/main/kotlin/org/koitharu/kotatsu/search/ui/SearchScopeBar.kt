@@ -205,6 +205,7 @@ class SearchScopeBar(
 		HomeMetadata.ANILIST -> "AniList"
 		HomeMetadata.MAL -> "MyAnimeList"
 		HomeMetadata.MANGABAKA -> "MangaBaka"
+		HomeMetadata.SIMKL -> "Simkl"
 		HomeMetadata.SOURCES -> "Sources"
 	}
 }

@@ -15,6 +15,7 @@ import org.koitharu.kotatsu.core.parser.MangaRepository
 import org.koitharu.kotatsu.core.util.ext.findKeyByValue
 import org.koitharu.kotatsu.core.util.ext.printStackTraceDebug
 import org.koitharu.kotatsu.core.util.ext.sanitize
+import org.koitharu.kotatsu.core.model.isTvMoviesSource
 import org.koitharu.kotatsu.metadata.MetadataMatcher
 import org.koitharu.kotatsu.metadata.SourceProfile
 import org.koitharu.kotatsu.parsers.model.Manga
@@ -73,6 +74,13 @@ abstract class Scrobbler(
 	fun logout() {
 		repository.logout()
 	}
+
+	/**
+	 * Whether this tracker is for [manga]'s mode at all. Simkl is the TV & Movies tracker: it is not offered, searched
+	 * or auto-linked for anime or manga sources, which have AniList, MAL and the others.
+	 */
+	fun handles(manga: Manga): Boolean =
+		scrobblerService != ScrobblerService.SIMKL || manga.source.isTvMoviesSource
 
 	suspend fun findManga(query: String, offset: Int, type: ScrobblerMangaType): List<ScrobblerManga> {
 		return repository.findManga(query, offset, type)
@@ -191,6 +199,12 @@ abstract class Scrobbler(
 		}
 	}
 
+	/** The TV & Movies part of the account (Simkl only). Empty on any failure. */
+	suspend fun getTvLibrary(): List<TrackerReadingEntry> {
+		if (!isEnabled) return emptyList()
+		return runCatchingCancellable { repository.getTvLibrary() }.onFailure { it.printStackTraceDebug() }.getOrDefault(emptyList())
+	}
+
 	/** Whether this service has an anime catalogue at all (MangaBaka does not). */
 	val supportsAnime: Boolean
 		get() = repository.supportsAnime
@@ -224,6 +238,7 @@ abstract class Scrobbler(
 	 * scored against all of them, so a library entry named in Japanese still finds its English page.
 	 */
 	suspend fun searchSmart(names: List<String>, type: ScrobblerMangaType, manga: Manga? = null): List<TrackerCandidate> {
+		if (manga != null && !handles(manga)) return emptyList()
 		val queries = names.map { it.trim() }.filter { it.isNotEmpty() }.distinctBy { TitleMatcher.normalize(it) }
 			.take(MAX_SEARCH_NAMES)
 		val merged = LinkedHashMap<Long, TrackerCandidate>()
@@ -250,7 +265,7 @@ abstract class Scrobbler(
 		return merged.values.sortedWith(
 			compareByDescending<TrackerCandidate> { !it.conflictsWith(profile) }
 				.thenByDescending { it.score }
-				.thenByDescending { it.coverage(profile) },
+				.thenByDescending { it.evidence(profile) },
 		)
 	}
 
@@ -262,6 +277,33 @@ abstract class Scrobbler(
 		val wanted = profile.names.take(8)
 		if (wanted.isEmpty()) return 0f
 		return wanted.count { n -> names.any { TitleMatcher.score(n, it) >= 0.95f } }.toFloat() / wanted.size
+	}
+
+	/**
+	 * How much, beyond its name, says this candidate is the source's title: the other names it knows, and for
+	 * watchable titles the year, movie-or-series and country. Negative when something says it is a different one.
+	 */
+	private fun TrackerCandidate.evidence(profile: SourceProfile): Float {
+		var e = coverage(profile)
+		if (!profile.isVideo) return e
+		val sourceYear = profile.year
+		if (sourceYear != null && year != null) {
+			e += when {
+				year == sourceYear -> 1f
+				kotlin.math.abs(year - sourceYear) <= 1 -> 0.5f
+				else -> -1f
+			}
+		}
+		val isMovieFormat = format?.trim()?.uppercase()?.let { it == "MOVIE" || it.endsWith("_MOVIE") }
+		if (profile.isMovie != null && isMovieFormat != null) e += if (profile.isMovie == isMovieFormat) 0.5f else -1f
+		val iso = MetadataKinds.isoCountry(country)
+		if (profile.originCountry != null && iso != null) e += if (profile.originCountry == iso) 0.5f else -0.25f
+		// A TV & Movies source rarely holds an anime
+		val isAnimeFormat = MetadataKinds.kindOf(format, null) == MetadataKinds.ANIME
+		if (format != null) {
+			if (isAnimeFormat) e -= 0.25f
+		}
+		return e
 	}
 
 	private fun TrackerCandidate.asMetadata() = org.koitharu.kotatsu.scrobbling.anilist.data.MetadataTitle(
@@ -276,6 +318,7 @@ abstract class Scrobbler(
 		url = manga.url,
 		format = format,
 		country = country,
+		year = year,
 	)
 
 	/**
@@ -284,7 +327,7 @@ abstract class Scrobbler(
 	 * never written to the account. A miss is remembered for [MISS_TTL_MS] to spare the API.
 	 */
 	suspend fun autoLink(manga: Manga, isNovel: Boolean): AutoLinkResult {
-		if (!isEnabled || db.getScrobblingDao().find(scrobblerService.id, manga.id) != null) {
+		if (!isEnabled || !handles(manga) || db.getScrobblingDao().find(scrobblerService.id, manga.id) != null) {
 			return AutoLinkResult.NOT_NEEDED
 		}
 		val missKey = "${scrobblerService.id}:${manga.id}"
@@ -296,8 +339,14 @@ abstract class Scrobbler(
 		val titles = (listOf(manga.title) + manga.altTitles).filter { it.isNotBlank() }
 		// Only an exact match on some name is trusted, so a wrong series is never written to the account.
 		val profile = SourceProfile.of(manga)
-		val match: ScrobblerManga? = searchSmart(titles, type, manga)
-			.firstOrNull { it.score >= 1f && !it.conflictsWith(profile) }?.manga
+		val exact = searchSmart(titles, type, manga).filter { it.score >= 1f && !it.conflictsWith(profile) }
+		// TV & Movies only (anime and manga keep the old exact-match rule). Namesakes ("The Odyssey" the 1997 miniseries, the 2026 film...) share every name. Unless something beyond
+		// the name (year, movie or series, country, other names) clearly favours one, linking would be a coin toss:
+		// leave it to the person, whose picker shows exactly those details.
+		val top = exact.firstOrNull()
+		val ambiguous = profile.isVideo && top != null && exact.size > 1 &&
+			top.evidence(profile) - exact[1].evidence(profile) < MIN_EVIDENCE_GAP
+		val match: ScrobblerManga? = if (ambiguous) null else top?.manga
 		if (match == null) {
 			misses[missKey] = System.currentTimeMillis()
 			return AutoLinkResult.NO_MATCH
@@ -403,6 +452,7 @@ abstract class Scrobbler(
 
 private const val MISS_TTL_MS = 6 * 60 * 60 * 1000L
 private const val MAX_SEARCH_NAMES = 10
+private const val MIN_EVIDENCE_GAP = 0.5f
 
 suspend fun Scrobbler.tryScrobble(manga: Manga, chapterId: Long): Boolean {
 	return runCatchingCancellable {

@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.plus
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.model.toChipModel
-import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInMode
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.observeAsFlow
 import org.koitharu.kotatsu.core.ui.BaseViewModel
@@ -93,9 +93,14 @@ class FeedViewModel @Inject constructor(
 		) { tip, swipe -> tip && swipe },
 		historyRepository.observeAll(),
 		// Observed so that switching Manga / Anime / Novel re-filters the feed at once
-		settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
+		// (and Anime / TV & Movies inside Streaming)
+		combine(
+			settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
+			settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
+		) { m, k -> m to k },
 		limit,
-	) { list, isTipVisible, _, mode, pageLimit ->
+	) { list, isTipVisible, _, modeKind, pageLimit ->
+		val (mode, kind) = modeKind
 		// Read here rather than combined in: the query above already re-runs on every filter change, and
 		// a second input would render the chips one frame ahead of their results.
 		val filters = quickFilter.appliedOptions.value
@@ -108,7 +113,7 @@ class FeedViewModel @Inject constructor(
 		result += QuickFilter(listOf(unreadChip) + quickFilter.filterItem(filters)?.items.orEmpty())
 		if (list.isNotEmpty()) {
 			isReady.set(true)
-			list.mapListTo(result, mode = mode, pageLimit = pageLimit, isUnreadOnly = ListFilterOption.Unread in filters)
+			list.mapListTo(result, mode = mode, kind = kind, pageLimit = pageLimit, isUnreadOnly = ListFilterOption.Unread in filters)
 		}
 		if (result.none { it is FeedItem }) {
 			result += EmptyState(
@@ -224,13 +229,14 @@ class FeedViewModel @Inject constructor(
 	private suspend fun List<TrackingLogItem>.mapListTo(
 		destination: MutableList<ListModel>,
 		mode: HomeMode,
+		kind: org.koitharu.kotatsu.home.ui.model.StreamingKind,
 		pageLimit: Int,
 		isUnreadOnly: Boolean,
 	) {
 		// The query keeps unread rows; an entry whose chapters were all read since still shows as read
 		// The feed is kept apart per mode: manga, novels and anime each show only their own updates.
 		// The mode is chosen before the page is cut, so the page is filled with this mode's entries.
-		val feedItems = filter { it.manga.source.contentMode == mode }
+		val feedItems = filter { it.manga.source.isInMode(mode, kind) }
 			.take(pageLimit)
 			.map { it to mangaListMapper.toFeedItem(it) }
 			.filter { !isUnreadOnly || it.second.isNew }

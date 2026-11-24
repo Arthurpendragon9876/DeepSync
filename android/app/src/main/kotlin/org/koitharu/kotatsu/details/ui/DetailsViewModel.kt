@@ -175,7 +175,11 @@ class DetailsViewModel @Inject constructor(
 		.stateIn(viewModelScope + Dispatchers.Default, SharingStarted.Eagerly, null)
 
 	val isScrobblingAvailable: Boolean
-		get() = scrobblers.any { it.isEnabled }
+		get() {
+			val manga = mangaDetails.value?.toManga()
+			// Simkl is TV & Movies only, so signed in to it alone offers nothing on an anime or manga page
+			return scrobblers.any { it.isEnabled && (manga == null || it.handles(manga)) }
+		}
 
 	val scrobblingInfo: StateFlow<List<ScrobblingInfo>> = interactor.observeScrobblingInfo(mangaId)
 		.withErrorHandling()

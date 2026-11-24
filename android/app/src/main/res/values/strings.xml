@@ -656,6 +656,7 @@
     <string name="invalid_value_message">Invalid value</string>
     <string name="kitsu" translatable="false">Kitsu</string>
     <string name="mangabaka" translatable="false">MangaBaka</string>
+    <string name="simkl" translatable="false">Simkl</string>
     <string name="email_password_enter_hint">Enter your email and password to continue</string>
     <string name="downloaded">Downloaded</string>
     <string name="images_proxy_title">Images optimization proxy</string>
@@ -1519,6 +1520,7 @@
     <string name="ds_carousel_anilist">Continue on AniList</string>
     <string name="ds_carousel_mal">Continue on MyAnimeList</string>
     <string name="ds_carousel_mangabaka">Continue on MangaBaka</string>
+    <string name="ds_carousel_simkl">Continue on Simkl</string>
     <string name="ds_carousel_tracker_desc">What you are reading on this tracker</string>
     <string name="ds_carousel_local">Continue reading</string>
     <string name="ds_carousel_local_desc">From your history, when no tracker is signed in</string>
@@ -1550,6 +1552,8 @@
 	<string name="ds_mode_anime">Anime</string>
 	<string name="ds_mode_streaming">Streaming</string>
 	<string name="ds_mode_tv_movies">TV &amp; Movies</string>
+	<string name="ds_section_hide">Hide</string>
+	<string name="ds_section_show">Show</string>
 	<!-- Preview pill in the mode fan: mode, then the half of it the thumb is on, e.g. "Streaming · Anime" -->
 	<string name="ds_mode_streaming_kind">%1$s · %2$s</string>
 	<string name="no_tv_movies_extension_installed">No TV &amp; Movies extension installed</string>
@@ -1570,6 +1574,7 @@
 	<string name="continue_watching">Continue watching</string>
 	<string name="home_continue_watching">Continue watching</string>
 	<string name="home_new_episodes_row">New episodes</string>
+	<string name="home_new_releases_row">New releases</string>
 	<string name="home_new_episodes">%1$d new</string>
 	<string name="home_episode_short">Ep %1$d</string>
 	<string name="no_anime_extension_installed">No anime extension installed</string>
@@ -1621,6 +1626,8 @@
     <string name="ds_about_section_legal">Legal</string>
     <string name="ds_metadata_mal">MyAnimeList</string>
     <string name="ds_metadata_mangabaka">MangaBaka</string>
+    <string name="ds_metadata_simkl">Simkl</string>
+    <string name="ds_meta_simkl_desc">TV shows, movies and anime; sign in to Simkl to search and track</string>
     <string name="ds_choose_source">Choose a source</string>
     <string name="ds_search_in_source">Search in %1$s</string>
     <string name="ds_no_sources_for_mode">No sources are enabled for this mode. Add some in Settings, Extensions.</string>

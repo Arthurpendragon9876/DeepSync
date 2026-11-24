@@ -3,9 +3,11 @@ package org.koitharu.kotatsu.metadata
 import dagger.Lazy
 import org.koitharu.kotatsu.core.db.MangaDatabase
 import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isTvMoviesSource
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.home.ui.model.HomeMetadata
 import org.koitharu.kotatsu.home.ui.model.HomeMode
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaSource
 import org.koitharu.kotatsu.parsers.model.MangaTag
@@ -17,6 +19,7 @@ import org.koitharu.kotatsu.scrobbling.anilist.data.MetadataTitle
 import org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerService
 import org.koitharu.kotatsu.scrobbling.mal.data.MALRepository
 import org.koitharu.kotatsu.scrobbling.mangabaka.data.MangaBakaRepository
+import org.koitharu.kotatsu.scrobbling.simkl.data.SimklRepository
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -65,12 +68,24 @@ object DiscoverFormats {
 	val novel = emptyList<Pair<String, String>>()
 	val anime = listOf("TV" to "TV", "MOVIE" to "Movie", "OVA" to "OVA", "ONA" to "ONA", "SPECIAL" to "Special")
 
-	fun of(mode: HomeMode) = when (mode) {
+	/** TV & Movies: Simkl's own two types. OVA / ONA / Special are anime-only releases. */
+	val tv = listOf("TV" to "Series", "MOVIE" to "Movie")
+
+	fun of(mode: HomeMode, tvMovies: Boolean = false) = when (mode) {
 		HomeMode.MANGA -> manga
 		HomeMode.NOVEL -> novel
-		HomeMode.ANIME -> anime
+		HomeMode.ANIME -> if (tvMovies) tv else anime
 	}
 }
+
+/** The genre vocabulary of TV & Movies (Simkl / TMDB style); AniList's list is anime-shaped and does not fit it. */
+val TV_GENRES = listOf(
+	"Action", "Adventure", "Comedy", "Crime", "Documentary", "Drama", "Family", "Fantasy", "History", "Horror",
+	"Music", "Mystery", "Romance", "Sci-Fi", "Thriller", "War", "Western",
+)
+
+/** The genre list Explore offers and the affinity maps onto, for the half of Streaming that is showing. */
+fun discoverGenres(tvMovies: Boolean): List<String> = if (tvMovies) TV_GENRES else DISCOVER_GENRES
 
 /** AniList's fixed genre list, the vocabulary the genre filter and the "genres you like" matching use. */
 val DISCOVER_GENRES = listOf(
@@ -90,6 +105,7 @@ class MetadataRepository @Inject constructor(
 	private val aniListLazy: Lazy<AniListRepository>,
 	private val malLazy: Lazy<MALRepository>,
 	private val mangaBakaLazy: Lazy<MangaBakaRepository>,
+	private val simklLazy: Lazy<SimklRepository>,
 	private val settings: AppSettings,
 	private val db: MangaDatabase,
 ) {
@@ -97,17 +113,28 @@ class MetadataRepository @Inject constructor(
 	private val aniList get() = aniListLazy.get()
 	private val mal get() = malLazy.get()
 	private val mangaBaka get() = mangaBakaLazy.get()
+	private val simkl get() = simklLazy.get()
 
 	private val matches = ConcurrentHashMap<String, MetadataTitle>()
 	private val keysByManga = ConcurrentHashMap<Long, String>()
 	private val misses = ConcurrentHashMap.newKeySet<String>()
 	private val infos = ConcurrentHashMap<String, MetadataInfo>()
 
-	/** Whether [provider] can serve [mode]; otherwise callers fall back to the sources. */
-	fun supports(provider: HomeMetadata, mode: HomeMode): Boolean = when (provider) {
-		HomeMetadata.SOURCES -> false
-		HomeMetadata.ANILIST, HomeMetadata.MAL -> true
-		HomeMetadata.MANGABAKA -> mode != HomeMode.ANIME
+	/** True while Streaming is on its TV & Movies half, which AniList and MAL (anime only) cannot serve. */
+	private fun isTvMoviesNow(mode: HomeMode) = mode == HomeMode.ANIME && settings.streamingKind == StreamingKind.TV_MOVIES
+
+	/**
+	 * Whether [provider] can serve [mode]; otherwise callers fall back to the sources. [tv] is the TV & Movies half
+	 * of Streaming, where only Simkl has metadata; it follows the half that is showing unless the caller knows better.
+	 */
+	fun supports(provider: HomeMetadata, mode: HomeMode, tv: Boolean = isTvMoviesNow(mode)): Boolean {
+		if (mode == HomeMode.ANIME && tv) return provider == HomeMetadata.SIMKL
+		return when (provider) {
+			HomeMetadata.SOURCES -> false
+			HomeMetadata.ANILIST, HomeMetadata.MAL -> true
+			HomeMetadata.MANGABAKA -> mode != HomeMode.ANIME
+			HomeMetadata.SIMKL -> mode == HomeMode.ANIME
+		}
 	}
 
 	/** True when Home / search / details should be driven by a tracker for [mode]. */
@@ -121,11 +148,15 @@ class MetadataRepository @Inject constructor(
 		include: Set<String> = emptySet(),
 		exclude: Set<String> = emptySet(),
 		hideAdult: Boolean = true,
+		tv: Boolean = isTvMoviesNow(mode),
 	): List<MetadataTitle> {
 		val novel = mode == HomeMode.NOVEL
 		val anime = mode == HomeMode.ANIME
+		// AniList, MAL and MangaBaka know nothing of TV & Movies
+		if (anime && tv && provider != HomeMetadata.SIMKL) return emptyList()
 		val raw = when (provider) {
 			HomeMetadata.SOURCES -> emptyList()
+			HomeMetadata.SIMKL -> simkl.metaList(kind.name, tv, anime, limit)
 			HomeMetadata.ANILIST -> aniList.getTrending(
 				limit = limit,
 				novel = novel,
@@ -150,11 +181,20 @@ class MetadataRepository @Inject constructor(
 		}
 	}
 
-	suspend fun search(provider: HomeMetadata, query: String, mode: HomeMode, limit: Int = 24, hideAdult: Boolean = true): List<MetadataTitle> {
+	suspend fun search(
+		provider: HomeMetadata,
+		query: String,
+		mode: HomeMode,
+		limit: Int = 24,
+		hideAdult: Boolean = true,
+		tv: Boolean = isTvMoviesNow(mode),
+	): List<MetadataTitle> {
 		val novel = mode == HomeMode.NOVEL
 		val anime = mode == HomeMode.ANIME
+		if (anime && tv && provider != HomeMetadata.SIMKL) return emptyList()
 		return when (provider) {
 			HomeMetadata.SOURCES -> emptyList()
+			HomeMetadata.SIMKL -> simkl.metaList("", tv, anime, limit, search = query)
 			HomeMetadata.ANILIST -> aniList.search(query, novel, anime, limit, hideAdult)
 			HomeMetadata.MAL -> mal.metaList("", novel, anime, limit, hideAdult, search = query)
 			HomeMetadata.MANGABAKA -> if (anime) emptyList() else mangaBaka.metaList(novel, limit, hideAdult, search = query)
@@ -172,12 +212,23 @@ class MetadataRepository @Inject constructor(
 		filters: DiscoverFilters,
 		page: Int,
 		perPage: Int = DISCOVER_PAGE_SIZE,
+		tv: Boolean = isTvMoviesNow(mode),
 	): MetadataPage {
 		val novel = mode == HomeMode.NOVEL
 		val anime = mode == HomeMode.ANIME
 		val query = filters.query.trim().takeIf { it.isNotEmpty() }
+		if (anime && tv && provider != HomeMetadata.SIMKL) return MetadataPage(emptyList(), false)
 		return when (provider) {
 			HomeMetadata.SOURCES -> MetadataPage(emptyList(), false)
+			// Simkl's lists are one page each; genre, year and format filters are applied to what it returns
+			HomeMetadata.SIMKL -> if (page > 1) {
+				MetadataPage(emptyList(), false)
+			} else {
+				MetadataPage(
+					simkl.metaList(filters.sort.list.name, tv, anime, perPage * 2, search = query).filterLocally(filters).take(perPage),
+					false,
+				)
+			}
 			HomeMetadata.ANILIST -> aniList.discover(
 				page = page,
 				perPage = perPage,
@@ -274,8 +325,10 @@ class MetadataRepository @Inject constructor(
 		if (!settings.isMetadataFromTracker) return null
 		val mode = manga.source.contentMode
 		trackedMatch(manga, mode)?.let { return it }
-		val provider = settings.homeMetadataProvider
-		if (!supports(provider, mode)) return null
+		// A TV & Movies title is looked up on Simkl; AniList and MAL only know anime
+		val tv = mode == HomeMode.ANIME && manga.source.isTvMoviesSource
+		val provider = if (tv) HomeMetadata.SIMKL else settings.homeMetadataProvider
+		if (!supports(provider, mode, tv)) return null
 		val key = "${provider.name}:${manga.id}"
 		matches[key]?.let { return it }
 		if (key in misses) return null
@@ -285,7 +338,7 @@ class MetadataRepository @Inject constructor(
 		// first page, and a different spelling often surfaces it.
 		val pool = LinkedHashMap<Long, MetadataTitle>()
 		for (name in profile.names.take(SEARCH_NAMES)) {
-			runCatching { search(provider, name, mode, limit = 10, hideAdult = false) }
+			runCatching { search(provider, name, mode, limit = 10, hideAdult = false, tv = tv) }
 				.getOrDefault(emptyList())
 				.forEach { pool.putIfAbsent(it.id, it) }
 			if (MetadataMatcher.best(profile, pool.values.toList()) != null && pool.size >= 3) break
@@ -308,7 +361,7 @@ class MetadataRepository @Inject constructor(
 		val rows = runCatching { db.getScrobblingDao().findAll(manga.id) }.getOrDefault(emptyList())
 		if (rows.isEmpty()) return null
 		val chosen = settings.homeMetadataProvider
-		val order = (listOf(chosen) + listOf(HomeMetadata.ANILIST, HomeMetadata.MAL, HomeMetadata.MANGABAKA)).distinct()
+		val order = (listOf(chosen) + listOf(HomeMetadata.ANILIST, HomeMetadata.MAL, HomeMetadata.MANGABAKA, HomeMetadata.SIMKL)).distinct()
 		for (provider in order) {
 			if (!supports(provider, mode)) continue
 			val service = provider.service() ?: continue
@@ -319,6 +372,7 @@ class MetadataRepository @Inject constructor(
 					HomeMetadata.ANILIST -> aniList.metadataById(row.targetId)
 					HomeMetadata.MAL -> mal.metadataById(row.targetId)
 					HomeMetadata.MANGABAKA -> mangaBaka.metadataById(row.targetId)
+					HomeMetadata.SIMKL -> simkl.metadataById(row.targetId)
 					HomeMetadata.SOURCES -> null
 				}
 			}.getOrNull()?.also { matches[key] = it } ?: continue
@@ -332,6 +386,7 @@ class MetadataRepository @Inject constructor(
 		HomeMetadata.ANILIST -> ScrobblerService.ANILIST
 		HomeMetadata.MAL -> ScrobblerService.MAL
 		HomeMetadata.MANGABAKA -> ScrobblerService.MANGABAKA
+		HomeMetadata.SIMKL -> ScrobblerService.SIMKL
 		HomeMetadata.SOURCES -> null
 	}
 
@@ -340,6 +395,7 @@ class MetadataRepository @Inject constructor(
 		HomeMetadata.ANILIST -> aniList.metadataById(id)
 		HomeMetadata.MAL -> mal.metadataById(id)
 		HomeMetadata.MANGABAKA -> mangaBaka.metadataById(id)
+		HomeMetadata.SIMKL -> simkl.metadataById(id)
 		HomeMetadata.SOURCES -> null
 	}
 

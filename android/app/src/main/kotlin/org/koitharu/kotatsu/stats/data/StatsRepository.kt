@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.map
 import org.koitharu.kotatsu.core.db.MangaDatabase
 import org.koitharu.kotatsu.core.db.entity.toManga
 import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInStreamingKind
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.observeAsFlow
 import org.koitharu.kotatsu.stats.domain.StatsBucket
@@ -42,6 +43,8 @@ class StatsRepository @Inject constructor(
 		period: StatsPeriod,
 		categories: Set<Long>,
 		mode: org.koitharu.kotatsu.home.ui.model.HomeMode? = null,
+		/** With the anime mode: keep only the Anime or the TV & Movies half; null keeps both. */
+		streamingKind: org.koitharu.kotatsu.home.ui.model.StreamingKind? = null,
 	): ReadingStats {
 		val zone = ZoneId.systemDefault()
 		// "All time" bars run from the very first session, which only the query itself knows, so its
@@ -56,8 +59,15 @@ class StatsRepository @Inject constructor(
 		// With no mode (History, Settings) anime sessions are left out, so the reading statistics only count reading.
 		val modeIds: Set<Long>? = db.getStatsDao().getDurationStats(0L, categories).keys
 			.filter { entity ->
-				val entityMode = entity.toManga(emptySet(), null).source.contentMode
-				if (mode == null) entityMode != org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME else entityMode == mode
+				val source = entity.toManga(emptySet(), null).source
+				val entityMode = source.contentMode
+				when {
+					mode == null -> entityMode != org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME
+					entityMode != mode -> false
+					mode == org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME && streamingKind != null ->
+						source.isInStreamingKind(streamingKind)
+					else -> true
+				}
 			}
 			.mapTo(HashSet()) { entity -> entity.id }
 		val sessions = db.getStatsDao().getSessions(fromDate, categories)

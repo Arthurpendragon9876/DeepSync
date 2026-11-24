@@ -337,7 +337,8 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 	private fun setupKindTabs(savedInstanceState: Bundle?) {
 		val tabs = viewBinding.tabsKind
 		val titles = mapOf(
-			ExtensionKind.ANIME to R.string.extension_kind_anime,
+			// The anime kind covers both anime and TV & Movies extensions, so the tab is called Streaming like the mode
+			ExtensionKind.ANIME to R.string.ds_mode_streaming,
 			ExtensionKind.MANGA to R.string.extension_kind_manga,
 			ExtensionKind.NOVEL to R.string.extension_kind_novel,
 		)
@@ -396,7 +397,8 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 	}
 
 	override fun onListHeaderClick(item: ListHeader, view: View) {
-		// Section headers on store tabs are labels only.
+		// Anime / TV & Movies rows fold away; every other header is a label only.
+		(item.payload as? String)?.let(viewModel::toggleSection)
 	}
 
 	override fun onExtensionSettingsClick(item: SourceCatalogItem.Extension) {

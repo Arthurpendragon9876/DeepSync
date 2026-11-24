@@ -69,6 +69,9 @@ interface ScrobblerRepository {
 	 */
 	suspend fun getLibrary(anime: Boolean = false): List<TrackerReadingEntry> = getReadingList(Int.MAX_VALUE, anime)
 
+	/** The TV & Movies part of the account; only Simkl has one. */
+	suspend fun getTvLibrary(): List<TrackerReadingEntry> = emptyList()
+
 	/**
 	 * Like [findManga] but each result carries all of its names. Services that only know one or two
 	 * names per title use this default.

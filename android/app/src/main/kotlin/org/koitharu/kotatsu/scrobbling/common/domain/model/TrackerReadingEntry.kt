@@ -25,6 +25,8 @@ data class TrackerReadingEntry(
 	val isNovel: Boolean = false,
 	/** An anime: [chapter] and [totalChapters] then count episodes. */
 	val isAnime: Boolean = false,
+	/** Simkl only: a TV show (as opposed to an anime). Both are watched in Streaming, in separate halves. */
+	val isTvShow: Boolean = false,
 )
 
 enum class AutoLinkResult {

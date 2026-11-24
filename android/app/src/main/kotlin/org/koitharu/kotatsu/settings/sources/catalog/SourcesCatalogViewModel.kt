@@ -66,6 +66,13 @@ class SourcesCatalogViewModel @Inject constructor(
 	private val activePageId = MutableStateFlow(ExtensionCatalogPage.Available.id)
 	private val installingPackages = MutableStateFlow<Set<String>>(emptySet())
 
+	/** Keys of the Streaming sections ([SECTION_ANIME], [SECTION_TV_MOVIES]) the user folded away. */
+	private val collapsedSections = MutableStateFlow<Set<String>>(emptySet())
+
+	fun toggleSection(key: String) {
+		collapsedSections.value = collapsedSections.value.let { if (key in it) it - key else it + key }
+	}
+
 	/** Which tab is showing: anime, manga or novel extensions. */
 	val activeKind = MutableStateFlow(ExtensionKind.MANGA)
 	private val refreshTrigger = MutableStateFlow(0)
@@ -134,6 +141,7 @@ class SourcesCatalogViewModel @Inject constructor(
 		animeManager.extensions,
 		animeManager.hidden,
 		animeManager.tvMovies,
+		collapsedSections,
 	) { args ->
 		val q = args[0] as String?
 		val f = args[1] as SourcesCatalogFilter
@@ -615,6 +623,7 @@ class SourcesCatalogViewModel @Inject constructor(
 			installedItems.sortedWith(byTitle),
 			isPrivateMode = mode == ExtensionInstallMode.SANDBOX && kind != ExtensionKind.ANIME,
 			hasStores = storeStates.isNotEmpty(),
+			installedModels = if (kind == ExtensionKind.ANIME) streamingSections(installedItems.sortedWith(byTitle)) else null,
 		)
 	}
 
@@ -1166,6 +1175,29 @@ class SourcesCatalogViewModel @Inject constructor(
 		}.sortedBy { it.title.lowercase() }
 	}
 
+	/**
+	 * Installed streaming extensions as two foldable rows: Anime, and TV & Movies. The TV & Movies row only exists
+	 * once an extension is tagged so, and the Anime row stays whenever anything is installed.
+	 */
+	private fun streamingSections(rows: List<SourceCatalogItem.Extension>): List<ListModel> = buildList {
+		val collapsed = collapsedSections.value
+		val tv = rows.filter { it.isTvMovies }
+		val anime = rows.filterNot { it.isTvMovies }
+		fun section(key: String, titleRes: Int, list: List<SourceCatalogItem.Extension>) {
+			val folded = key in collapsed
+			add(
+				ListHeader(
+					titleRes,
+					if (folded) R.string.ds_section_show else R.string.ds_section_hide,
+					payload = key,
+				),
+			)
+			if (!folded) addAll(list)
+		}
+		if (rows.isNotEmpty()) section(SECTION_ANIME, R.string.ds_mode_anime, anime)
+		if (tv.isNotEmpty()) section(SECTION_TV_MOVIES, R.string.ds_mode_tv_movies, tv)
+	}
+
 	/** A store tab of the Anime kind: what this store installed, then what it offers. */
 	private suspend fun buildAnimeStoreList(
 		filter: SourcesCatalogFilter,
@@ -1226,7 +1258,7 @@ class SourcesCatalogViewModel @Inject constructor(
 			}
 			if (installedRows.isNotEmpty()) {
 				add(ListHeader(R.string.installed))
-				addAll(installedRows)
+				addAll(streamingSections(installedRows))
 			}
 			if (availableRows.isNotEmpty()) {
 				add(ListHeader(R.string.available_to_install))
@@ -1353,11 +1385,16 @@ private const val LN_SOURCE_PREFIX = "LN_"
 /** Library key of an Aniyomi anime source, see AnimeMangaSource.name. */
 private const val ANIME_SOURCE_PREFIX = "ANIME_"
 
+private const val SECTION_ANIME = "section_anime"
+private const val SECTION_TV_MOVIES = "section_tv_movies"
+
 internal fun buildAvailablePageItems(
 	updates: List<SourceCatalogItem.Extension>,
 	installed: List<SourceCatalogItem.Extension>,
 	isPrivateMode: Boolean,
 	hasStores: Boolean = true,
+	/** The installed rows already grouped (Streaming's foldable sections); null lists [installed] as they are. */
+	installedModels: List<ListModel>? = null,
 ): List<ListModel> = buildList {
 	if (!hasStores) {
 		add(
@@ -1375,7 +1412,7 @@ internal fun buildAvailablePageItems(
 	}
 	if (installed.isNotEmpty()) {
 		add(ListHeader(if (isPrivateMode) R.string.enabled else R.string.installed))
-		addAll(installed)
+		addAll(installedModels ?: installed)
 	}
 	if (isEmpty()) {
 		add(SourceCatalogItem.Hint(R.drawable.ic_empty_feed, R.string.nothing_found, R.string.no_manga_sources_found))

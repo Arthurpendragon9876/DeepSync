@@ -124,6 +124,7 @@ fun ExploreHeader(
 	if (showFilters) {
 		FiltersSheet(
 			mode = state.mode,
+			tvMovies = state.tvMovies,
 			provider = state.provider,
 			current = state.filters,
 			adultAllowed = prefs.adultAllowed,
@@ -323,6 +324,7 @@ private fun discoverTabLabel(provider: HomeMetadata) = when (provider) {
 	HomeMetadata.ANILIST -> "AniList feed"
 	HomeMetadata.MAL -> "MyAnimeList feed"
 	HomeMetadata.MANGABAKA -> "MangaBaka feed"
+	HomeMetadata.SIMKL -> "Simkl feed"
 	HomeMetadata.SOURCES -> "Discover"
 }
 
@@ -500,5 +502,6 @@ internal fun providerName(provider: HomeMetadata) = when (provider) {
 	HomeMetadata.ANILIST -> "AniList"
 	HomeMetadata.MAL -> "MyAnimeList"
 	HomeMetadata.MANGABAKA -> "MangaBaka"
+	HomeMetadata.SIMKL -> "Simkl"
 	HomeMetadata.SOURCES -> "Sources"
 }

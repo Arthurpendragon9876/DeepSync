@@ -2,10 +2,13 @@ package org.koitharu.kotatsu.stats.domain
 
 import org.koitharu.kotatsu.core.db.MangaDatabase
 import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInStreamingKind
 import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
 import org.koitharu.kotatsu.history.data.HistoryRepository
 import org.koitharu.kotatsu.home.ui.model.HomeMode
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
 import org.koitharu.kotatsu.metadata.DISCOVER_GENRES
+import org.koitharu.kotatsu.metadata.TV_GENRES
 import org.koitharu.kotatsu.parsers.util.runCatchingCancellable
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -36,7 +39,9 @@ class GenreAffinityRepository @Inject constructor(
 ) {
 
 	/** The top [limit] genres for [mode] (all modes when null), strongest first. */
-	suspend fun top(mode: HomeMode?, limit: Int = 8): List<GenreScore> {
+	suspend fun top(mode: HomeMode?, limit: Int = 8, kind: StreamingKind? = null): List<GenreScore> {
+		val tvMovies = mode == HomeMode.ANIME && kind == StreamingKind.TV_MOVIES
+		val vocabulary = if (tvMovies) tvByKey else byKey
 		val library = runCatchingCancellable { favourites.getAllManga() }.getOrDefault(emptyList())
 		val recent = runCatchingCancellable { history.getList(0, HISTORY_LIMIT) }.getOrDefault(emptyList())
 		val minutesById = runCatchingCancellable {
@@ -49,9 +54,11 @@ class GenreAffinityRepository @Inject constructor(
 		val favouriteIds = library.mapTo(HashSet()) { it.id }
 		for (manga in (library + recent).distinctBy { it.id }) {
 			if (mode != null && manga.source.contentMode != mode) continue
+			// In Streaming only the half that is showing counts, so anime never feeds TV & Movies picks
+			if (mode == HomeMode.ANIME && kind != null && !manga.source.isInStreamingKind(kind)) continue
 			val mins = minutesById[manga.id] ?: 0L
 			val w = (if (manga.id in favouriteIds) 2f else 1f) + (mins / 30f).coerceAtMost(3f)
-			val genres = manga.tags.mapNotNull { canonical(it.title) }.toSet()
+			val genres = manga.tags.mapNotNull { canonical(it.title, vocabulary) }.toSet()
 			for (g in genres) {
 				weight[g] = (weight[g] ?: 0f) + w
 				titles[g] = (titles[g] ?: 0) + 1
@@ -69,9 +76,11 @@ class GenreAffinityRepository @Inject constructor(
 		const val HISTORY_LIMIT = 500
 
 		private val byKey = DISCOVER_GENRES.associateBy { it.key() }
+		private val tvByKey = TV_GENRES.associateBy { it.key() }
 
 		/** Maps a source's tag onto the shared genre vocabulary, or null when it is not one of them. */
-		fun canonical(tag: String): String? = byKey[tag.key()] ?: ALIASES[tag.key()]
+		fun canonical(tag: String, vocabulary: Map<String, String> = byKey): String? =
+			vocabulary[tag.key()] ?: ALIASES[tag.key()]?.takeIf { it in vocabulary.values }
 
 		private fun String.key() = lowercase().filter { it.isLetterOrDigit() }
 
@@ -84,6 +93,9 @@ class GenreAffinityRepository @Inject constructor(
 			"sliceoflife" to "Slice of Life",
 			"psychologicalthriller" to "Psychological",
 			"supernaturalpower" to "Supernatural",
+			"scififantasy" to "Sci-Fi",
+			"actionadventure" to "Action",
+			"war" to "War",
 		)
 	}
 }

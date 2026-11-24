@@ -60,7 +60,7 @@ import androidx.compose.ui.draw.alpha
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.home.ui.model.HomeMetadata
 import org.koitharu.kotatsu.home.ui.model.HomeMode
-import org.koitharu.kotatsu.metadata.DISCOVER_GENRES
+import org.koitharu.kotatsu.metadata.discoverGenres
 import org.koitharu.kotatsu.metadata.DiscoverFilters
 import org.koitharu.kotatsu.metadata.DiscoverTags
 import org.koitharu.kotatsu.metadata.DiscoverFormats
@@ -239,6 +239,7 @@ private val STATUSES = listOf("RELEASING", "FINISHED", "NOT_YET_RELEASED", "HIAT
 @Composable
 internal fun FiltersSheet(
 	mode: HomeMode,
+	tvMovies: Boolean,
 	provider: HomeMetadata,
 	current: DiscoverFilters,
 	adultAllowed: Boolean,
@@ -253,7 +254,7 @@ internal fun FiltersSheet(
 	var format by remember { mutableStateOf(current.format) }
 	var season by remember { mutableStateOf(current.season) }
 	var yearText by remember { mutableStateOf(current.year?.toString().orEmpty()) }
-	val formats = remember(mode) { DiscoverFormats.of(mode) }
+	val formats = remember(mode, tvMovies) { DiscoverFormats.of(mode, tvMovies) }
 
 	ModalBottomSheet(
 		onDismissRequest = onDismiss,
@@ -293,13 +294,17 @@ internal fun FiltersSheet(
 			}
 			SheetLabel("Genres (tap once to include, twice to exclude)")
 			FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-				val genres = if (adultAllowed) DISCOVER_GENRES + ADULT_GENRE else DISCOVER_GENRES
+				val base = discoverGenres(tvMovies)
+				val genres = if (adultAllowed && !tvMovies) base + ADULT_GENRE else base
 				genres.forEach { genre -> TermChip(genre, genre in include, genre in exclude) { cycle(genre) } }
 			}
-			SheetLabel("Tags: BL, Yaoi, Yuri, Harem, Reverse Harem, Isekai and more")
-			FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-				DiscoverTags.all.forEach { tag ->
-					TermChip(tag.label, tag.label in include, tag.label in exclude) { cycle(tag.label) }
+			// BL, Yuri, Harem, Isekai and the rest are anime / manga tags; TV & Movies has none of them
+			if (!tvMovies) {
+				SheetLabel("Tags: BL, Yaoi, Yuri, Harem, Reverse Harem, Isekai and more")
+				FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+					DiscoverTags.all.forEach { tag ->
+						TermChip(tag.label, tag.label in include, tag.label in exclude) { cycle(tag.label) }
+					}
 				}
 			}
 			if (provider != HomeMetadata.ANILIST) {
@@ -323,7 +328,7 @@ internal fun FiltersSheet(
 				}
 			}
 
-			if (provider == HomeMetadata.ANILIST && mode == HomeMode.ANIME) {
+			if (provider == HomeMetadata.ANILIST && mode == HomeMode.ANIME && !tvMovies) {
 				SheetLabel("Season (combine with a year)")
 				FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
 					SEASONS.forEach { key ->

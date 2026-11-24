@@ -30,6 +30,8 @@ import org.koitharu.kotatsu.scrobbling.mangabaka.data.MangaBakaAuthenticator
 import org.koitharu.kotatsu.scrobbling.mangabaka.data.MangaBakaInterceptor
 import org.koitharu.kotatsu.scrobbling.mangabaka.domain.MangaBakaScrobbler
 import org.koitharu.kotatsu.scrobbling.shikimori.data.ShikimoriAuthenticator
+import org.koitharu.kotatsu.scrobbling.simkl.data.SimklInterceptor
+import org.koitharu.kotatsu.scrobbling.simkl.domain.SimklScrobbler
 import org.koitharu.kotatsu.scrobbling.shikimori.data.ShikimoriInterceptor
 import org.koitharu.kotatsu.scrobbling.shikimori.domain.ShikimoriScrobbler
 import javax.inject.Singleton
@@ -85,6 +87,25 @@ object ScrobblingModule {
 		authenticator(authenticator)
 		addInterceptor(MangaBakaInterceptor(storage))
 	}.build()
+
+	@Provides
+	@Singleton
+	@ScrobblerType(ScrobblerService.SIMKL)
+	fun provideSimklHttpClient(
+		@ApplicationContext context: Context,
+		@BaseHttpClient baseHttpClient: OkHttpClient,
+		@ScrobblerType(ScrobblerService.SIMKL) storage: ScrobblerStorage,
+	): OkHttpClient = baseHttpClient.newBuilder().apply {
+		// Simkl tokens do not expire, so there is no authenticator to refresh them
+		addInterceptor(SimklInterceptor(storage, context.getString(org.koitharu.kotatsu.R.string.simkl_clientId)))
+	}.build()
+
+	@Provides
+	@Singleton
+	@ScrobblerType(ScrobblerService.SIMKL)
+	fun provideSimklStorage(
+		@ApplicationContext context: Context,
+	): ScrobblerStorage = ScrobblerStorage(context, ScrobblerService.SIMKL)
 
 	@Provides
 	@Singleton
@@ -147,11 +168,13 @@ object ScrobblingModule {
 		malScrobbler: MALScrobbler,
 		kitsuScrobbler: KitsuScrobbler,
 		mangaBakaScrobbler: MangaBakaScrobbler,
+		simklScrobbler: SimklScrobbler,
 	): Set<@JvmSuppressWildcards Scrobbler> = setOf(
 		shikimoriScrobbler,
 		aniListScrobbler,
 		malScrobbler,
 		kitsuScrobbler,
 		mangaBakaScrobbler,
+		simklScrobbler,
 	)
 }

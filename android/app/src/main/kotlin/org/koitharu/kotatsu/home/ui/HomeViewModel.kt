@@ -40,6 +40,7 @@ import org.koitharu.kotatsu.home.ui.model.HomeBannerStyle
 import org.koitharu.kotatsu.home.ui.model.HomeConfig
 import org.koitharu.kotatsu.home.ui.model.HomeMetadata
 import org.koitharu.kotatsu.home.ui.model.HomeMode
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
 import org.koitharu.kotatsu.home.ui.model.HomePoster
 import org.koitharu.kotatsu.home.ui.model.HomeRow
 import org.koitharu.kotatsu.home.ui.model.HomeCarousel
@@ -344,9 +345,16 @@ class HomeViewModel @Inject constructor(
 
 	private fun readConfig(): HomeConfig {
 		val mode = settings.homeMode
+		val kind = settings.streamingKind
+		val metadata = settings.homeMetadata
 		return HomeConfig(
 			mode = mode,
-			metadata = settings.homeMetadata,
+			// TV & Movies has no AniList / MAL metadata: it uses Simkl, unless the source catalogue is on
+			metadata = if (mode == HomeMode.ANIME && kind == StreamingKind.TV_MOVIES && metadata != HomeMetadata.SOURCES) {
+				HomeMetadata.SIMKL
+			} else {
+				metadata
+			},
 			sourceNames = settings.getHomeSources(mode),
 			include = settings.homeGenresInclude,
 			exclude = settings.homeGenresExclude,
@@ -355,7 +363,7 @@ class HomeViewModel @Inject constructor(
 			banner = settings.homeBannerStyle,
 			autoRotate = settings.isHomeBannerAutoRotate,
 			hiddenCarousels = settings.homeHiddenCarousels,
-			streamingKind = settings.streamingKind,
+			streamingKind = kind,
 		)
 	}
 
@@ -494,7 +502,9 @@ class HomeViewModel @Inject constructor(
 				// With two or more trackers the Sync library row already holds every title, so a row per
 				// tracker would only repeat it; Sync library has a tracker filter for telling them apart.
 				// If the user switched Sync library off, the per-tracker rows take its place.
-				if (!scrobbler.isEnabled || tv || (trackerSynchronizer.canSync && syncShown)) {
+				// AniList, MAL and the rest only know anime, manga and novels; Simkl is the one tracker of TV & Movies
+				val isSimkl = service == ScrobblerService.SIMKL
+				if (!scrobbler.isEnabled || (tv && !isSimkl) || (!tv && trackerSynchronizer.canSync && syncShown)) {
 					emit(trackerRowOf(id, service, HomeSectionState.Hidden))
 					return@flow
 				}
@@ -502,7 +512,7 @@ class HomeViewModel @Inject constructor(
 				// Each mode lists its own kind from the tracker: anime, manga or light novels
 				val anime = mode == HomeMode.ANIME
 				val entries = scrobbler.getReadingList(TRACKER_LIST_SIZE * 2, anime)
-					.filter { if (anime) it.isAnime else !it.isAnime && it.isNovel == (mode == HomeMode.NOVEL) }
+					.filter { if (anime) it.isAnime && it.isTvShow == tv else !it.isAnime && it.isNovel == (mode == HomeMode.NOVEL) }
 					.take(TRACKER_LIST_SIZE)
 				if (entries.isEmpty()) {
 					emit(trackerRowOf(id, service, HomeSectionState.Hidden))
@@ -652,6 +662,7 @@ class HomeViewModel @Inject constructor(
 			HomeMetadata.ANILIST -> "ANILIST"
 			HomeMetadata.MAL -> "MYANIMELIST"
 			HomeMetadata.MANGABAKA -> "MANGABAKA"
+			HomeMetadata.SIMKL -> "SIMKL"
 			HomeMetadata.SOURCES -> ""
 		}
 		return loadMetaTitles(cfg, org.koitharu.kotatsu.metadata.MetaList.TRENDING, TRENDING_SIZE).mapIndexed { index, t ->
@@ -688,22 +699,27 @@ class HomeViewModel @Inject constructor(
 				HomeRow(
 					id, kind,
 					// Anime has its own wording: what just aired is "New episodes"
-					if (kind == HomeRowKind.RECENT && cfg.mode == HomeMode.ANIME) R.string.home_new_episodes_row else titleRes,
+					if (kind == HomeRowKind.RECENT && cfg.mode == HomeMode.ANIME) {
+						if (cfg.isTvMovies) R.string.home_new_releases_row else R.string.home_new_episodes_row
+					} else {
+						titleRes
+					},
 					state = if (posters.isEmpty()) HomeSectionState.Hidden else HomeSectionState.Content(posters),
 				),
 			)
 		}.catch { emit(emptyRow(id, kind, titleRes)) }
 	}.onStart { emit(HomeRow(id, kind, titleRes, state = HomeSectionState.Loading)) }
 
-	// There is no metadata for TV & Movies yet (AniList and MAL only know anime), so that half of Streaming
-	// always reads from its own sources.
-	private fun isMetaActive(cfg: HomeConfig) = !cfg.isTvMovies && metadataRepository.supports(cfg.metadata, cfg.mode)
+	// AniList and MAL only know anime, so the TV & Movies half of Streaming reads from Simkl (see readConfig) or,
+	// with the source catalogue on, from its own sources.
+	private fun isMetaActive(cfg: HomeConfig) = metadataRepository.supports(cfg.metadata, cfg.mode, cfg.isTvMovies)
 
 	private suspend fun loadMetaTitles(cfg: HomeConfig, kind: org.koitharu.kotatsu.metadata.MetaList, limit: Int) = runCatching {
 		metadataRepository.list(
 			provider = cfg.metadata,
 			kind = kind,
 			mode = cfg.mode,
+			tv = cfg.isTvMovies,
 			limit = limit,
 			include = cfg.include,
 			exclude = cfg.exclude,
@@ -817,6 +833,7 @@ class HomeViewModel @Inject constructor(
 			ScrobblerService.MANGABAKA,
 			ScrobblerService.KITSU,
 			ScrobblerService.SHIKIMORI,
+			ScrobblerService.SIMKL,
 		)
 	}
 }

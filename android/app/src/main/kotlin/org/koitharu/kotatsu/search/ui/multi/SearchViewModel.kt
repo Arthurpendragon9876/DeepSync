@@ -22,7 +22,7 @@ import kotlinx.coroutines.sync.withPermit
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.model.LocalMangaSource
 import org.koitharu.kotatsu.core.model.UnknownMangaSource
-import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInMode
 import org.koitharu.kotatsu.metadata.toVirtualManga
 import org.koitharu.kotatsu.core.nav.AppRouter
 import org.koitharu.kotatsu.core.prefs.AppSettings
@@ -209,7 +209,7 @@ class SearchViewModel @Inject constructor(
 						sourcesRepository.getPinnedSources().toList()
 					} else {
 						sourcesRepository.getEnabledSources()
-					}.filter { it.contentMode == mode }
+					}.filter { it.isInMode(mode, settings.streamingKind) }
 					val semaphore = Semaphore(MAX_PARALLELISM)
 					sources.map { source ->
 						launch {
@@ -307,7 +307,7 @@ class SearchViewModel @Inject constructor(
 
 	private suspend fun searchHistory(): SearchResultsListModel? = runCatchingCancellable {
 		historyRepository.search(query, kind, Int.MAX_VALUE)
-			.filter { it.source.contentMode == mode }
+			.filter { it.source.isInMode(mode, settings.streamingKind) }
 	}.fold(
 		onSuccess = { result ->
 			if (result.isNotEmpty()) {
@@ -337,7 +337,7 @@ class SearchViewModel @Inject constructor(
 
 	private suspend fun searchFavorites(): SearchResultsListModel? = runCatchingCancellable {
 		favouritesRepository.search(query, kind, Int.MAX_VALUE)
-			.filter { it.source.contentMode == mode }
+			.filter { it.source.isInMode(mode, settings.streamingKind) }
 	}.fold(
 		onSuccess = { result ->
 			if (result.isNotEmpty()) {

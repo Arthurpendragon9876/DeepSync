@@ -15,7 +15,7 @@ import org.koitharu.kotatsu.core.util.ext.MutableEventFlow
 import org.koitharu.kotatsu.core.util.ext.call
 import org.koitharu.kotatsu.home.ui.model.HomeMetadata
 import org.koitharu.kotatsu.home.ui.model.HomeMode
-import org.koitharu.kotatsu.metadata.DISCOVER_GENRES
+import org.koitharu.kotatsu.metadata.discoverGenres
 import org.koitharu.kotatsu.metadata.DISCOVER_PAGE_SIZE
 import org.koitharu.kotatsu.metadata.DiscoverFilters
 import org.koitharu.kotatsu.metadata.DiscoverSort
@@ -67,6 +67,8 @@ data class ExploreMetaState(
 	val isListView: Boolean = false,
 	val provider: HomeMetadata = HomeMetadata.SOURCES,
 	val mode: HomeMode = HomeMode.MANGA,
+	/** True on the TV & Movies half of Streaming: its own genres and formats, and no anime-only tags. */
+	val tvMovies: Boolean = false,
 	val filters: DiscoverFilters = DiscoverFilters(),
 	/** Search / filter results; only meaningful while [DiscoverFilters.isActive]. */
 	val results: MetaListing = MetaListing(),
@@ -107,10 +109,14 @@ class ExploreMetadataViewModel @Inject constructor(
 		ExploreMetaState(
 			provider = settings.homeMetadata,
 			mode = settings.homeMode,
+			tvMovies = isTvMoviesNow(settings.homeMode),
 			isListView = settings.isExploreListView,
 		),
 	)
 	val state: StateFlow<ExploreMetaState> = mutableState.asStateFlow()
+
+	private fun isTvMoviesNow(mode: HomeMode) =
+		mode == HomeMode.ANIME && settings.streamingKind == org.koitharu.kotatsu.home.ui.model.StreamingKind.TV_MOVIES
 
 	val onOpen = MutableEventFlow<MetaTarget>()
 
@@ -136,8 +142,9 @@ class ExploreMetadataViewModel @Inject constructor(
 	fun sync() {
 		val provider = settings.homeMetadata
 		val mode = settings.homeMode
+		val tv = isTvMoviesNow(mode)
 		val current = mutableState.value
-		if (started && provider == current.provider && mode == current.mode) return
+		if (started && provider == current.provider && mode == current.mode && tv == current.tvMovies) return
 		started = true
 		resultsJob?.cancel()
 		forYouJob?.cancel()
@@ -148,12 +155,13 @@ class ExploreMetadataViewModel @Inject constructor(
 			isListView = settings.isExploreListView,
 			provider = provider,
 			mode = mode,
+			tvMovies = tv,
 		)
 		if (provider == HomeMetadata.SOURCES) return
 		viewModelScope.launch {
-			val top = runCatching { affinity.top(mode, limit = 10) }.getOrDefault(emptyList())
+			val top = runCatching { affinity.top(mode, limit = 10, kind = settings.streamingKind) }.getOrDefault(emptyList())
 			mutableState.update { it.copy(topGenres = top) }
-			val firstGenre = top.firstOrNull { g -> DISCOVER_GENRES.any { it == g.genre } }?.genre
+			val firstGenre = top.firstOrNull { g -> discoverGenres(tv).any { it == g.genre } }?.genre
 			selectForYouGenre(firstGenre)
 			loadSamples(firstGenre)
 		}
@@ -170,7 +178,7 @@ class ExploreMetadataViewModel @Inject constructor(
 		viewModelScope.launch {
 			try {
 				mutableQuickPrefs.value = readQuickPrefs()
-				val top = runCatching { affinity.top(s.mode, limit = 10) }.getOrDefault(s.topGenres)
+				val top = runCatching { affinity.top(s.mode, limit = 10, kind = settings.streamingKind) }.getOrDefault(s.topGenres)
 				mutableState.update { it.copy(topGenres = top) }
 				if (s.filters.isActive) {
 					mutableState.update { it.copy(results = MetaListing()) }

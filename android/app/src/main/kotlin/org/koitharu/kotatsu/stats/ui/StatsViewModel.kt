@@ -30,6 +30,10 @@ class StatsViewModel @Inject constructor(
 		?.let { name -> org.koitharu.kotatsu.home.ui.model.HomeMode.entries.firstOrNull { it.name == name } }
 
 
+	/** The Streaming half the screen opened in; only meaningful for the anime mode. */
+	private val streamingKind = savedStateHandle.get<String>(StatsActivity.EXTRA_KIND)
+		?.let { name -> org.koitharu.kotatsu.home.ui.model.StreamingKind.entries.firstOrNull { it.name == name } }
+
 	val period = MutableStateFlow(StatsPeriod.ALL)
 	val selectedCategories = MutableStateFlow<Set<Long>>(emptySet())
 	val onActionDone = MutableEventFlow<ReversibleAction>()
@@ -42,11 +46,11 @@ class StatsViewModel @Inject constructor(
 
 	init {
 		launchJob(Dispatchers.Default) {
-			genres.value = genreAffinity.top(mode = mode, limit = 10)
+			genres.value = genreAffinity.top(mode = mode, limit = 10, kind = streamingKind)
 		}
 		launchJob(Dispatchers.Default) {
 			combine(period, selectedCategories, ::Pair).collectLatest { (p, categories) ->
-				stats.value = withLoading { repository.getStatsSnapshot(p, categories, mode) }
+				stats.value = withLoading { repository.getStatsSnapshot(p, categories, mode, streamingKind) }
 			}
 		}
 	}

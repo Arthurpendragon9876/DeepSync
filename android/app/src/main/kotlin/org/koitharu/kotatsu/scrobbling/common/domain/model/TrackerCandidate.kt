@@ -14,10 +14,14 @@ data class TrackerCandidate(
 	val country: String? = null,
 	/** Genres and tags, used to tell a Boys' Love namesake from the series itself. */
 	val labels: List<String> = emptyList(),
+	/** First release year, when the tracker gives one (TV & Movies, anime). */
+	val year: Int? = null,
 ) {
 
 	/** "Manhwa", "Manga", "Novel"... for showing next to the title; null when unknown. */
 	val kindLabel: String?
-		get() = org.koitharu.kotatsu.scrobbling.common.domain.MetadataKinds.kindOf(format, country)
-			?.lowercase()?.replace('_', ' ')?.replaceFirstChar { it.uppercase() }
+		get() = when (val kind = org.koitharu.kotatsu.scrobbling.common.domain.MetadataKinds.kindOf(format, country)) {
+			org.koitharu.kotatsu.scrobbling.common.domain.MetadataKinds.TV -> "TV"
+			else -> kind?.lowercase()?.replace('_', ' ')?.replaceFirstChar { it.uppercase() }
+		}
 }

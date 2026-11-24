@@ -18,7 +18,7 @@ import kotlinx.coroutines.plus
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.nav.AppRouter
 import org.koitharu.kotatsu.core.parser.MangaDataRepository
-import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInMode
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.ListMode
 import org.koitharu.kotatsu.core.prefs.observeAsFlow
@@ -242,7 +242,8 @@ class FavouritesListViewModel @Inject constructor(
 	private fun readyAndMode() = combine(
 		mihonExtensionManager.isReady,
 		settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
-	) { _, mode -> mode }
+		settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
+	) { _, mode, _ -> mode }
 
 	/**
 	 * Anime / Manga / Novel are separate worlds: keep only the active mode's titles. The "On device" filter already
@@ -251,7 +252,7 @@ class FavouritesListViewModel @Inject constructor(
 	private fun kotlinx.coroutines.flow.Flow<List<Manga>>.filterByMode(
 		mode: org.koitharu.kotatsu.home.ui.model.HomeMode,
 		filters: Set<ListFilterOption>,
-	) = if (ListFilterOption.Downloaded in filters) this else map { list -> list.filter { it.source.contentMode == mode } }
+	) = if (ListFilterOption.Downloaded in filters) this else map { list -> list.filter { it.source.isInMode(mode, settings.streamingKind) } }
 
 	// Pins apply only in the default (unfiltered) state; the global SFW option is a setting, not a user filter
 	private fun List<Long>.takeIfDefaultState(filters: Set<ListFilterOption>): List<Long> =

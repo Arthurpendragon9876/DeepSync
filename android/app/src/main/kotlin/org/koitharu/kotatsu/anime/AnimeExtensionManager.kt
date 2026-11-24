@@ -126,10 +126,30 @@ class AnimeExtensionManager @Inject constructor(
 
 	fun isTvMovies(pkg: String): Boolean = pkg in _tvMovies.value
 
+	/** Packages whose TV & Movies tag was already settled, by the name guess or by the user, so a choice sticks. */
+	private val tvDecided = prefs.getStringSet(KEY_TV_DECIDED, emptySet()).orEmpty().toMutableSet()
+
 	fun setTvMovies(pkg: String, tagged: Boolean) {
 		val updated = if (tagged) _tvMovies.value + pkg else _tvMovies.value - pkg
-		prefs.edit().putStringSet(KEY_TV_MOVIES, updated).apply()
+		tvDecided += pkg
+		prefs.edit().putStringSet(KEY_TV_MOVIES, updated).putStringSet(KEY_TV_DECIDED, tvDecided).apply()
 		_tvMovies.value = updated
+	}
+
+	/**
+	 * Tags a newly seen extension as TV & Movies when its name says movie, cinema or stream and carries none of the
+	 * anime words. Each package is judged once: untagging it later is the user's choice and is never undone.
+	 */
+	private fun autoTagStreaming(extensions: Collection<AnimeExtension>) {
+		val fresh = extensions.filter { it.pkg !in tvDecided }
+		if (fresh.isEmpty()) return
+		val tagged = _tvMovies.value.toMutableSet()
+		for (ext in fresh) {
+			tvDecided += ext.pkg
+			if (looksLikeStreaming(ext.name, ext.pkg)) tagged += ext.pkg
+		}
+		prefs.edit().putStringSet(KEY_TV_MOVIES, tagged).putStringSet(KEY_TV_DECIDED, tvDecided).apply()
+		_tvMovies.value = tagged
 	}
 
 	private fun publishSources() {
@@ -199,6 +219,7 @@ class AnimeExtensionManager @Inject constructor(
 					}
 			}
 			_errors.value = errors
+			autoTagStreaming(loaded.values)
 			_extensions.value = loaded.values.toList()
 			publishSources()
 		}
@@ -352,6 +373,20 @@ class AnimeExtensionManager @Inject constructor(
 		private const val KEY_REPOS = "repos"
 		private const val KEY_HIDDEN = "hidden_pkgs"
 		private const val KEY_TV_MOVIES = "tv_movies_pkgs"
+		private const val KEY_TV_DECIDED = "tv_movies_decided_pkgs"
+
+		private val STREAMING_WORDS = Regex("movie|cinema|stream")
+
+		/** Anime and its derivatives: any of these keeps an extension out of TV & Movies. */
+		private val ANIME_WORDS = Regex("anim|donghua|hentai|toon|(^|[^a-z])ani|ani($|[^a-z])")
+
+		/** True for a name like "MoviesMod" or "Cinemana", false for "AnimeStream" or "9Anime". */
+		fun looksLikeStreaming(name: String, pkg: String): Boolean {
+			val label = name.substringAfter(':').trim().lowercase()
+			val tail = pkg.substringAfterLast('.').lowercase()
+			if (ANIME_WORDS.containsMatchIn(label) || ANIME_WORDS.containsMatchIn(tail)) return false
+			return STREAMING_WORDS.containsMatchIn(label) || STREAMING_WORDS.containsMatchIn(tail)
+		}
 		private const val KEY_OWNER_PREFIX = "owner_"
 
 		private const val FEATURE = "tachiyomi.animeextension"

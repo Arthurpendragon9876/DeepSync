@@ -4,7 +4,7 @@ import dagger.Reusable
 import kotlinx.coroutines.flow.Flow
 import org.koitharu.kotatsu.core.db.MangaDatabase
 import org.koitharu.kotatsu.core.db.entity.toManga
-import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInMode
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import kotlinx.coroutines.flow.map
 import org.koitharu.kotatsu.core.db.entity.toMangaTags
@@ -44,7 +44,8 @@ class LocalFavoritesObserver @Inject constructor(
 	 */
 	private fun Flow<List<FavouriteManga>>.inCurrentMode(): Flow<List<FavouriteManga>> = map { list ->
 		val mode = settings.homeMode
-		list.filter { toManga(it).source.contentMode == mode }
+		val kind = settings.streamingKind
+		list.filter { toManga(it).source.isInMode(mode, kind) }
 	}
 
 	override fun toManga(e: FavouriteManga) = e.manga.toManga(e.tags.toMangaTags(), null)

@@ -123,5 +123,6 @@ class StatsActivity : BaseActivity<ActivityStatsBinding>() {
 
 		/** The [org.koitharu.kotatsu.home.ui.model.HomeMode] name this screen is limited to; absent = all. */
 		const val EXTRA_MODE = "stats_mode"
+		const val EXTRA_KIND = "stats_streaming_kind"
 	}
 }

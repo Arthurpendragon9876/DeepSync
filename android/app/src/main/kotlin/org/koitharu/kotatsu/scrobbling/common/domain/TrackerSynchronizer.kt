@@ -188,7 +188,7 @@ class TrackerSynchronizer @Inject constructor(
 	suspend fun search(manga: Manga): List<TrackerMatchGroup> = coroutineScope {
 		val names = (listOf(manga.title) + manga.altTitles).filter { it.isNotBlank() }.distinct()
 		val type = manga.source.scrobblerType
-		val results = signedIn().filter { !type.isAnime || it.supportsAnime }.map { scrobbler ->
+		val results = signedIn().filter { it.handles(manga) && (!type.isAnime || it.supportsAnime) }.map { scrobbler ->
 			async(Dispatchers.Default) {
 				val found = runCatchingCancellable { scrobbler.searchSmart(names, type, manga) }
 					.onFailure { it.printStackTraceDebug() }

@@ -21,7 +21,7 @@ import org.koitharu.kotatsu.core.db.entity.toMangaList
 import org.koitharu.kotatsu.core.db.entity.toMangaTags
 import org.koitharu.kotatsu.core.db.entity.toMangaTagsList
 import org.koitharu.kotatsu.core.model.MangaHistory
-import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInMode
 import org.koitharu.kotatsu.core.model.isLocal
 import org.koitharu.kotatsu.core.model.isNsfw
 import org.koitharu.kotatsu.core.model.toMangaSources
@@ -97,10 +97,10 @@ class HistoryRepository @Inject constructor(
 
 	/** The most recent title of one mode (Anime / Manga / Novel), looking a little way down the history. */
 	suspend fun getLastOrNull(mode: org.koitharu.kotatsu.home.ui.model.HomeMode): Manga? =
-		getList(0, MODE_LOOKUP_LIMIT).firstOrNull { it.source.contentMode == mode }
+		getList(0, MODE_LOOKUP_LIMIT).firstOrNull { it.source.isInMode(mode, settings.streamingKind) }
 
 	fun observeLast(mode: org.koitharu.kotatsu.home.ui.model.HomeMode): Flow<Manga?> =
-		observeAll(MODE_LOOKUP_LIMIT).map { list -> list.firstOrNull { it.source.contentMode == mode } }
+		observeAll(MODE_LOOKUP_LIMIT).map { list -> list.firstOrNull { it.source.isInMode(mode, settings.streamingKind) } }
 
 	fun observeLast(): Flow<Manga?> {
 		return db.getHistoryDao().observeAll(1).map {
@@ -294,7 +294,8 @@ class HistoryRepository @Inject constructor(
 		// UNDISPATCHED queues on the mutex in call order, so an older chapter never lands last.
 		processLifecycleScope.launch(Dispatchers.Default, CoroutineStart.UNDISPATCHED) {
 			scrobbleMutex.withLock {
-				val active = scrobblers.filter { it.isEnabled }
+				// Simkl is the TV & Movies tracker: it takes no part for anime or manga
+				val active = scrobblers.filter { it.isEnabled && it.handles(manga) }
 				if (active.isEmpty()) return@withLock
 				val anyLinked = active.any { db.getScrobblingDao().find(it.scrobblerService.id, manga.id) != null }
 				// Every tap on a chapter of a title no tracker knows asks "track this?". Titles that

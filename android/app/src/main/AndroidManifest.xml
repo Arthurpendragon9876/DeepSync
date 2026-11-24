@@ -267,6 +267,19 @@
 				<data android:host="mangabaka-auth" />
 			</intent-filter>
 
+			<!-- Simkl: com.kotatsu.deepsync://oauth/simkl, as registered on simkl.com/settings/developer -->
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW" />
+
+				<category android:name="android.intent.category.DEFAULT" />
+				<category android:name="android.intent.category.BROWSABLE" />
+
+				<data
+					android:scheme="com.kotatsu.deepsync"
+					android:host="oauth"
+					android:path="/simkl" />
+			</intent-filter>
+
 		</activity>
 		<activity
 			android:name="org.koitharu.kotatsu.settings.sources.catalog.SourcesCatalogActivity"

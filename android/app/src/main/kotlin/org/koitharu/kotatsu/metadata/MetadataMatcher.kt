@@ -1,9 +1,11 @@
 package org.koitharu.kotatsu.metadata
 
+import org.koitharu.kotatsu.core.model.isTvMoviesSource
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.scrobbling.anilist.data.MetadataTitle
 import org.koitharu.kotatsu.scrobbling.common.domain.MetadataKinds
 import org.koitharu.kotatsu.scrobbling.common.domain.TitleMatcher
+import kotlin.math.abs
 
 /**
  * What the source says about a title, boiled down to the facts that tell same-named titles apart:
@@ -23,12 +25,24 @@ data class SourceProfile(
 	val girlsLove: Boolean,
 	/** Whether the source published any tags at all; without them "not BL" is unknown, not a fact. */
 	val hasTags: Boolean,
+	/** Watchable titles only: first release year when the source says it (tag, "(2026)" in the title or description). */
+	val year: Int? = null,
+	/** Watchable titles only: true for a movie, false for a series, null when the source does not say. */
+	val isMovie: Boolean? = null,
+	/** Watchable titles only: ISO country of origin ("GB") when the source tags one. */
+	val originCountry: String? = null,
+	/** A source tagged TV & Movies (not anime, not manga). Year and movie/series then decide what a namesake is. */
+	val isVideo: Boolean = false,
+	/** A source tagged TV & Movies, as opposed to plain anime. */
+	val isTvMovies: Boolean = false,
 ) {
 
 	companion object {
 
 		fun of(manga: Manga): SourceProfile {
 			val names = (listOf(manga.title) + manga.altTitles).filter { it.isNotBlank() }.distinct()
+			// Year and movie-or-series only mean something for TV & Movies; anime and manga keep their own matching
+			val video = manga.source.isTvMoviesSource
 			val tags = manga.tags.map { it.title }
 			val sourceName = manga.source.name.lowercase()
 			val labels = tags.map { it.trim().lowercase() }
@@ -50,7 +64,33 @@ data class SourceProfile(
 				boysLove = MetadataKinds.isBoysLove(tags),
 				girlsLove = MetadataKinds.isGirlsLove(tags),
 				hasTags = tags.isNotEmpty(),
+				year = if (video) yearOf(manga, labels) else null,
+				isMovie = if (video) movieOrSeries(labels) else null,
+				originCountry = if (video) tags.firstNotNullOfOrNull { MetadataKinds.isoCountry(it) } else null,
+				isVideo = video,
+				isTvMovies = video && manga.source.isTvMoviesSource,
 			)
+		}
+
+		private val bracketYear = Regex("[(\\[]((?:19|20)\\d{2})[)\\]]")
+		private val trailingYear = Regex("\\s((?:19|20)\\d{2})$")
+
+		private fun yearOf(manga: Manga, labels: List<String>): Int? {
+			val latest = java.time.Year.now().value + 1
+			labels.firstNotNullOfOrNull { l -> l.takeIf { it.length == 4 }?.toIntOrNull()?.takeIf { it in 1900..latest } }
+				?.let { return it }
+			val title = manga.title.trim()
+			// "Dune (2021)" / "Dune [2021]" / "Dune 2021"; "Blade Runner 2049" is a title, not a year, so a year in the future is ignored
+			(bracketYear.find(title) ?: trailingYear.find(title))?.groupValues?.get(1)?.toIntOrNull()
+				?.takeIf { it in 1900..latest }?.let { return it }
+			return bracketYear.find(manga.description.orEmpty())?.groupValues?.get(1)?.toIntOrNull()
+				?.takeIf { it in 1900..latest }
+		}
+
+		private fun movieOrSeries(labels: List<String>): Boolean? = when {
+			labels.any { it == "movie" || it == "movies" || it == "film" || it == "films" } -> true
+			labels.any { it == "tv series" || it == "series" || it == "tv show" || it == "tv shows" || it == "miniseries" || it == "anime" } -> false
+			else -> null
 		}
 
 		private fun isHangul(c: Char) = c in '\uAC00'..'\uD7AF' || c in '\u1100'..'\u11FF' || c in '\u3130'..'\u318F'
@@ -89,6 +129,9 @@ object MetadataMatcher {
 			if (profile.country != null && c.country() == profile.country) score += 0.10f
 			else if (profile.country == null && profile.scriptCountry != null && c.country() == profile.scriptCountry) score += 0.05f
 			if (profile.boysLove && c.isBoysLove) score += 0.05f
+			// Watchable titles: the same year and country are what separate a 2026 film from its 1997 namesake
+			if (profile.year != null && c.year == profile.year) score += 0.10f
+			if (profile.originCountry != null && MetadataKinds.isoCountry(c.country) == profile.originCountry) score += 0.05f
 			RankedMatch(c, nameScore, coverage, score)
 		}.sortedByDescending { it.score }
 	}
@@ -98,6 +141,22 @@ object MetadataMatcher {
 
 	/** True when the two cannot be the same title whatever their names say. */
 	fun conflicts(profile: SourceProfile, c: MetadataTitle): Boolean {
+		if (profile.isVideo) {
+			val movie = c.isMovieFormat()
+			// A film never is the series of the same name, and the other way round
+			if (profile.isMovie != null && movie != null && profile.isMovie != movie) return true
+			val sourceYear = profile.year
+			val year = c.year
+			if (sourceYear != null && year != null) {
+				// A film is released once, so the years must agree. A series keeps running, so it may have started
+				// earlier than the season the source lists, but never later.
+				if (profile.isMovie == true || movie == true) {
+					if (abs(sourceYear - year) > 1) return true
+				} else if (year > sourceYear + 1) {
+					return true
+				}
+			}
+		}
 		val country = c.country()
 		if (profile.country != null && country != null && profile.country != country) return true
 		val labelled = c.genres.isNotEmpty() || c.tags.isNotEmpty()
@@ -108,6 +167,9 @@ object MetadataMatcher {
 		if (!profile.girlsLove && profile.hasTags && c.isGirlsLove) return true
 		return false
 	}
+
+	private fun MetadataTitle.isMovieFormat(): Boolean? =
+		format?.trim()?.uppercase()?.takeIf { it.isNotEmpty() }?.let { it == "MOVIE" || it.endsWith("_MOVIE") }
 
 	/** KR / CN / JP from the tracker's own words; Taiwan and Hong Kong count as Chinese. */
 	private fun MetadataTitle.country(): String? = when (kind) {

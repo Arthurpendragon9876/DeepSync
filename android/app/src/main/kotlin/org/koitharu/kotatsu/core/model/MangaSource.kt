@@ -157,6 +157,13 @@ val MangaSource.isTvMoviesSource: Boolean
 fun MangaSource.isInStreamingKind(kind: StreamingKind): Boolean =
 	!isAnimeSource || (isTvMoviesSource == (kind == StreamingKind.TV_MOVIES))
 
+/**
+ * Whether a title from this source belongs on the screen for [mode]. In Streaming only the half that is showing
+ * counts: anime sources in Anime, sources tagged TV & Movies in TV & Movies, never both.
+ */
+fun MangaSource.isInMode(mode: HomeMode, kind: StreamingKind): Boolean =
+	contentMode == mode && (mode != HomeMode.ANIME || isInStreamingKind(kind))
+
 /** The app-wide content mode (Anime / Manga / Novel) a source belongs to. */
 val MangaSource.contentMode: HomeMode
 	get() = when {

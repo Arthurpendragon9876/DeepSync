@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.plus
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.model.MangaHistory
-import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInMode
 import org.koitharu.kotatsu.home.ui.model.HomeMode
 import org.koitharu.kotatsu.core.parser.MangaDataRepository
 import org.koitharu.kotatsu.core.prefs.AppSettings
@@ -183,13 +183,18 @@ class HistoryListViewModel @Inject constructor(
 		// Query again once extensions are loaded: entries read before that carry an unresolved source.
 		mihonExtensionManager.isReady,
 		// Anime, Manga and Novel modes each list only their own titles; they are never mixed.
-		settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
-	) { order, filters, limit, _, mode ->
+		// In Streaming only the showing half (Anime or TV & Movies) is listed
+		combine(
+			settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
+			settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
+		) { m, k -> m to k },
+	) { order, filters, limit, _, modeKind ->
+		val (mode, kind) = modeKind
 		isPaginationReady.set(false)
 		// The mode filter has to run before the page limit, or a page could end up (nearly) empty.
 		repository.observeAllWithHistory(order, filters, Int.MAX_VALUE).map { list ->
 			// The "On device" filter returns downloaded copies, already filtered by their original source's mode
-			if (ListFilterOption.Downloaded in filters) list.take(limit) else list.filter { it.manga.source.contentMode == mode }.take(limit)
+			if (ListFilterOption.Downloaded in filters) list.take(limit) else list.filter { it.manga.source.isInMode(mode, kind) }.take(limit)
 		}
 	}.flattenLatest()
 

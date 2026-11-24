@@ -103,7 +103,7 @@ class TrackerLinkDialog : DialogFragment() {
 			)
 		}
 		b.editQuery.setText(target.title)
-		scrobblers.filter { it.isEnabled }.forEachIndexed { index, scrobbler ->
+		scrobblers.filter { it.isEnabled && it.handles(target) }.forEachIndexed { index, scrobbler ->
 			val chip = Chip(requireContext()).apply {
 				id = View.generateViewId()
 				text = getString(scrobbler.scrobblerService.titleResId)

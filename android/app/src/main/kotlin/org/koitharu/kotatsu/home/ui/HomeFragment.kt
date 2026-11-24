@@ -544,7 +544,7 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 				HomeRowKind.UPDATES -> router.openMangaUpdates()
 				HomeRowKind.SYNC -> SyncLibraryDialog.show(childFragmentManager, config.mode == HomeMode.ANIME)
 				HomeRowKind.TRACKER -> holder.adapter.currentList.firstOrNull()?.trackerEntry?.service
-					?.let { TrackerLibraryDialog.show(childFragmentManager, it, config.mode == HomeMode.ANIME) }
+					?.let { TrackerLibraryDialog.show(childFragmentManager, it, config.mode == HomeMode.ANIME, config.isTvMovies) }
 
 				else -> Unit
 			}
@@ -635,14 +635,21 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 				context = ctx,
 				state = MetadataSheet.State(
 					mode = mode,
-					// TV & Movies has no tracker metadata (AniList and MAL only know anime), so there is nothing to pick
-					providers = if (config.isTvMovies) emptyList() else HomeMetadata.values().filter { it != HomeMetadata.SOURCES && viewModel.supportsProvider(it, mode) },
-					provider = viewModel.currentProvider(),
+					// TV & Movies has no AniList / MAL metadata (they only know anime): Simkl is the one tracker there
+					providers = if (config.isTvMovies) {
+						listOf(HomeMetadata.SIMKL)
+					} else {
+						HomeMetadata.values().filter { it != HomeMetadata.SOURCES && viewModel.supportsProvider(it, mode) }
+					},
+					provider = if (config.isTvMovies) HomeMetadata.SIMKL else viewModel.currentProvider(),
 					catalogue = config.metadata == HomeMetadata.SOURCES,
 					catalogueSourceTitle = pickedTitle,
 					fromTracker = viewModel.isMetadataFromTracker(),
 				),
-				onProvider = viewModel::setProvider,
+				// In TV & Movies, picking Simkl only turns the source catalogue off; it must not change the anime tracker
+				onProvider = { picked ->
+					if (config.isTvMovies) viewModel.setSourceCatalogue(false) else viewModel.setProvider(picked)
+				},
 				onCatalogue = viewModel::setSourceCatalogue,
 				onFromTracker = viewModel::setMetadataFromTracker,
 				onPickSource = {

@@ -61,6 +61,9 @@ class TrackerLibraryDialog : DialogFragment() {
 	private var status = DEFAULT_STATUS
 	private var query = ""
 	private var anime = false
+
+	/** Simkl's second tab: its shows, as opposed to its anime. */
+	private var tv = false
 	private var loadJob: Job? = null
 	private var adapter: LibraryCardAdapter<TrackerReadingEntry>? = null
 
@@ -81,6 +84,7 @@ class TrackerLibraryDialog : DialogFragment() {
 		val b = binding ?: return
 		val service = ScrobblerService.values().firstOrNull { it.name == requireArguments().getString(ARG_SERVICE) }
 		anime = savedInstanceState?.getBoolean(ARG_ANIME) ?: requireArguments().getBoolean(ARG_ANIME)
+		tv = savedInstanceState?.getBoolean(ARG_TV) ?: requireArguments().getBoolean(ARG_TV)
 		query = savedInstanceState?.getString(STATE_QUERY).orEmpty()
 		val scrobbler = scrobblers.firstOrNull { it.scrobblerService == service }
 		if (service == null || scrobbler == null) {
@@ -124,8 +128,28 @@ class TrackerLibraryDialog : DialogFragment() {
 		}
 		adapter = cards
 		b.list.adapter = cards
-		// Manga | Anime tabs, only for a tracker that has both
-		if (scrobbler.supportsAnime) {
+		if (service == ScrobblerService.SIMKL) {
+			// Simkl has no manga: its tabs are the two halves of Streaming
+			anime = true
+			b.tabsRow.isVisible = true
+			b.tabs.isVisible = true
+			b.tabs.addTab(b.tabs.newTab().setText(R.string.ds_mode_anime), !tv)
+			b.tabs.addTab(b.tabs.newTab().setText(R.string.ds_mode_tv_movies), tv)
+			b.tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+				override fun onTabSelected(tab: TabLayout.Tab) {
+					val isTv = tab.position == 1
+					if (tv != isTv) {
+						tv = isTv
+						load(scrobbler, service)
+					}
+				}
+
+				override fun onTabUnselected(tab: TabLayout.Tab) = Unit
+
+				override fun onTabReselected(tab: TabLayout.Tab) = Unit
+			})
+		} else if (scrobbler.supportsAnime) {
+			// Manga | Anime tabs, only for a tracker that has both
 			b.tabsRow.isVisible = true
 			b.tabs.isVisible = true
 			b.tabs.addTab(b.tabs.newTab().setText(R.string.content_type_manga), !anime)
@@ -153,6 +177,7 @@ class TrackerLibraryDialog : DialogFragment() {
 	override fun onSaveInstanceState(outState: Bundle) {
 		super.onSaveInstanceState(outState)
 		outState.putBoolean(ARG_ANIME, anime)
+		outState.putBoolean(ARG_TV, tv)
 		outState.putString(STATE_QUERY, query)
 	}
 
@@ -163,7 +188,7 @@ class TrackerLibraryDialog : DialogFragment() {
 		b.textEmpty.isVisible = false
 		adapter?.submitList(emptyList())
 		loadJob = viewLifecycleOwner.lifecycleScope.launch {
-			val loaded = withContext(Dispatchers.Default) { scrobbler.getLibrary(anime) }
+			val loaded = withContext(Dispatchers.Default) { if (tv) scrobbler.getTvLibrary() else scrobbler.getLibrary(anime) }
 			links = withContext(Dispatchers.Default) {
 				runCatching { db.getScrobblingDao().observe(service.id).first().associate { it.targetId to it.mangaId } }
 					.getOrDefault(emptyMap())
@@ -234,6 +259,7 @@ class TrackerLibraryDialog : DialogFragment() {
 		private const val TAG = "tracker_library"
 		private const val ARG_SERVICE = "service"
 		private const val ARG_ANIME = "anime"
+		private const val ARG_TV = "tv"
 		private const val STATE_QUERY = "query"
 		private const val DEFAULT_STATUS = "READING"
 
@@ -245,12 +271,13 @@ class TrackerLibraryDialog : DialogFragment() {
 			"DROPPED" to R.string.ds_status_dropped,
 		)
 
-		fun show(fm: FragmentManager, service: ScrobblerService, anime: Boolean = false) {
+		fun show(fm: FragmentManager, service: ScrobblerService, anime: Boolean = false, tv: Boolean = false) {
 			if (fm.isStateSaved || fm.findFragmentByTag(TAG) != null) return
 			TrackerLibraryDialog().apply {
 				arguments = Bundle().apply {
 					putString(ARG_SERVICE, service.name)
 					putBoolean(ARG_ANIME, anime)
+					putBoolean(ARG_TV, tv)
 				}
 			}.show(fm, TAG)
 		}

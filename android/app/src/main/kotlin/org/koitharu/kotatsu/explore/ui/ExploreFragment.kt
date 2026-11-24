@@ -233,7 +233,7 @@ class ExploreFragment :
 			onPreviousForYou = metaViewModel::previousForYouPage,
 			onReshuffleSamples = metaViewModel::reshuffleSamples,
 			onTrailer = { url -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) },
-			onOpenStats = { router.openStatistic(viewModel.currentMode) },
+			onOpenStats = { router.openStatistic(viewModel.currentMode, viewModel.currentKind) },
 			onOpenMetadataSettings = { router.openHomeLayoutSettings() },
 		)
 		binding.metadataCompose.setContent {

@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
-import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInMode
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
@@ -45,7 +45,8 @@ class FavouritesContainerViewModel @Inject constructor(
 		categoriesStateFlow.filterNotNull(),
 		settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
 		settings.observeAsFlow(AppSettings.KEY_SHOW_EMPTY_MODE_CATEGORIES) { isShowEmptyModeCategories },
-	) { list, mode, showAllModes -> Triple(list, mode, showAllModes) }.flatMapLatest { (list, mode, showAllModes) ->
+		settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
+	) { list, mode, showAllModes, _ -> Triple(list, mode, showAllModes) }.flatMapLatest { (list, mode, showAllModes) ->
 		if (list.isEmpty() || showAllModes) {
 			// Option on: never hide a category just because it has nothing in the current mode.
 			flowOf(list)
@@ -53,7 +54,7 @@ class FavouritesContainerViewModel @Inject constructor(
 			combine(
 				list.map { category ->
 					favouritesRepository.observeAll(category.id, emptySet(), Int.MAX_VALUE)
-						.map { titles -> titles.any { it.source.contentMode == mode } }
+						.map { titles -> titles.any { it.source.isInMode(mode, settings.streamingKind) } }
 				},
 			) { hasTitles -> list.filterIndexed { index, _ -> hasTitles[index] } }
 		}
