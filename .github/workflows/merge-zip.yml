@@ -1,0 +1,128 @@
+name: Merge zip
+
+# Upload a zip of changed (or whole) project files to the repo, run this workflow,
+# and its contents are merged into the source: new files are added, files with the
+# same path are overwritten, nothing that is not in the zip is deleted.
+#
+# 1. In GitHub: Add file > Upload files, drop the zip in the repo root (or anywhere), commit.
+# 2. Actions > Merge zip > Run workflow, type the zip's path (default: simkl-fixed.zip).
+# 3. The zip is deleted afterwards and the merge is committed to the branch you ran it on.
+
+on:
+  workflow_dispatch:
+    inputs:
+      zip_file:
+        description: Zip file path in the repo
+        default: simkl-fixed.zip
+      strip_top_folder:
+        description: Drop the zip's single top-level folder (auto = only when it is not a folder that already exists in the repo, e.g. DeepSync-main/)
+        type: choice
+        options:
+          - auto
+          - "yes"
+          - "no"
+        default: auto
+      dry_run:
+        description: Only list what would change, commit nothing
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract zip
+        id: extract
+        env:
+          ZIP_FILE: ${{ inputs.zip_file }}
+          STRIP: ${{ inputs.strip_top_folder }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "::error::'$ZIP_FILE' not found in the repo. Upload and commit the zip first, then run again with its exact path."
+            exit 1
+          fi
+
+          rm -rf "$RUNNER_TEMP/incoming"
+          mkdir -p "$RUNNER_TEMP/incoming"
+          unzip -q "$ZIP_FILE" -d "$RUNNER_TEMP/incoming"
+          rm -rf "$RUNNER_TEMP/incoming/__MACOSX"
+
+          root="$RUNNER_TEMP/incoming"
+          # Zips made from a downloaded repo have one wrapper folder (DeepSync-main/). Step into it,
+          # unless that folder is a real top-level folder of the repo (android/, desktop/, docs/...).
+          entries=$(find "$root" -mindepth 1 -maxdepth 1 | wc -l)
+          if [ "$entries" -eq 1 ] && [ -d "$(find "$root" -mindepth 1 -maxdepth 1)" ]; then
+            only=$(basename "$(find "$root" -mindepth 1 -maxdepth 1)")
+            case "$STRIP" in
+              yes) root="$root/$only" ;;
+              auto) if [ ! -e "$only" ]; then root="$root/$only"; fi ;;
+            esac
+          fi
+
+          echo "Merging from: ${root#$RUNNER_TEMP/}"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+          echo "Files in zip: $(find "$root" -type f | wc -l)"
+
+      - name: Merge into the source
+        env:
+          ZIP_FILE: ${{ inputs.zip_file }}
+          ROOT: ${{ steps.extract.outputs.root }}
+        run: |
+          set -euo pipefail
+          # Not merged: git internals, workflow files (the built-in token may not change them),
+          # and build output / caches / machine-local files that must never be in the repo.
+          tar -C "$ROOT" \
+            --exclude='./.git' \
+            --exclude='./.github/workflows' \
+            --exclude='build' \
+            --exclude='.gradle' \
+            --exclude='.kotlin' \
+            --exclude='.idea' \
+            --exclude='local.properties' \
+            --exclude='.DS_Store' \
+            --exclude='Thumbs.db' \
+            -cf - . | tar -xf - -p --no-same-owner
+          # The uploaded zip itself never stays in the repo
+          rm -f "$ZIP_FILE"
+
+          big=$(find . -path ./.git -prune -o -type f -size +95M -print)
+          if [ -n "$big" ]; then
+            echo "::error::GitHub rejects files over 100 MB:"
+            echo "$big"
+            exit 1
+          fi
+
+      - name: Show changes
+        run: |
+          git add -A
+          echo "### Changes" >> "$GITHUB_STEP_SUMMARY"
+          if git diff --cached --quiet; then
+            echo "Nothing to change: the repo already matches the zip." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            git diff --cached --stat=120 | tail -n 400
+            {
+              echo '```'
+              git diff --cached --name-status | head -n 300
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Commit and push
+        if: ${{ !inputs.dry_run }}
+        env:
+          ZIP_FILE: ${{ inputs.zip_file }}
+        run: |
+          if git diff --cached --quiet; then
+            echo "Nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Merge $ZIP_FILE"
+          git push origin HEAD:${{ github.ref_name }}
