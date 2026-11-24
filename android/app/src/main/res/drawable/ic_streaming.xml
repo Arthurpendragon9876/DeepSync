@@ -4,9 +4,9 @@
     android:viewportWidth="24"
     android:viewportHeight="24"
     android:tint="?attr/colorControlNormal">
-  <!-- A screen with a play triangle: the Streaming mode, which holds Anime and TV & Movies -->
+  <!-- A solid rounded screen with a play triangle cut out of its exact centre: the Streaming mode, which holds Anime and TV & Movies -->
   <path
       android:fillColor="@android:color/white"
       android:fillType="evenOdd"
-      android:pathData="M5,4h14c1.66,0 3,1.34 3,3v10c0,1.66 -1.34,3 -3,3H5c-1.66,0 -3,-1.34 -3,-3V7c0,-1.66 1.34,-3 3,-3zM5,6C4.45,6 4,6.45 4,7v10c0,0.55 0.45,1 1,1h14c0.55,0 1,-0.45 1,-1V7c0,-0.55 -0.45,-1 -1,-1H5zM10,8.5v7l6,-3.5z"/>
+      android:pathData="M5.5,4.5h13c1.66,0 3,1.34 3,3v9c0,1.66 -1.34,3 -3,3h-13c-1.66,0 -3,-1.34 -3,-3v-9c0,-1.66 1.34,-3 3,-3zM10.2,8.5v7l5.5,-3.5z"/>
 </vector>

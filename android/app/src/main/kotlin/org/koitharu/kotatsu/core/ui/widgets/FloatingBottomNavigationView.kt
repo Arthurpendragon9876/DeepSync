@@ -49,7 +49,7 @@ class FloatingBottomNavigationView @JvmOverloads constructor(
 	private val continueEnabledState = MutableStateFlow(false)
 	private val homeModeState = MutableStateFlow(HomeMode.MANGA)
 	private val streamingKindState = MutableStateFlow(StreamingKind.ANIME)
-	private val streamingDefaultState = MutableStateFlow(StreamingKind.ANIME)
+	private val streamingDefaultState = MutableStateFlow<StreamingKind?>(null)
 	private var modeSelectedListener: ((HomeMode) -> Unit)? = null
 	private var streamingKindListener: ((StreamingKind) -> Unit)? = null
 	private var continueClickListener: (() -> Unit)? = null
@@ -190,8 +190,8 @@ class FloatingBottomNavigationView @JvmOverloads constructor(
 		streamingKindState.value = kind
 	}
 
-	/** What a plain pick of Streaming lands on; the Anime / TV & Movies choice is optional. */
-	fun setStreamingDefault(kind: StreamingKind) {
+	/** The kind Streaming shows directly in the mode fan, or null to let the fan split it into Anime and TV & Movies. */
+	fun setStreamingDefault(kind: StreamingKind?) {
 		streamingDefaultState.value = kind
 	}
 

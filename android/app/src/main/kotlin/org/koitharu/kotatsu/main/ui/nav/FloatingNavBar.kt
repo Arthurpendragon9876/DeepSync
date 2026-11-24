@@ -393,7 +393,7 @@ fun FloatingNavBar(
 	continueEnabled: Boolean = false,
 	mode: HomeMode = HomeMode.MANGA,
 	streamingKind: StreamingKind = StreamingKind.ANIME,
-	streamingDefault: StreamingKind = StreamingKind.ANIME,
+	streamingDefault: StreamingKind? = null,
 	onModeSelected: (HomeMode) -> Unit = {},
 	onStreamingSelected: (StreamingKind) -> Unit = {},
 	onContinueClick: () -> Unit = {},

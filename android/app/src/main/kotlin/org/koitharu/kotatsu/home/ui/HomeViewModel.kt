@@ -32,6 +32,7 @@ import org.koitharu.kotatsu.explore.domain.ExploreRepository
 import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
 import org.koitharu.kotatsu.history.data.HistoryRepository
 import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInStreamingKind
 import org.koitharu.kotatsu.core.model.isNsfw
 import org.koitharu.kotatsu.core.parser.MangaRepository
 import org.koitharu.kotatsu.home.ui.model.HeroItem
@@ -418,7 +419,7 @@ class HomeViewModel @Inject constructor(
 						config,
 					) { log, _, mode, cfg ->
 						val items = log.map { mangaListMapper.toFeedItem(it) }
-							.filter { it.isNew && it.manga.source.contentMode == mode && it.manga.passesFilters(cfg) }
+							.filter { it.isNew && it.manga.isShownIn(cfg) && it.manga.passesFilters(cfg) }
 							.distinctBy { it.manga.id }
 						HomeRow(
 							id = "updates",
@@ -453,9 +454,10 @@ class HomeViewModel @Inject constructor(
 			.distinctUntilChanged()
 
 	private fun syncRow(): Flow<HomeRow> =
-		combine(refreshTick, modeFlow(), syncShownFlow()) { _, mode, shown -> mode to shown }.flatMapLatest { (mode, shown) ->
+		combine(refreshTick, modeFlow(), syncShownFlow(), tvMoviesFlow()) { _, mode, shown, tv -> Triple(mode, shown, tv) }.flatMapLatest { (mode, shown, tv) ->
 			flow {
-				if (!shown || !trackerSynchronizer.canSync) {
+				// The trackers only know anime, manga and novels: TV & Movies has no sync row
+				if (!shown || tv || !trackerSynchronizer.canSync) {
 					emit(syncRowOf(HomeSectionState.Hidden))
 					return@flow
 				}
@@ -487,12 +489,12 @@ class HomeViewModel @Inject constructor(
 	private fun trackerRow(scrobbler: Scrobbler): Flow<HomeRow> {
 		val service = scrobbler.scrobblerService
 		val id = "tracker_${service.id}"
-		return combine(refreshTick, modeFlow(), syncShownFlow()) { _, mode, shown -> mode to shown }.flatMapLatest { (mode, syncShown) ->
+		return combine(refreshTick, modeFlow(), syncShownFlow(), tvMoviesFlow()) { _, mode, shown, tv -> Triple(mode, shown, tv) }.flatMapLatest { (mode, syncShown, tv) ->
 			flow {
 				// With two or more trackers the Sync library row already holds every title, so a row per
 				// tracker would only repeat it; Sync library has a tracker filter for telling them apart.
 				// If the user switched Sync library off, the per-tracker rows take its place.
-				if (!scrobbler.isEnabled || (trackerSynchronizer.canSync && syncShown)) {
+				if (!scrobbler.isEnabled || tv || (trackerSynchronizer.canSync && syncShown)) {
 					emit(trackerRowOf(id, service, HomeSectionState.Hidden))
 					return@flow
 				}
@@ -543,7 +545,7 @@ class HomeViewModel @Inject constructor(
 		historyRepository.observeAll(LOCAL_CONTINUE_SIZE * 4),
 		modeFlow(),
 		config,
-	) { all, mode, cfg -> all.filter { it.source.contentMode == mode && it.passesFilters(cfg) }.take(LOCAL_CONTINUE_SIZE) }
+	) { all, mode, cfg -> all.filter { it.isShownIn(cfg) && it.passesFilters(cfg) }.take(LOCAL_CONTINUE_SIZE) }
 		.map { list ->
 			HomeRow(
 				id = "local",
@@ -577,8 +579,9 @@ class HomeViewModel @Inject constructor(
 	 */
 	private fun favouriteRows(): Flow<List<HomeRow>> = combine(
 		settings.observeAsFlow(AppSettings.KEY_HOME_FAV_CATEGORIES) { homeFavCategories },
-		modeFlow(),
-	) { ids, mode -> ids to mode }.flatMapLatest { (ids, mode) ->
+		config.map { it.mode to it.streamingKind }.distinctUntilChanged(),
+	) { ids, modeKind -> ids to modeKind }.flatMapLatest { (ids, modeKind) ->
+		val (mode, kind) = modeKind
 		if (ids.isEmpty()) {
 			flowOf(emptyList())
 		} else {
@@ -591,7 +594,7 @@ class HomeViewModel @Inject constructor(
 						chosen.map { category ->
 							favouritesRepository.observeAll(category.id, ListSortOrder.NEWEST, emptySet(), FAV_ROW_SIZE * 2)
 								.map { list ->
-									val items = list.filter { it.source.contentMode == mode }
+									val items = list.filter { it.source.contentMode == mode && (mode != HomeMode.ANIME || it.source.isInStreamingKind(kind)) }
 										.take(FAV_ROW_SIZE)
 									HomeRow(
 										id = "fav_${category.id}",
@@ -613,6 +616,13 @@ class HomeViewModel @Inject constructor(
 	}.catch { emit(emptyList()) }
 
 	private fun modeFlow(): Flow<HomeMode> = config.map { it.mode }.distinctUntilChanged()
+
+	/** True while Home shows TV & Movies, which has no trackers, no anime categories and no anime metadata. */
+	private fun tvMoviesFlow(): Flow<Boolean> = config.map { it.isTvMovies }.distinctUntilChanged()
+
+	/** The user's own title belongs on this Home: right mode, and in Streaming the right half (anime or TV & Movies). */
+	private fun Manga.isShownIn(cfg: HomeConfig): Boolean =
+		source.contentMode == cfg.mode && (cfg.mode != HomeMode.ANIME || source.isInStreamingKind(cfg.streamingKind))
 
 	private fun trendingFlow(): Flow<HomeSectionState<HeroItem>> = reloadTrigger().flatMapLatest {
 		flow {

@@ -1555,7 +1555,8 @@
 	<string name="no_tv_movies_extension_installed">No TV &amp; Movies extension installed</string>
 	<string name="ds_streaming_group">Streaming</string>
 	<string name="ds_streaming_default">Streaming default</string>
-	<string name="ds_streaming_default_desc">What Streaming opens on. Anime and TV &amp; Movies stay one mode; rest your thumb on a pill in the mode fan to pick the other one.</string>
+	<string name="ds_streaming_default_desc">Off: the mode fan splits Streaming into Anime and TV &amp; Movies. Pick one and the fan shows it directly, with no split.</string>
+	<string name="ds_streaming_default_off">Off</string>
 	<string name="ds_tag_tv_movies">Tag as TV &amp; Movies</string>
 	<string name="ds_untag_tv_movies">Tag as anime</string>
 	<string name="ds_tagged_tv_movies">TV &amp; Movies</string>

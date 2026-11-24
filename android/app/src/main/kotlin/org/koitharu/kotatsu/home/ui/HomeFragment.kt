@@ -635,7 +635,8 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 				context = ctx,
 				state = MetadataSheet.State(
 					mode = mode,
-					providers = HomeMetadata.values().filter { it != HomeMetadata.SOURCES && viewModel.supportsProvider(it, mode) },
+					// TV & Movies has no tracker metadata (AniList and MAL only know anime), so there is nothing to pick
+					providers = if (config.isTvMovies) emptyList() else HomeMetadata.values().filter { it != HomeMetadata.SOURCES && viewModel.supportsProvider(it, mode) },
 					provider = viewModel.currentProvider(),
 					catalogue = config.metadata == HomeMetadata.SOURCES,
 					catalogueSourceTitle = pickedTitle,

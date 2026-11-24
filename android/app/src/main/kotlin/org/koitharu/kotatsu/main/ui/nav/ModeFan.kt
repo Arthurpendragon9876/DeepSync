@@ -35,6 +35,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -68,6 +70,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
@@ -120,10 +123,10 @@ import kotlin.math.sin
  *  - **Hold** for 0.85 s without pulling: opens the details of the last title, with a ring charging around the
  *    button and two soft ticks on the way.
  *
- * The Anime slot is **Streaming**: while the thumb rests on it the node unfolds into two pills, Anime and TV & Movies.
- * Releasing without touching a pill lands on the Streaming default from settings (or on the kind already showing when
- * the app is in Streaming), so the split stays optional. In the tap-opened fan, tapping Streaming unfolds the pills and
- * a second tap picks one.
+ * The Anime slot is **Streaming**. With the Streaming default off, the node splits in two while the thumb rests on it:
+ * the very same shape, cut into an Anime half and a TV & Movies half. Releasing without touching a half lands on the
+ * kind already showing (or Anime). In the tap-opened fan, tapping Streaming splits it and a second tap picks one.
+ * With a Streaming default set, the node simply shows that kind (its own icon and name) and never splits.
  *
  * Every step has its own haptic: a start when the fan opens, a tick each time the highlighted mode changes, a
  * confirm when the mode is switched, a long press when the hold completes. All of them go through the app's
@@ -156,11 +159,12 @@ private val FAN_SCREEN_GAP = 6.dp
 private val PILL_MAX_WIDTH = 270.dp
 private val NODE_W = 72.dp
 
-/** The Anime / TV & Movies pills that replace the Streaming node while it is highlighted. */
-private val PILL_W = 116.dp
-private val PILL_H = 40.dp
-private val PILL_GAP = 8.dp
-private val PILL_SLOP = 4.dp
+/** The Streaming node splits into an Anime half and a TV & Movies half: same width, same corners, a thin gap between. */
+private val SPLIT_GAP = 6.dp
+private val SPLIT_INNER_CORNER = 6.dp
+private val NODE_CORNER = 21.dp
+private const val SELECTED_SCALE = 1.16f
+private val PILL_SLOP = 6.dp
 private val NODE_H = 68.dp
 private val FAB_SIZE = 52.dp
 
@@ -187,13 +191,6 @@ internal fun modeIconRes(mode: HomeMode, kind: StreamingKind = StreamingKind.ANI
 private fun streamingKindIconRes(kind: StreamingKind): Int = when (kind) {
 	StreamingKind.ANIME -> R.drawable.ic_play_circle
 	StreamingKind.TV_MOVIES -> R.drawable.ic_tv
-}
-
-/** The icon of a node in the fan: Streaming has its own, the others match the button. */
-@DrawableRes
-private fun nodeIconRes(mode: HomeMode): Int = when (mode) {
-	HomeMode.ANIME -> R.drawable.ic_streaming
-	else -> modeIconRes(mode)
 }
 
 private fun modeTitleRes(mode: HomeMode): Int = when (mode) {
@@ -268,27 +265,23 @@ private fun pickMode(dx: Float, dy: Float, radiusPx: Float, nearPx: Float, deadP
 	}
 }
 
-/** The pill (Anime above, TV & Movies below) under a thumb at [x]/[y] in the window, or null when it is on neither. */
+/** The half (Anime above, TV & Movies below) under a thumb at [x]/[y] in the window, or null when it is on neither. */
 private fun Density.streamingPillAt(x: Float, y: Float, g: FanGeometry): StreamingKind? {
 	val a = Math.toRadians(HomeMode.ANIME.fanAngle().toDouble())
 	val cx = g.center.x - g.nodeRadius * cos(a).toFloat()
 	val cy = g.center.y - g.nodeRadius * sin(a).toFloat()
-	val halfW = PILL_W.toPx() / 2f + PILL_SLOP.toPx()
-	val halfH = PILL_H.toPx() / 2f + PILL_SLOP.toPx()
-	val offset = (PILL_H + PILL_GAP).toPx() / 2f
-	if (abs(x - cx) > halfW) return null
-	return when {
-		abs(y - (cy - offset)) <= halfH -> StreamingKind.ANIME
-		abs(y - (cy + offset)) <= halfH -> StreamingKind.TV_MOVIES
-		else -> null
-	}
+	val halfW = NODE_W.toPx() * SELECTED_SCALE / 2f + PILL_SLOP.toPx()
+	val halfH = NODE_H.toPx() * SELECTED_SCALE / 2f + PILL_SLOP.toPx()
+	if (abs(x - cx) > halfW || abs(y - cy) > halfH) return null
+	return if (y < cy) StreamingKind.ANIME else StreamingKind.TV_MOVIES
 }
 
 @Composable
 internal fun ModeFanButton(
 	mode: HomeMode,
 	streamingKind: StreamingKind,
-	streamingDefault: StreamingKind,
+	/** The kind Streaming shows directly, or null when the fan splits it into Anime and TV & Movies. */
+	streamingDefault: StreamingKind?,
 	continueEnabled: Boolean,
 	fanOpen: Boolean,
 	onFanOpenChange: (Boolean) -> Unit,
@@ -304,7 +297,7 @@ internal fun ModeFanButton(
 	var holding by remember { mutableStateOf(false) }
 	var highlighted by remember { mutableStateOf<HomeMode?>(null) }
 	// Which Streaming pill is lit while Streaming is highlighted
-	var highlightedKind by remember { mutableStateOf(streamingDefault) }
+	var highlightedKind by remember { mutableStateOf(streamingDefault ?: streamingKind) }
 	var locked by remember { mutableStateOf(false) }
 	// Where the real button is in the window right now, for the thumb maths. The fan itself is anchored to the
 	// screen corner and ignores it.
@@ -325,8 +318,8 @@ internal fun ModeFanButton(
 		setOpen(false)
 	}
 
-	/** The pill Streaming rests on when the thumb is not on one: the kind already showing, else the default. */
-	fun restingKind(): StreamingKind = if (currentMode == HomeMode.ANIME) currentKind else defaultKind
+	/** What Streaming lands on when the thumb is not on a half: the default if one is set, else the kind already showing. */
+	fun restingKind(): StreamingKind = defaultKind ?: if (currentMode == HomeMode.ANIME) currentKind else StreamingKind.ANIME
 
 	fun applyChoice(picked: HomeMode, kind: StreamingKind) {
 		if (picked == HomeMode.ANIME) selectStreaming(kind) else select(picked)
@@ -521,8 +514,8 @@ internal fun ModeFanButton(
 										val dy = g.center.y - winY
 										// Ignore the stretch between the corner and the button, so a small pull never flips the highlight
 										val dead = hypot(g.center.x - g.fabCenter.x, g.center.y - g.fabCenter.y) + 12.dp.toPx()
-										// With Streaming unfolded, a thumb on one of its pills wins over the angle zones
-										val pill = if (highlighted == HomeMode.ANIME) streamingPillAt(winX, winY, g) else null
+										// With Streaming split, a thumb on one of its halves wins over the angle zones
+										val pill = if (defaultKind == null && highlighted == HomeMode.ANIME) streamingPillAt(winX, winY, g) else null
 										if (pill != null) {
 											if (pill != highlightedKind) {
 												highlightedKind = pill
@@ -535,7 +528,7 @@ internal fun ModeFanButton(
 												highlightedKind = restingKind()
 												haptic(HapticEffect.TICK)
 											} else if (highlighted == HomeMode.ANIME && highlightedKind != restingKind()) {
-												// Off the pills again: Streaming falls back to its default, the split stays optional
+												// Off the halves again: Streaming falls back to its resting kind
 												highlightedKind = restingKind()
 												haptic(HapticEffect.LIGHT_TICK)
 											}
@@ -624,7 +617,7 @@ private fun ModeFanPopup(
 	progress: Float,
 	current: HomeMode,
 	currentKind: StreamingKind,
-	defaultKind: StreamingKind,
+	defaultKind: StreamingKind?,
 	highlighted: HomeMode,
 	highlightedKind: StreamingKind,
 	onPick: (HomeMode, StreamingKind) -> Unit,
@@ -642,9 +635,10 @@ private fun ModeFanPopup(
 		animationSpec = spring(dampingRatio = 0.6f, stiffness = 520f),
 		label = "spoke",
 	)
-	// Streaming unfolds into its two pills while it is the highlighted mode
+	// Streaming splits into its two halves while it is the highlighted mode (only with no Streaming default)
+	val split = defaultKind == null
 	val unfold by animateFloatAsState(
-		targetValue = if (highlighted == HomeMode.ANIME) 1f else 0f,
+		targetValue = if (split && highlighted == HomeMode.ANIME) 1f else 0f,
 		animationSpec = spring(dampingRatio = 0.68f, stiffness = 520f),
 		label = "streamingUnfold",
 	)
@@ -740,48 +734,50 @@ private fun ModeFanPopup(
 					val a = Math.toRadians(m.fanAngle().toDouble())
 					val cx = g.center.x - g.nodeRadius * cos(a).toFloat()
 					val cy = g.center.y - g.nodeRadius * sin(a).toFloat()
-					if (m == HomeMode.ANIME) {
-						// Streaming: the node, captioned with the half it opens on, hands over to the two pills
+					if (m == HomeMode.ANIME && defaultKind != null) {
+						// A Streaming default is set: the node is that kind, with its own icon and name, and never splits
 						FanNode(
-							mode = m,
+							iconRes = streamingKindIconRes(defaultKind),
+							title = stringResource(defaultKind.titleRes),
+							selected = m == highlighted,
+							isCurrent = current == HomeMode.ANIME && currentKind == defaultKind,
+							modifier = Modifier.offset { IntOffset((cx - nodeHalfW).roundToInt(), (cy - nodeHalfH).roundToInt()) },
+							onClick = { onPick(HomeMode.ANIME, defaultKind) },
+						)
+					} else if (m == HomeMode.ANIME) {
+						// Streaming: the node hands over to its two halves, the same shape cut in two
+						FanNode(
+							iconRes = R.drawable.ic_streaming,
+							title = stringResource(modeTitleRes(m)),
 							selected = m == highlighted,
 							isCurrent = m == current,
-							caption = stringResource((if (current == m) currentKind else defaultKind).titleRes),
 							modifier = Modifier
 								.offset { IntOffset((cx - nodeHalfW).roundToInt(), (cy - nodeHalfH).roundToInt()) }
-								.graphicsLayer { this.alpha = 1f - unfold.coerceIn(0f, 1f) },
-							// Tapping the node while it is folded unfolds the pills; between the pills it takes the default
+								.graphicsLayer { this.alpha = 1f - (unfold * 6f).coerceIn(0f, 1f) },
+							// Tapping the node while it is folded splits it; between the halves it takes the resting kind
 							onClick = {
 								if (highlighted == HomeMode.ANIME) {
-									onPick(HomeMode.ANIME, if (current == HomeMode.ANIME) currentKind else defaultKind)
+									onPick(HomeMode.ANIME, if (current == HomeMode.ANIME) currentKind else StreamingKind.ANIME)
 								} else {
 									onUnfoldStreaming()
 								}
 							},
 						)
 						if (unfold > 0.01f) {
-							StreamingPills(
+							StreamingSplit(
+								unfold = unfold,
 								litKind = highlightedKind,
 								currentKind = if (current == HomeMode.ANIME) currentKind else null,
 								modifier = Modifier
-									.offset {
-										IntOffset(
-											(cx - PILL_W.toPx() / 2f).roundToInt(),
-											(cy - (PILL_H * 2 + PILL_GAP).toPx() / 2f).roundToInt(),
-										)
-									}
-									.graphicsLayer {
-										val s = (0.55f + 0.45f * unfold).coerceAtLeast(0.01f)
-										scaleX = s
-										scaleY = s
-										this.alpha = unfold.coerceIn(0f, 1f)
-									},
+									.offset { IntOffset((cx - nodeHalfW).roundToInt(), (cy - nodeHalfH).roundToInt()) }
+									.graphicsLayer { this.alpha = (unfold * 6f).coerceIn(0f, 1f) },
 								onPick = { kind -> onPick(HomeMode.ANIME, kind) },
 							)
 						}
 					} else {
 						FanNode(
-							mode = m,
+							iconRes = modeIconRes(m),
+							title = stringResource(modeTitleRes(m)),
 							selected = m == highlighted,
 							isCurrent = m == current,
 							modifier = Modifier.offset { IntOffset((cx - nodeHalfW).roundToInt(), (cy - nodeHalfH).roundToInt()) },
@@ -813,7 +809,7 @@ private fun ModeFanPopup(
 						letterSpacing = 1.sp,
 						color = MutedText,
 					)
-					// "Streaming · TV & Movies": Streaming also names which half the thumb is on
+					// "Streaming · TV & Movies" while split; with a Streaming default the kind's own name
 					AnimatedContent(
 						targetState = highlighted to (if (highlighted == HomeMode.ANIME) highlightedKind else null),
 						transitionSpec = {
@@ -831,8 +827,10 @@ private fun ModeFanPopup(
 								modifier = Modifier.size(20.dp),
 							)
 							Text(
-								text = if (kind != null) {
+								text = if (kind != null && split) {
 									stringResource(R.string.ds_mode_streaming_kind, stringResource(modeTitleRes(m)), stringResource(kind.titleRes))
+								} else if (kind != null) {
+									stringResource(kind.titleRes)
 								} else {
 									stringResource(modeTitleRes(m))
 								},
@@ -886,16 +884,15 @@ private fun ModeFanPopup(
 
 @Composable
 private fun FanNode(
-	mode: HomeMode,
+	@DrawableRes iconRes: Int,
+	title: String,
 	selected: Boolean,
 	isCurrent: Boolean,
 	modifier: Modifier,
 	onClick: () -> Unit,
-	/** A small second line under the title; Streaming shows the half it opens on. */
-	caption: String? = null,
 ) {
 	val scale by animateFloatAsState(
-		targetValue = if (selected) 1.16f else 1f,
+		targetValue = if (selected) SELECTED_SCALE else 1f,
 		animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
 		label = "nodeScale",
 	)
@@ -910,7 +907,7 @@ private fun FanNode(
 		label = "nodeContent",
 	)
 	Surface(
-		shape = RoundedCornerShape(21.dp),
+		shape = RoundedCornerShape(NODE_CORNER),
 		color = container,
 		contentColor = content,
 		shadowElevation = if (selected) 10.dp else 4.dp,
@@ -928,23 +925,15 @@ private fun FanNode(
 				modifier = Modifier.align(Alignment.Center),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
-				Icon(painterResource(nodeIconRes(mode)), null, tint = content, modifier = Modifier.size(22.dp))
+				Icon(painterResource(iconRes), null, tint = content, modifier = Modifier.size(22.dp))
 				Text(
-					text = stringResource(modeTitleRes(mode)),
+					text = title,
 					fontSize = 11.5.sp,
 					fontWeight = FontWeight.Bold,
 					color = content,
+					maxLines = 1,
 					modifier = Modifier.padding(top = 4.dp),
 				)
-				if (caption != null) {
-					Text(
-						text = caption,
-						fontSize = 9.sp,
-						fontWeight = FontWeight.Medium,
-						color = content.copy(alpha = 0.66f),
-						maxLines = 1,
-					)
-				}
 			}
 			if (isCurrent) {
 				// The mode the app is in right now
@@ -960,21 +949,43 @@ private fun FanNode(
 	}
 }
 
-/** Anime above, TV & Movies below: what Streaming unfolds into. The lit one is the one the thumb is on. */
+/**
+ * What the Streaming node splits into: the node's own shape (same width, same height, same corners) cut across the
+ * middle into an Anime half above and a TV & Movies half below. At [unfold] 0 the two halves sit flush and read as the
+ * single node; as it grows a thin gap opens and the cut corners round off. The lit half is the one the thumb is on.
+ */
 @Composable
-private fun StreamingPills(
+private fun StreamingSplit(
+	unfold: Float,
 	litKind: StreamingKind,
 	/** The half that is on right now (shown with the green dot), or null when the app is not in Streaming. */
 	currentKind: StreamingKind?,
 	onPick: (StreamingKind) -> Unit,
 	modifier: Modifier = Modifier,
 ) {
-	Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(PILL_GAP)) {
-		StreamingKind.entries.forEach { kind ->
-			StreamingPill(
+	val u = unfold.coerceIn(0f, 1f)
+	val gap = SPLIT_GAP * u
+	val half = (NODE_H - gap) / 2
+	val inner = SPLIT_INNER_CORNER * u
+	Column(
+		modifier = modifier
+			.size(NODE_W, NODE_H)
+			.graphicsLayer {
+				val s = 1f + (SELECTED_SCALE - 1f) * u
+				scaleX = s
+				scaleY = s
+			},
+	) {
+		StreamingKind.entries.forEachIndexed { index, kind ->
+			if (index > 0) Spacer(Modifier.height(gap))
+			StreamingHalf(
 				kind = kind,
+				top = index == 0,
 				lit = kind == litKind,
 				isCurrent = kind == currentKind,
+				unfold = u,
+				innerCorner = inner,
+				modifier = Modifier.size(NODE_W, half),
 				onClick = { onPick(kind) },
 			)
 		}
@@ -982,60 +993,55 @@ private fun StreamingPills(
 }
 
 @Composable
-private fun StreamingPill(
+private fun StreamingHalf(
 	kind: StreamingKind,
+	top: Boolean,
 	lit: Boolean,
 	isCurrent: Boolean,
+	unfold: Float,
+	innerCorner: Dp,
+	modifier: Modifier,
 	onClick: () -> Unit,
 ) {
-	val container by animateColorAsState(
-		targetValue = if (lit) Color.White else NodeFill.copy(alpha = 0.92f),
+	val litAmount by animateFloatAsState(
+		targetValue = if (lit) 1f else 0f,
 		animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
-		label = "pillContainer",
+		label = "halfLit",
 	)
-	val content by animateColorAsState(
-		targetValue = if (lit) Color.Black else Color(0xFFF5F5F7),
-		animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
-		label = "pillContent",
-	)
+	// Folded, both halves are the selected (white) node; unfolded, only the lit one stays white
+	val darkFill = lerp(Color.White, NodeFill.copy(alpha = 0.92f), unfold)
+	val darkText = lerp(Color.Black, Color(0xFFF5F5F7), unfold)
+	val darkBorder = lerp(Color.White, Color.White.copy(alpha = 0.24f), unfold)
+	val fill = lerp(darkFill, Color.White, litAmount)
+	val text = lerp(darkText, Color.Black, litAmount)
+	val border = lerp(darkBorder, Color.White, litAmount)
+	val shape = if (top) {
+		RoundedCornerShape(NODE_CORNER, NODE_CORNER, innerCorner, innerCorner)
+	} else {
+		RoundedCornerShape(innerCorner, innerCorner, NODE_CORNER, NODE_CORNER)
+	}
 	Surface(
-		shape = RoundedCornerShape(16.dp),
-		color = container,
-		contentColor = content,
+		shape = shape,
+		color = fill,
+		contentColor = text,
 		shadowElevation = if (lit) 10.dp else 4.dp,
-		border = androidx.compose.foundation.BorderStroke(
-			1.5.dp,
-			if (lit) Color.White else Color.White.copy(alpha = 0.24f),
-		),
-		modifier = Modifier
-			.size(PILL_W, PILL_H)
-			.clickable(onClick = onClick),
+		border = androidx.compose.foundation.BorderStroke(1.5.dp, border),
+		modifier = modifier.clickable(onClick = onClick),
 	) {
-		Box(Modifier.fillMaxSize()) {
-			Row(
-				modifier = Modifier.align(Alignment.Center),
-				verticalAlignment = Alignment.CenterVertically,
-			) {
-				Icon(
-					painter = painterResource(streamingKindIconRes(kind)),
-					contentDescription = null,
-					tint = content,
-					modifier = Modifier.size(16.dp),
-				)
-				Text(
-					text = stringResource(kind.titleRes),
-					fontSize = 12.sp,
-					fontWeight = FontWeight.Bold,
-					color = content,
-					maxLines = 1,
-					modifier = Modifier.padding(start = 6.dp),
-				)
-			}
+		Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+			Text(
+				text = stringResource(kind.titleRes),
+				fontSize = 10.sp,
+				fontWeight = FontWeight.Bold,
+				color = text,
+				maxLines = 1,
+				softWrap = false,
+			)
 			if (isCurrent) {
 				Box(
 					Modifier
-						.align(Alignment.TopEnd)
-						.padding(7.dp)
+						.align(if (top) Alignment.TopEnd else Alignment.BottomEnd)
+						.padding(horizontal = 9.dp, vertical = 6.dp)
 						.size(6.dp)
 						.background(if (lit) EmeraldOnWhite else Emerald, RoundedCornerShape(50)),
 				)

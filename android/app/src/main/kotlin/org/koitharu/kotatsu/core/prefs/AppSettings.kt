@@ -850,15 +850,16 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 
 	/** Which half of Streaming mode is showing: anime, or TV & Movies. Set from the mode fan. */
 	var streamingKind: org.koitharu.kotatsu.home.ui.model.StreamingKind
-		get() = prefs.getEnumValue(KEY_STREAMING_KIND, streamingDefault)
+		get() = prefs.getEnumValue(KEY_STREAMING_KIND, streamingDefault ?: org.koitharu.kotatsu.home.ui.model.StreamingKind.ANIME)
 		set(value) = prefs.edit { putEnumValue(KEY_STREAMING_KIND, value) }
 
 	/**
-	 * What Streaming opens on: a quick pick of Streaming in the mode fan lands here, and the Anime / TV & Movies
-	 * choice only appears when the thumb rests on it. Set in Home layout settings.
+	 * What Streaming opens on, or null when the default is off. Off: the mode fan splits Streaming into Anime and
+	 * TV & Movies. On: the fan shows that kind directly (its own icon and name) and never splits.
+	 * Set in Home layout settings.
 	 */
-	var streamingDefault: org.koitharu.kotatsu.home.ui.model.StreamingKind
-		get() = prefs.getEnumValue(KEY_STREAMING_DEFAULT, org.koitharu.kotatsu.home.ui.model.StreamingKind.ANIME)
+	var streamingDefault: org.koitharu.kotatsu.home.ui.model.StreamingKind?
+		get() = prefs.getEnumValue(KEY_STREAMING_DEFAULT, org.koitharu.kotatsu.home.ui.model.StreamingKind::class.java)
 		set(value) = prefs.edit { putEnumValue(KEY_STREAMING_DEFAULT, value) }
 
 	var homeBannerStyle: HomeBannerStyle

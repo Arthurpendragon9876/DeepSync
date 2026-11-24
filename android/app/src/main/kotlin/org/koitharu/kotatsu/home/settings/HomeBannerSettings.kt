@@ -150,10 +150,10 @@ internal fun HomeLayoutSettingsContent() {
 					SegmentedSettingsItem(
 						title = stringResource(R.string.ds_streaming_default),
 						subtitle = stringResource(R.string.ds_streaming_default_desc),
-						labels = StreamingKind.entries.map { stringResource(it.titleRes) },
-						selectedIndex = streamingDefault.ordinal,
+						labels = listOf(stringResource(R.string.ds_streaming_default_off)) + StreamingKind.entries.map { stringResource(it.titleRes) },
+						selectedIndex = streamingDefault?.let { it.ordinal + 1 } ?: 0,
 						onSelected = { index ->
-							val picked = StreamingKind.entries[index]
+							val picked = StreamingKind.entries.getOrNull(index - 1)
 							streamingDefault = picked
 							settings.streamingDefault = picked
 						},
