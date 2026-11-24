@@ -1,0 +1,1344 @@
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/AnimeExtensionManager.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/AnimeExtensionManager.kt
+index 0d89b14..d3701ea 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/AnimeExtensionManager.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/AnimeExtensionManager.kt
+@@ -116,6 +116,22 @@ class AnimeExtensionManager @Inject constructor(
+ 		publishSources()
+ 	}
+ 
++	private val _tvMovies = MutableStateFlow(prefs.getStringSet(KEY_TV_MOVIES, emptySet()).orEmpty().toSet())
++
++	/**
++	 * Package names of extensions the user tagged as TV & Movies. Everything else is anime. The tag is the only
++	 * metadata that tells the two apart for now, so Explore and Home use it to keep them in separate lists.
++	 */
++	val tvMovies: StateFlow<Set<String>> = _tvMovies.asStateFlow()
++
++	fun isTvMovies(pkg: String): Boolean = pkg in _tvMovies.value
++
++	fun setTvMovies(pkg: String, tagged: Boolean) {
++		val updated = if (tagged) _tvMovies.value + pkg else _tvMovies.value - pkg
++		prefs.edit().putStringSet(KEY_TV_MOVIES, updated).apply()
++		_tvMovies.value = updated
++	}
++
+ 	private fun publishSources() {
+ 		val hiddenPkgs = _hidden.value
+ 		_mangaSources.value = _extensions.value.filter { it.pkg !in hiddenPkgs }.flatMap { ext ->
+@@ -323,6 +339,9 @@ class AnimeExtensionManager @Inject constructor(
+ 		@Volatile
+ 		private var activeInstance: AnimeExtensionManager? = null
+ 
++		/** True when the extension [pkg] is tagged TV & Movies, without DI. */
++		fun isTvMoviesPackage(pkg: String): Boolean = activeInstance?.isTvMovies(pkg) == true
++
+ 		/** Resolves a stored `ANIME_<id>` source name without DI, mirroring the Mihon/LN lookups. */
+ 		fun getByName(name: String): AnimeMangaSource? {
+ 			val id = name.removePrefix("ANIME_").toLongOrNull() ?: return null
+@@ -332,6 +351,7 @@ class AnimeExtensionManager @Inject constructor(
+ 		private const val TAG = "AnimeExtensionManager"
+ 		private const val KEY_REPOS = "repos"
+ 		private const val KEY_HIDDEN = "hidden_pkgs"
++		private const val KEY_TV_MOVIES = "tv_movies_pkgs"
+ 		private const val KEY_OWNER_PREFIX = "owner_"
+ 
+ 		private const val FEATURE = "tachiyomi.animeextension"
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/model/MangaSource.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/model/MangaSource.kt
+index 6589b5c..fa63552 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/model/MangaSource.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/model/MangaSource.kt
+@@ -17,6 +17,7 @@ import org.koitharu.kotatsu.core.prefs.AppSettings
+ import org.koitharu.kotatsu.core.util.ext.isHttpUrl
+ import org.koitharu.kotatsu.extensions.runtime.getExternalExtensionLanguageDisplayName
+ import org.koitharu.kotatsu.home.ui.model.HomeMode
++import org.koitharu.kotatsu.home.ui.model.StreamingKind
+ import org.koitharu.kotatsu.lnreader.LnPluginManager
+ import org.koitharu.kotatsu.lnreader.model.LnMangaSource
+ import org.koitharu.kotatsu.mihon.MihonExtensionLoader
+@@ -145,6 +146,17 @@ val MangaSource.isAnimeSource: Boolean
+ 		else -> false
+ 	}
+ 
++/**
++ * True for an anime-family source whose extension is tagged TV & Movies. Untagged anime sources, and
++ * ones whose extension is not loaded yet, count as anime.
++ */
++val MangaSource.isTvMoviesSource: Boolean
++	get() = (unwrap() as? AnimeMangaSource)?.let { AnimeExtensionManager.isTvMoviesPackage(it.pkgName) } == true
++
++/** Which half of Streaming this source is in; [kind] is always [StreamingKind.ANIME] for a non-streaming source. */
++fun MangaSource.isInStreamingKind(kind: StreamingKind): Boolean =
++	!isAnimeSource || (isTvMoviesSource == (kind == StreamingKind.TV_MOVIES))
++
+ /** The app-wide content mode (Anime / Manga / Novel) a source belongs to. */
+ val MangaSource.contentMode: HomeMode
+ 	get() = when {
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt
+index 2e1217f..0cc68ff 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt
+@@ -848,6 +848,19 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
+ 		get() = prefs.getEnumValue(KEY_HOME_MODE, HomeMode.MANGA)
+ 		set(value) = prefs.edit { putEnumValue(KEY_HOME_MODE, value) }
+ 
++	/** Which half of Streaming mode is showing: anime, or TV & Movies. Set from the mode fan. */
++	var streamingKind: org.koitharu.kotatsu.home.ui.model.StreamingKind
++		get() = prefs.getEnumValue(KEY_STREAMING_KIND, streamingDefault)
++		set(value) = prefs.edit { putEnumValue(KEY_STREAMING_KIND, value) }
++
++	/**
++	 * What Streaming opens on: a quick pick of Streaming in the mode fan lands here, and the Anime / TV & Movies
++	 * choice only appears when the thumb rests on it. Set in Home layout settings.
++	 */
++	var streamingDefault: org.koitharu.kotatsu.home.ui.model.StreamingKind
++		get() = prefs.getEnumValue(KEY_STREAMING_DEFAULT, org.koitharu.kotatsu.home.ui.model.StreamingKind.ANIME)
++		set(value) = prefs.edit { putEnumValue(KEY_STREAMING_DEFAULT, value) }
++
+ 	var homeBannerStyle: HomeBannerStyle
+ 		get() = prefs.getEnumValue(KEY_HOME_BANNER_STYLE, HomeBannerStyle.PANELS)
+ 		set(value) = prefs.edit { putEnumValue(KEY_HOME_BANNER_STYLE, value) }
+@@ -1906,6 +1919,8 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
+ 		const val KEY_MANGA_LIST_BADGES = "manga_list_badges"
+ 		const val KEY_NOVEL_SOURCE_IDS = "novel_source_ids"
+ 		const val KEY_HOME_MODE = "home_mode"
++		const val KEY_STREAMING_KIND = "streaming_kind"
++		const val KEY_STREAMING_DEFAULT = "streaming_default"
+ 		const val KEY_HOME_BANNER_STYLE = "home_banner_style"
+ 		const val KEY_HOME_BANNER_ROTATE = "home_banner_rotate"
+ 		const val KEY_HOME_HERO_SNAPSHOT = "home_hero_snapshot"
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/ui/widgets/FloatingBottomNavigationView.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/ui/widgets/FloatingBottomNavigationView.kt
+index 90a8ffa..f98b082 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/ui/widgets/FloatingBottomNavigationView.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/ui/widgets/FloatingBottomNavigationView.kt
+@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import org.koitharu.kotatsu.core.prefs.NavItem
+ import org.koitharu.kotatsu.home.ui.model.HomeMode
++import org.koitharu.kotatsu.home.ui.model.StreamingKind
+ import org.koitharu.kotatsu.main.ui.nav.FloatingNavBar
+ import org.koitharu.kotatsu.main.ui.nav.FloatingNavBarColors
+ import org.koitharu.kotatsu.main.ui.nav.FloatingNavBarItem
+@@ -47,7 +48,10 @@ class FloatingBottomNavigationView @JvmOverloads constructor(
+ 	private val continueVisibleState = MutableStateFlow(false)
+ 	private val continueEnabledState = MutableStateFlow(false)
+ 	private val homeModeState = MutableStateFlow(HomeMode.MANGA)
++	private val streamingKindState = MutableStateFlow(StreamingKind.ANIME)
++	private val streamingDefaultState = MutableStateFlow(StreamingKind.ANIME)
+ 	private var modeSelectedListener: ((HomeMode) -> Unit)? = null
++	private var streamingKindListener: ((StreamingKind) -> Unit)? = null
+ 	private var continueClickListener: (() -> Unit)? = null
+ 	private var continueLongClickListener: (() -> Unit)? = null
+ 	private val sourceItems = mutableListOf<NavItem>()
+@@ -76,6 +80,8 @@ class FloatingBottomNavigationView @JvmOverloads constructor(
+ 				val showContinue by continueVisibleState.collectAsState()
+ 				val continueEnabled by continueEnabledState.collectAsState()
+ 				val homeMode by homeModeState.collectAsState()
++				val streamingKind by streamingKindState.collectAsState()
++				val streamingDefault by streamingDefaultState.collectAsState()
+ 				Box(
+ 					modifier = Modifier
+ 						.fillMaxWidth()
+@@ -96,7 +102,10 @@ class FloatingBottomNavigationView @JvmOverloads constructor(
+ 						showContinue = showContinue,
+ 						continueEnabled = continueEnabled,
+ 						mode = homeMode,
++						streamingKind = streamingKind,
++						streamingDefault = streamingDefault,
+ 						onModeSelected = { modeSelectedListener?.invoke(it) },
++						onStreamingSelected = { streamingKindListener?.invoke(it) },
+ 						onContinueClick = { continueClickListener?.invoke() },
+ 						onContinueLongClick = { continueLongClickListener?.invoke() },
+ 					)
+@@ -177,6 +186,19 @@ class FloatingBottomNavigationView @JvmOverloads constructor(
+ 		homeModeState.value = mode
+ 	}
+ 
++	fun setStreamingKind(kind: StreamingKind) {
++		streamingKindState.value = kind
++	}
++
++	/** What a plain pick of Streaming lands on; the Anime / TV & Movies choice is optional. */
++	fun setStreamingDefault(kind: StreamingKind) {
++		streamingDefaultState.value = kind
++	}
++
++	fun setOnStreamingKindSelectedListener(listener: ((StreamingKind) -> Unit)?) {
++		streamingKindListener = listener
++	}
++
+ 	fun setOnHomeModeSelectedListener(listener: ((HomeMode) -> Unit)?) {
+ 		modeSelectedListener = listener
+ 	}
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/domain/ExploreRepository.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/domain/ExploreRepository.kt
+index dfbbacd..84637e4 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/domain/ExploreRepository.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/domain/ExploreRepository.kt
+@@ -2,6 +2,8 @@ package org.koitharu.kotatsu.explore.domain
+ 
+ import org.koitharu.kotatsu.core.model.contentMode
+ import org.koitharu.kotatsu.home.ui.model.HomeMode
++import org.koitharu.kotatsu.home.ui.model.StreamingKind
++import org.koitharu.kotatsu.core.model.isInStreamingKind
+ import org.koitharu.kotatsu.core.model.isNsfw
+ import org.koitharu.kotatsu.core.parser.MangaRepository
+ import org.koitharu.kotatsu.core.prefs.AppSettings
+@@ -31,8 +33,14 @@ data class HomeQuery(
+ 	val include: Set<String> = emptySet(),
+ 	val exclude: Set<String> = emptySet(),
+ 	val hideNsfw: Boolean = false,
++	/** Only matters in Streaming mode: whether anime or TV & Movies extensions are asked. */
++	val streamingKind: StreamingKind = StreamingKind.ANIME,
+ )
+ 
++/** In Streaming mode a source also has to be in the chosen half (anime or TV & Movies); other modes ignore [kind]. */
++private fun MangaSource.isOfMode(mode: HomeMode, kind: StreamingKind): Boolean =
++	contentMode == mode && (mode != HomeMode.ANIME || isInStreamingKind(kind))
++
+ class ExploreRepository @Inject constructor(
+ 	private val settings: AppSettings,
+ 	private val sourcesRepository: MangaSourcesRepository,
+@@ -46,7 +54,7 @@ class ExploreRepository @Inject constructor(
+ 		val tags = historyRepository.getPopularTags(tagsLimit).mapNotNull {
+ 			if (it in tagsBlacklist) null else it.title
+ 		}
+-		val sources = sourcesRepository.getEnabledSources().filter { mode == null || it.contentMode == mode }.shuffled()
++		val sources = sourcesRepository.getEnabledSources().filter { mode == null || it.isOfMode(mode, settings.streamingKind) }.shuffled()
+ 		check(sources.isNotEmpty()) { "No sources available" }
+ 		// Try every source in turn (a few rounds at most) rather than five random picks of possibly the same
+ 		// broken one: anime and novel hosts are slower and fail more often than manga ones.
+@@ -131,11 +139,11 @@ class ExploreRepository @Inject constructor(
+ 
+ 	/** The enabled sources of one kind, for the Home source picker (which shows their real titles and icons). */
+ 	suspend fun getEnabledSources(mode: HomeMode): List<MangaSource> =
+-		sourcesRepository.getEnabledSources().filter { it.contentMode == mode }
++		sourcesRepository.getEnabledSources().filter { it.isOfMode(mode, settings.streamingKind) }
+ 
+ 	/** Names of the enabled sources of one kind. */
+ 	suspend fun getEnabledSourceNames(mode: HomeMode): List<String> =
+-		sourcesRepository.getEnabledSources().filter { it.contentMode == mode }.map { it.name }.sorted()
++		sourcesRepository.getEnabledSources().filter { it.isOfMode(mode, settings.streamingKind) }.map { it.name }.sorted()
+ 
+ 	/**
+ 	 * Lists from a few of the enabled sources using the first of [preferred] each source supports,
+@@ -152,7 +160,7 @@ class ExploreRepository @Inject constructor(
+ 		sourcesLimit: Int = 4,
+ 		query: HomeQuery = HomeQuery(),
+ 	): List<Manga> = coroutineScope {
+-		val enabled = sourcesRepository.getEnabledSources().filter { it.contentMode == query.mode }
++		val enabled = sourcesRepository.getEnabledSources().filter { it.isOfMode(query.mode, query.streamingKind) }
+ 		val picked = if (query.sourceNames.isEmpty()) emptyList() else enabled.filter { it.name in query.sourceNames }
+ 		// A saved pick that matches nothing enabled (source removed, renamed, picked in another mode) used
+ 		// to leave every Home row empty. Treat it as "all sources" instead.
+@@ -215,7 +223,7 @@ class ExploreRepository @Inject constructor(
+ 		val queries = names.map { it.trim() }.filter { it.isNotEmpty() }
+ 			.distinctBy { TitleMatcher.normalize(it) }.take(MAX_SEARCH_NAMES)
+ 		if (queries.isEmpty()) return@coroutineScope null
+-		val sources = sourcesRepository.getEnabledSources().filter { it.contentMode == mode }.take(MAX_SEARCH_SOURCES)
++		val sources = sourcesRepository.getEnabledSources().filter { it.isOfMode(mode, settings.streamingKind) }.take(MAX_SEARCH_SOURCES)
+ 		val found = sources.flatMap { source ->
+ 			queries.map { q ->
+ 				async {
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreFragment.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreFragment.kt
+index 6025d38..26936c0 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreFragment.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreFragment.kt
+@@ -133,10 +133,11 @@ class ExploreFragment :
+ 		// single page and no kind tabs.
+ 		header.tabsKind.visibility = View.GONE
+ 		// ...but the rail next to "Extensions" names the mode being shown
+-		viewModel.modeFlow.observe(viewLifecycleOwner) { mode ->
++		viewModel.modeAndKindFlow.observe(viewLifecycleOwner) { (mode, kind) ->
+ 			header.textKind.setText(
+ 				when (mode) {
+-					org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME -> R.string.ds_mode_anime
++					// Streaming names the half it is showing: Anime or TV & Movies
++					org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME -> kind.titleRes
+ 					org.koitharu.kotatsu.home.ui.model.HomeMode.NOVEL -> R.string.ds_mode_novel
+ 					org.koitharu.kotatsu.home.ui.model.HomeMode.MANGA -> R.string.ds_mode_manga
+ 				},
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreViewModel.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreViewModel.kt
+index 196a9fb..5086769 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreViewModel.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreViewModel.kt
+@@ -22,7 +22,9 @@ import kotlinx.coroutines.plus
+ import org.koitharu.kotatsu.R
+ import org.koitharu.kotatsu.core.model.MangaSourceInfo
+ import org.koitharu.kotatsu.core.model.contentMode
++import org.koitharu.kotatsu.core.model.isInStreamingKind
+ import org.koitharu.kotatsu.home.ui.model.HomeMode
++import org.koitharu.kotatsu.home.ui.model.StreamingKind
+ import org.koitharu.kotatsu.core.os.AppShortcutManager
+ import org.koitharu.kotatsu.core.prefs.AppSettings
+ import org.koitharu.kotatsu.core.prefs.observeAsFlow
+@@ -62,11 +64,18 @@ class ExploreViewModel @Inject constructor(
+ 	private val shortcutManager: AppShortcutManager,
+ 	private val extensionStoreManager: ExtensionStoreManager,
+ 	private val suggestionsScheduler: SuggestionsWorker.Scheduler,
++	private val animeExtensions: org.koitharu.kotatsu.anime.AnimeExtensionManager,
+ ) : BaseViewModel() {
+ 
+ 	/** The mode Explore is showing, as a flow, for the label next to "Extensions". */
+ 	val modeFlow: kotlinx.coroutines.flow.Flow<HomeMode> = settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode }
+ 
++	/** Mode plus which half of Streaming is on, for the label next to "Extensions". */
++	val modeAndKindFlow: kotlinx.coroutines.flow.Flow<Pair<HomeMode, StreamingKind>> = kotlinx.coroutines.flow.combine(
++		modeFlow,
++		settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
++	) { mode, kind -> mode to kind }
++
+ 	/** The mode Explore is showing; follows the nav bar's mode button. */
+ 	val currentMode: HomeMode
+ 		get() = settings.homeMode
+@@ -129,7 +138,8 @@ class ExploreViewModel @Inject constructor(
+ 	val visibleSources: kotlinx.coroutines.flow.Flow<List<ListModel>> = kotlinx.coroutines.flow.combine(
+ 		sources,
+ 		settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
+-	) { content, mode -> content[mode] }
++		settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
++	) { content, mode, kind -> content[mode, kind] }
+ 
+ 	init {
+ 		launchJob(Dispatchers.IO) {
+@@ -222,7 +232,7 @@ class ExploreViewModel @Inject constructor(
+ 
+ 	fun sourcesSnapshot(ids: LongSet): List<MangaSourceInfo> {
+ 		val content = sources.value
+-		return (content.manga + content.novel + content.anime).mapNotNull {
++		return (content.manga + content.novel + content.anime + content.tvMovies).mapNotNull {
+ 			(it as? MangaSourceItem)?.takeIf { x -> x.id in ids }?.source
+ 		}
+ 	}
+@@ -235,6 +245,8 @@ class ExploreViewModel @Inject constructor(
+ 		sourcesRepository.observeHasMultiLanguageSources(),
+ 		settings.observeAsFlow(AppSettings.KEY_TIPS_CLOSED) { isTipEnabled(TIP_LANGUAGES) },
+ 		extensionStoreManager.packagesWithUpdates,
++		// A TV & Movies tag does not change the source list itself, so it has to re-trigger the build.
++		animeExtensions.tvMovies,
+ 	) { args ->
+ 		val allSources = args[0] as List<MangaSourceInfo>
+ 		val isExtensionsLoading = args[1] as Boolean
+@@ -251,7 +263,11 @@ class ExploreViewModel @Inject constructor(
+ 			),
+ 			anime = buildSourcesPage(
+ 				allSources, isExtensionsLoading, isGrid, hasMultiLanguageSources, isLanguageTipEnabled, packagesWithUpdates,
+-				false, HomeMode.ANIME,
++				false, HomeMode.ANIME, StreamingKind.ANIME,
++			),
++			tvMovies = buildSourcesPage(
++				allSources, isExtensionsLoading, isGrid, hasMultiLanguageSources, isLanguageTipEnabled, packagesWithUpdates,
++				false, HomeMode.ANIME, StreamingKind.TV_MOVIES,
+ 			),
+ 		)
+ 	}.withErrorHandling()
+@@ -265,10 +281,13 @@ class ExploreViewModel @Inject constructor(
+ 		packagesWithUpdates: Set<String>,
+ 		isNovelShown: Boolean,
+ 		forcedMode: HomeMode? = null,
++		streamingKind: StreamingKind = StreamingKind.ANIME,
+ 	): List<ListModel> {
+ 		val result = ArrayList<ListModel>(sources.size + 2)
+ 		val mode = forcedMode ?: if (isNovelShown) HomeMode.NOVEL else HomeMode.MANGA
+-		val shown = sources.filter { it.contentMode == mode }
++		val shown = sources.filter {
++			it.contentMode == mode && (mode != HomeMode.ANIME || it.isInStreamingKind(streamingKind))
++		}
+ 		when {
+ 			shown.isNotEmpty() -> shown.mapTo(result) {
+ 				val pkgName = (it.mangaSource as? MihonMangaSource)?.pkgName
+@@ -281,7 +300,11 @@ class ExploreViewModel @Inject constructor(
+ 				icon = R.drawable.ic_empty_common,
+ 				textPrimary = when (mode) {
+ 					HomeMode.NOVEL -> R.string.no_novel_extension_installed
+-					HomeMode.ANIME -> R.string.no_anime_extension_installed
++					HomeMode.ANIME -> if (streamingKind == StreamingKind.TV_MOVIES) {
++						R.string.no_tv_movies_extension_installed
++					} else {
++						R.string.no_anime_extension_installed
++					}
+ 					HomeMode.MANGA -> R.string.no_external_source_installed
+ 				},
+ 				textSecondary = R.string.manage_manga_extensions_from_settings_icon,
+@@ -341,7 +364,7 @@ class ExploreViewModel @Inject constructor(
+ 		exploreRepository.getTrending(
+ 			limit = SUGGESTIONS_COUNT,
+ 			sourcesLimit = 3,
+-			query = HomeQuery(mode = mode, hideNsfw = settings.isSuggestionsExcludeNsfw),
++			query = HomeQuery(mode = mode, hideNsfw = settings.isSuggestionsExcludeNsfw, streamingKind = settings.streamingKind),
+ 		)
+ 	}.getOrDefault(emptyList())
+ 
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/model/ExploreSources.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/model/ExploreSources.kt
+index 2af3c1e..8d96eda 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/model/ExploreSources.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/model/ExploreSources.kt
+@@ -1,6 +1,7 @@
+ package org.koitharu.kotatsu.explore.ui.model
+ 
+ import org.koitharu.kotatsu.home.ui.model.HomeMode
++import org.koitharu.kotatsu.home.ui.model.StreamingKind
+ import org.koitharu.kotatsu.list.ui.model.ListModel
+ 
+ /**
+@@ -11,8 +12,14 @@ data class ExploreSources(
+ 	val manga: List<ListModel>,
+ 	val novel: List<ListModel>,
+ 	val anime: List<ListModel> = emptyList(),
++	/** Streaming's other half: extensions tagged TV & Movies. [anime] holds the untagged ones. */
++	val tvMovies: List<ListModel> = emptyList(),
+ ) {
+ 
++	/** The list for [mode], with Streaming split into anime and TV & Movies by [kind]. */
++	operator fun get(mode: HomeMode, kind: StreamingKind): List<ListModel> =
++		if (mode == HomeMode.ANIME && kind == StreamingKind.TV_MOVIES) tvMovies else get(mode)
++
+ 	operator fun get(mode: HomeMode): List<ListModel> = when (mode) {
+ 		HomeMode.ANIME -> anime
+ 		HomeMode.NOVEL -> novel
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/settings/HomeBannerSettings.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/settings/HomeBannerSettings.kt
+index 2d2cd48..bda8937 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/settings/HomeBannerSettings.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/settings/HomeBannerSettings.kt
+@@ -52,10 +52,12 @@ import org.koitharu.kotatsu.home.ui.model.HeroSnapshot
+ import org.koitharu.kotatsu.home.ui.model.HomeMode
+ import org.koitharu.kotatsu.home.ui.model.HomeBannerStyle
+ import org.koitharu.kotatsu.home.ui.model.HomeCarousel
++import org.koitharu.kotatsu.home.ui.model.StreamingKind
+ import org.koitharu.kotatsu.settings.compose.BaseComposeSettingsFragment
+ import org.koitharu.kotatsu.settings.compose.DropSauceTheme
+ import org.koitharu.kotatsu.settings.compose.SettingsGroup
+ import org.koitharu.kotatsu.settings.compose.SettingsItem
++import org.koitharu.kotatsu.settings.compose.SegmentedSettingsItem
+ import org.koitharu.kotatsu.settings.compose.SettingsScaffold
+ import org.koitharu.kotatsu.settings.compose.SwitchSettingsItem
+ import org.koitharu.kotatsu.settings.compose.rememberBooleanPref
+@@ -96,6 +98,7 @@ internal fun HomeLayoutSettingsContent() {
+ 	var style by remember { mutableStateOf(settings.homeBannerStyle) }
+ 	var rotate by rememberBooleanPref(AppSettings.KEY_HOME_BANNER_ROTATE, true)
+ 	var hidden by remember { mutableStateOf(settings.homeHiddenCarousels) }
++	var streamingDefault by remember { mutableStateOf(settings.streamingDefault) }
+ 	var selected by remember { mutableStateOf(settings.homeFavCategories) }
+ 	val heroSnaps = remember { HeroSnapshot.decode(settings.homeHeroSnapshot) }
+ 	val anime = remember { settings.homeMode == HomeMode.ANIME }
+@@ -140,6 +143,27 @@ internal fun HomeLayoutSettingsContent() {
+ 			}
+ 		}
+ 
++		// Streaming default: what Streaming opens on. The Anime / TV & Movies split in the mode fan is optional.
++		item {
++			SettingsGroup(title = stringResource(R.string.ds_streaming_group)) {
++				item { pos ->
++					SegmentedSettingsItem(
++						title = stringResource(R.string.ds_streaming_default),
++						subtitle = stringResource(R.string.ds_streaming_default_desc),
++						labels = StreamingKind.entries.map { stringResource(it.titleRes) },
++						selectedIndex = streamingDefault.ordinal,
++						onSelected = { index ->
++							val picked = StreamingKind.entries[index]
++							streamingDefault = picked
++							settings.streamingDefault = picked
++						},
++						icon = R.drawable.ic_streaming,
++						shape = pos.shape,
++					)
++				}
++			}
++		}
++
+ 		// Manage carousels: one switch each
+ 		item {
+ 			SettingsGroup(title = stringResource(R.string.ds_manage_carousels)) {
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/HomeFragment.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/HomeFragment.kt
+index 55c425f..cf71115 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/HomeFragment.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/HomeFragment.kt
+@@ -242,7 +242,8 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
+ 	// ---- Rendering ---------------------------------------------------------------------------
+ 
+ 	private fun render(binding: FragmentHomeBinding, state: HomeUiState) {
+-		val modeChanged = modeShown != null && modeShown != state.config.mode
++		val modeChanged = modeShown != null && (modeShown != state.config.mode || kindShown != state.config.streamingKind)
++		kindShown = state.config.streamingKind
+ 		config = state.config
+ 		renderConfig(binding, state.config)
+ 		renderHero(binding, state.hero)
+@@ -253,6 +254,7 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
+ 	}
+ 
+ 	private var modeShown: HomeMode? = null
++	private var kindShown: org.koitharu.kotatsu.home.ui.model.StreamingKind? = null
+ 
+ 	/** Manga, then Anime, then Novel, then round again. */
+ 	private fun cycleMode(anchor: View) {
+@@ -285,7 +287,7 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
+ 	}
+ 
+ 	private fun modeTitleRes(mode: HomeMode) = when (mode) {
+-		HomeMode.ANIME -> R.string.ds_mode_anime
++		HomeMode.ANIME -> R.string.ds_mode_streaming
+ 		HomeMode.NOVEL -> R.string.ds_mode_novel
+ 		HomeMode.MANGA -> R.string.ds_mode_manga
+ 	}
+@@ -296,7 +298,7 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
+ 		val apply = {
+ 			val name = getString(modeTitleRes(mode))
+ 			chip.text = name
+-			chip.setIconResource(org.koitharu.kotatsu.main.ui.nav.modeIconRes(mode))
++			chip.setIconResource(org.koitharu.kotatsu.main.ui.nav.modeIconRes(mode, config.streamingKind))
+ 			chip.contentDescription = getString(R.string.ds_mode_cycle, name)
+ 		}
+ 		if (!animate) {
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/HomeViewModel.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/HomeViewModel.kt
+index 80950b8..28ea75a 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/HomeViewModel.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/HomeViewModel.kt
+@@ -354,6 +354,7 @@ class HomeViewModel @Inject constructor(
+ 			banner = settings.homeBannerStyle,
+ 			autoRotate = settings.isHomeBannerAutoRotate,
+ 			hiddenCarousels = settings.homeHiddenCarousels,
++			streamingKind = settings.streamingKind,
+ 		)
+ 	}
+ 
+@@ -363,6 +364,7 @@ class HomeViewModel @Inject constructor(
+ 		return combine(
+ 			listOf(
+ 				pref(AppSettings.KEY_HOME_MODE) { homeMode },
++				pref(AppSettings.KEY_STREAMING_KIND) { streamingKind },
+ 				pref(AppSettings.KEY_HOME_METADATA) { homeMetadata },
+ 				pref(AppSettings.KEY_HOME_PROVIDER) { homeMetadataProvider },
+ 				pref(AppSettings.KEY_HOME_CATALOGUE) { isHomeSourceCatalogue },
+@@ -683,7 +685,9 @@ class HomeViewModel @Inject constructor(
+ 		}.catch { emit(emptyRow(id, kind, titleRes)) }
+ 	}.onStart { emit(HomeRow(id, kind, titleRes, state = HomeSectionState.Loading)) }
+ 
+-	private fun isMetaActive(cfg: HomeConfig) = metadataRepository.supports(cfg.metadata, cfg.mode)
++	// There is no metadata for TV & Movies yet (AniList and MAL only know anime), so that half of Streaming
++	// always reads from its own sources.
++	private fun isMetaActive(cfg: HomeConfig) = !cfg.isTvMovies && metadataRepository.supports(cfg.metadata, cfg.mode)
+ 
+ 	private suspend fun loadMetaTitles(cfg: HomeConfig, kind: org.koitharu.kotatsu.metadata.MetaList, limit: Int) = runCatching {
+ 		metadataRepository.list(
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/model/HomeEnums.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/model/HomeEnums.kt
+index 8561e6b..a062bf2 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/model/HomeEnums.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/model/HomeEnums.kt
+@@ -9,6 +9,17 @@ import org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerService
+ @Keep
+ enum class HomeMode { MANGA, NOVEL, ANIME }
+ 
++/**
++ * What the Streaming mode ([HomeMode.ANIME]) is showing right now: anime, or TV shows and movies.
++ * Streaming is one mode with one library; this only picks which extensions Explore and Home draw from.
++ * An extension is a TV & Movies one when it is tagged so in the extension manager, otherwise it is anime.
++ */
++@Keep
++enum class StreamingKind(@StringRes val titleRes: Int) {
++	ANIME(R.string.ds_mode_anime),
++	TV_MOVIES(R.string.ds_mode_tv_movies),
++}
++
+ /** Where the hero and the Trending row get their titles from. */
+ @Keep
+ enum class HomeMetadata(@StringRes val titleRes: Int) {
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/model/HomeUiState.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/model/HomeUiState.kt
+index 3b848db..8b22e79 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/model/HomeUiState.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/ui/model/HomeUiState.kt
+@@ -84,6 +84,8 @@ data class HomeConfig(
+ 	val autoRotate: Boolean = true,
+ 	/** [HomeCarousel.key]s the user switched off. */
+ 	val hiddenCarousels: Set<String> = emptySet(),
++	/** Which half of Streaming mode Home shows; not used in the other modes. */
++	val streamingKind: StreamingKind = StreamingKind.ANIME,
+ ) {
+ 
+ 	fun shows(carousel: HomeCarousel): Boolean = carousel.key !in hiddenCarousels
+@@ -93,7 +95,10 @@ data class HomeConfig(
+ 	val filterCount: Int get() = include.size + exclude.size + if (hideNsfw) 1 else 0
+ 
+ 	val query: HomeQuery
+-		get() = HomeQuery(mode, sourceNames, include, exclude, hideNsfw)
++		get() = HomeQuery(mode, sourceNames, include, exclude, hideNsfw, streamingKind)
++
++	/** True for the half of Streaming mode that has no tracker metadata yet, so Home reads from its sources instead. */
++	val isTvMovies: Boolean get() = mode == HomeMode.ANIME && streamingKind == StreamingKind.TV_MOVIES
+ }
+ 
+ data class HomeUiState(
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/MainActivity.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/MainActivity.kt
+index b6798c3..a2f869e 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/MainActivity.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/MainActivity.kt
+@@ -165,10 +165,23 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), AppBarOwner, BottomNav
+ 		viewBinding.bottomNav?.setOnContinueLongClickListener { viewModel.openLastDetails() }
+ 		// The book button's menu holds the Manga | Novel switch for Home
+ 		viewBinding.bottomNav?.setOnHomeModeSelectedListener { settings.homeMode = it }
++		// Streaming picks Anime or TV & Movies as well as the mode itself
++		viewBinding.bottomNav?.setOnStreamingKindSelectedListener { kind ->
++			settings.streamingKind = kind
++			settings.homeMode = org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME
++		}
+ 		viewBinding.bottomNav?.setHomeMode(settings.homeMode)
++		viewBinding.bottomNav?.setStreamingKind(settings.streamingKind)
++		viewBinding.bottomNav?.setStreamingDefault(settings.streamingDefault)
+ 		settings.observe(AppSettings.KEY_HOME_MODE).observe(this) {
+ 			viewBinding.bottomNav?.setHomeMode(settings.homeMode)
+ 		}
++		settings.observe(AppSettings.KEY_STREAMING_KIND).observe(this) {
++			viewBinding.bottomNav?.setStreamingKind(settings.streamingKind)
++		}
++		settings.observe(AppSettings.KEY_STREAMING_DEFAULT).observe(this) {
++			viewBinding.bottomNav?.setStreamingDefault(settings.streamingDefault)
++		}
+ 		viewBinding.buttonOverflow.setOnClickListener(this::showMainOverflowMenu)
+ 		viewBinding.buttonSettings.setOnClickListener {
+ 			router.openSettings()
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/nav/FloatingNavBar.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/nav/FloatingNavBar.kt
+index 67f353c..6790c52 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/nav/FloatingNavBar.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/nav/FloatingNavBar.kt
+@@ -110,6 +110,7 @@ import kotlinx.coroutines.launch
+ import androidx.compose.animation.core.animateFloatAsState
+ import androidx.compose.animation.core.spring
+ import org.koitharu.kotatsu.home.ui.model.HomeMode
++import org.koitharu.kotatsu.home.ui.model.StreamingKind
+ import org.koitharu.kotatsu.R
+ import org.koitharu.kotatsu.core.util.ext.HapticEffect
+ import org.koitharu.kotatsu.core.util.ext.rememberHapticEffect
+@@ -391,7 +392,10 @@ fun FloatingNavBar(
+ 	/** There is something to resume; only then does the mode button's menu offer "Continue". */
+ 	continueEnabled: Boolean = false,
+ 	mode: HomeMode = HomeMode.MANGA,
++	streamingKind: StreamingKind = StreamingKind.ANIME,
++	streamingDefault: StreamingKind = StreamingKind.ANIME,
+ 	onModeSelected: (HomeMode) -> Unit = {},
++	onStreamingSelected: (StreamingKind) -> Unit = {},
+ 	onContinueClick: () -> Unit = {},
+ 	onContinueLongClick: () -> Unit = {},
+ ) {
+@@ -1186,10 +1190,13 @@ fun FloatingNavBar(
+ 		) {
+ 			ModeFanButton(
+ 				mode = mode,
++				streamingKind = streamingKind,
++				streamingDefault = streamingDefault,
+ 				continueEnabled = continueEnabled,
+ 				fanOpen = fanOpen,
+ 				onFanOpenChange = { fanOpen = it },
+ 				onModeSelected = onModeSelected,
++				onStreamingSelected = onStreamingSelected,
+ 				onContinue = onContinueClick,
+ 				onDetails = onContinueLongClick,
+ 			)
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/nav/ModeFan.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/nav/ModeFan.kt
+index e206224..6de0f0b 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/nav/ModeFan.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/main/ui/nav/ModeFan.kt
+@@ -34,6 +34,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.BoxWithConstraints
+ import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.offset
+@@ -100,6 +101,8 @@ import org.koitharu.kotatsu.R
+ import org.koitharu.kotatsu.core.util.ext.HapticEffect
+ import org.koitharu.kotatsu.core.util.ext.rememberHapticEffect
+ import org.koitharu.kotatsu.home.ui.model.HomeMode
++import org.koitharu.kotatsu.home.ui.model.StreamingKind
++import kotlin.math.abs
+ import kotlin.math.atan2
+ import kotlin.math.cos
+ import kotlin.math.hypot
+@@ -117,6 +120,11 @@ import kotlin.math.sin
+  *  - **Hold** for 0.85 s without pulling: opens the details of the last title, with a ring charging around the
+  *    button and two soft ticks on the way.
+  *
++ * The Anime slot is **Streaming**: while the thumb rests on it the node unfolds into two pills, Anime and TV & Movies.
++ * Releasing without touching a pill lands on the Streaming default from settings (or on the kind already showing when
++ * the app is in Streaming), so the split stays optional. In the tap-opened fan, tapping Streaming unfolds the pills and
++ * a second tap picks one.
++ *
+  * Every step has its own haptic: a start when the fan opens, a tick each time the highlighted mode changes, a
+  * confirm when the mode is switched, a long press when the hold completes. All of them go through the app's
+  * haptics switch.
+@@ -147,6 +155,12 @@ private val FAN_END_CORNER = 26.dp
+ private val FAN_SCREEN_GAP = 6.dp
+ private val PILL_MAX_WIDTH = 270.dp
+ private val NODE_W = 72.dp
++
++/** The Anime / TV & Movies pills that replace the Streaming node while it is highlighted. */
++private val PILL_W = 116.dp
++private val PILL_H = 40.dp
++private val PILL_GAP = 8.dp
++private val PILL_SLOP = 4.dp
+ private val NODE_H = 68.dp
+ private val FAB_SIZE = 52.dp
+ 
+@@ -161,15 +175,29 @@ private val EmeraldOnWhite = Color(0xFF059669)
+ 
+ private enum class FanEnd { TAP, PULL, HOLD }
+ 
++/** The icon of the mode button and chips: in Streaming it shows which half is on. */
+ @DrawableRes
+-internal fun modeIconRes(mode: HomeMode): Int = when (mode) {
+-	HomeMode.ANIME -> R.drawable.ic_play_circle
++internal fun modeIconRes(mode: HomeMode, kind: StreamingKind = StreamingKind.ANIME): Int = when (mode) {
++	HomeMode.ANIME -> streamingKindIconRes(kind)
+ 	HomeMode.NOVEL -> R.drawable.ic_novel_menu_book
+ 	HomeMode.MANGA -> R.drawable.ic_read
+ }
+ 
++@DrawableRes
++private fun streamingKindIconRes(kind: StreamingKind): Int = when (kind) {
++	StreamingKind.ANIME -> R.drawable.ic_play_circle
++	StreamingKind.TV_MOVIES -> R.drawable.ic_tv
++}
++
++/** The icon of a node in the fan: Streaming has its own, the others match the button. */
++@DrawableRes
++private fun nodeIconRes(mode: HomeMode): Int = when (mode) {
++	HomeMode.ANIME -> R.drawable.ic_streaming
++	else -> modeIconRes(mode)
++}
++
+ private fun modeTitleRes(mode: HomeMode): Int = when (mode) {
+-	HomeMode.ANIME -> R.string.ds_mode_anime
++	HomeMode.ANIME -> R.string.ds_mode_streaming
+ 	HomeMode.NOVEL -> R.string.ds_mode_novel
+ 	HomeMode.MANGA -> R.string.ds_mode_manga
+ }
+@@ -240,13 +268,32 @@ private fun pickMode(dx: Float, dy: Float, radiusPx: Float, nearPx: Float, deadP
+ 	}
+ }
+ 
++/** The pill (Anime above, TV & Movies below) under a thumb at [x]/[y] in the window, or null when it is on neither. */
++private fun Density.streamingPillAt(x: Float, y: Float, g: FanGeometry): StreamingKind? {
++	val a = Math.toRadians(HomeMode.ANIME.fanAngle().toDouble())
++	val cx = g.center.x - g.nodeRadius * cos(a).toFloat()
++	val cy = g.center.y - g.nodeRadius * sin(a).toFloat()
++	val halfW = PILL_W.toPx() / 2f + PILL_SLOP.toPx()
++	val halfH = PILL_H.toPx() / 2f + PILL_SLOP.toPx()
++	val offset = (PILL_H + PILL_GAP).toPx() / 2f
++	if (abs(x - cx) > halfW) return null
++	return when {
++		abs(y - (cy - offset)) <= halfH -> StreamingKind.ANIME
++		abs(y - (cy + offset)) <= halfH -> StreamingKind.TV_MOVIES
++		else -> null
++	}
++}
++
+ @Composable
+ internal fun ModeFanButton(
+ 	mode: HomeMode,
++	streamingKind: StreamingKind,
++	streamingDefault: StreamingKind,
+ 	continueEnabled: Boolean,
+ 	fanOpen: Boolean,
+ 	onFanOpenChange: (Boolean) -> Unit,
+ 	onModeSelected: (HomeMode) -> Unit,
++	onStreamingSelected: (StreamingKind) -> Unit,
+ 	onContinue: () -> Unit,
+ 	onDetails: () -> Unit,
+ ) {
+@@ -256,6 +303,8 @@ internal fun ModeFanButton(
+ 	val ring = remember { Animatable(0f) }
+ 	var holding by remember { mutableStateOf(false) }
+ 	var highlighted by remember { mutableStateOf<HomeMode?>(null) }
++	// Which Streaming pill is lit while Streaming is highlighted
++	var highlightedKind by remember { mutableStateOf(streamingDefault) }
+ 	var locked by remember { mutableStateOf(false) }
+ 	// Where the real button is in the window right now, for the thumb maths. The fan itself is anchored to the
+ 	// screen corner and ignores it.
+@@ -264,6 +313,9 @@ internal fun ModeFanButton(
+ 	val canContinue by rememberUpdatedState(continueEnabled)
+ 	val setOpen by rememberUpdatedState(onFanOpenChange)
+ 	val select by rememberUpdatedState(onModeSelected)
++	val currentKind by rememberUpdatedState(streamingKind)
++	val defaultKind by rememberUpdatedState(streamingDefault)
++	val selectStreaming by rememberUpdatedState(onStreamingSelected)
+ 	val doContinue by rememberUpdatedState(onContinue)
+ 	val doDetails by rememberUpdatedState(onDetails)
+ 
+@@ -273,9 +325,17 @@ internal fun ModeFanButton(
+ 		setOpen(false)
+ 	}
+ 
++	/** The pill Streaming rests on when the thumb is not on one: the kind already showing, else the default. */
++	fun restingKind(): StreamingKind = if (currentMode == HomeMode.ANIME) currentKind else defaultKind
++
++	fun applyChoice(picked: HomeMode, kind: StreamingKind) {
++		if (picked == HomeMode.ANIME) selectStreaming(kind) else select(picked)
++	}
++
+ 	fun openFan(isLocked: Boolean) {
+ 		locked = isLocked
+ 		highlighted = currentMode
++		highlightedKind = restingKind()
+ 		haptic(HapticEffect.GESTURE_START)
+ 		setOpen(true)
+ 	}
+@@ -325,6 +385,7 @@ internal fun ModeFanButton(
+ 	val actionDetails = stringResource(R.string.ds_mode_open_details)
+ 	val actionContinue = stringResource(R.string._continue)
+ 	val labelAnime = stringResource(R.string.ds_mode_anime)
++	val labelTvMovies = stringResource(R.string.ds_mode_tv_movies)
+ 	val labelManga = stringResource(R.string.ds_mode_manga)
+ 	val labelNovel = stringResource(R.string.ds_mode_novel)
+ 
+@@ -360,7 +421,8 @@ internal fun ModeFanButton(
+ 				.semantics {
+ 					contentDescription = label
+ 					customActions = listOf(
+-						CustomAccessibilityAction(labelAnime) { select(HomeMode.ANIME); true },
++						CustomAccessibilityAction(labelAnime) { selectStreaming(StreamingKind.ANIME); true },
++						CustomAccessibilityAction(labelTvMovies) { selectStreaming(StreamingKind.TV_MOVIES); true },
+ 						CustomAccessibilityAction(labelManga) { select(HomeMode.MANGA); true },
+ 						CustomAccessibilityAction(labelNovel) { select(HomeMode.NOVEL); true },
+ 					) + if (continueEnabled) {
+@@ -459,17 +521,34 @@ internal fun ModeFanButton(
+ 										val dy = g.center.y - winY
+ 										// Ignore the stretch between the corner and the button, so a small pull never flips the highlight
+ 										val dead = hypot(g.center.x - g.fabCenter.x, g.center.y - g.fabCenter.y) + 12.dp.toPx()
+-										val picked = pickMode(dx, dy, g.nodeRadius, nearPx, dead)
+-										if (picked != null && picked != highlighted) {
+-											highlighted = picked
+-											haptic(HapticEffect.TICK)
++										// With Streaming unfolded, a thumb on one of its pills wins over the angle zones
++										val pill = if (highlighted == HomeMode.ANIME) streamingPillAt(winX, winY, g) else null
++										if (pill != null) {
++											if (pill != highlightedKind) {
++												highlightedKind = pill
++												haptic(HapticEffect.TICK)
++											}
++										} else {
++											val picked = pickMode(dx, dy, g.nodeRadius, nearPx, dead)
++											if (picked != null && picked != highlighted) {
++												highlighted = picked
++												highlightedKind = restingKind()
++												haptic(HapticEffect.TICK)
++											} else if (highlighted == HomeMode.ANIME && highlightedKind != restingKind()) {
++												// Off the pills again: Streaming falls back to its default, the split stays optional
++												highlightedKind = restingKind()
++												haptic(HapticEffect.LIGHT_TICK)
++											}
+ 										}
+ 									}
+ 									val chosen = highlighted
++									val chosenKind = highlightedKind
+ 									closeFan()
+-									if (chosen != null && chosen != currentMode) {
++									val changed = chosen != null &&
++										(chosen != currentMode || (chosen == HomeMode.ANIME && chosenKind != currentKind))
++									if (chosen != null && changed) {
+ 										haptic(HapticEffect.CONFIRM)
+-										select(chosen)
++										applyChoice(chosen, chosenKind)
+ 									} else {
+ 										haptic(HapticEffect.GESTURE_END)
+ 									}
+@@ -492,7 +571,7 @@ internal fun ModeFanButton(
+ 					label = "fabIcon",
+ 				) { m ->
+ 					Icon(
+-						painter = painterResource(modeIconRes(m)),
++						painter = painterResource(modeIconRes(m, currentKind)),
+ 						contentDescription = null,
+ 						tint = content,
+ 						modifier = Modifier.size(24.dp),
+@@ -506,12 +585,21 @@ internal fun ModeFanButton(
+ 		ModeFanPopup(
+ 			progress = fanProgress,
+ 			current = mode,
++			currentKind = streamingKind,
++			defaultKind = streamingDefault,
+ 			highlighted = highlighted ?: mode,
+-			onPick = { picked ->
+-				val changed = picked != currentMode
++			highlightedKind = highlightedKind,
++			onPick = { picked, kind ->
++				val changed = picked != currentMode || (picked == HomeMode.ANIME && kind != currentKind)
+ 				closeFan()
+ 				haptic(if (changed) HapticEffect.CONFIRM else HapticEffect.TICK)
+-				if (changed) select(picked)
++				if (changed) applyChoice(picked, kind)
++			},
++			// A tap on Streaming unfolds Anime / TV & Movies instead of choosing straight away
++			onUnfoldStreaming = {
++				highlighted = HomeMode.ANIME
++				highlightedKind = restingKind()
++				haptic(HapticEffect.TICK)
+ 			},
+ 			onDismiss = {
+ 				closeFan()
+@@ -535,8 +623,12 @@ private object ZeroPosition : PopupPositionProvider {
+ private fun ModeFanPopup(
+ 	progress: Float,
+ 	current: HomeMode,
++	currentKind: StreamingKind,
++	defaultKind: StreamingKind,
+ 	highlighted: HomeMode,
+-	onPick: (HomeMode) -> Unit,
++	highlightedKind: StreamingKind,
++	onPick: (HomeMode, StreamingKind) -> Unit,
++	onUnfoldStreaming: () -> Unit,
+ 	onDismiss: () -> Unit,
+ ) {
+ 	val density = LocalDensity.current
+@@ -550,6 +642,12 @@ private fun ModeFanPopup(
+ 		animationSpec = spring(dampingRatio = 0.6f, stiffness = 520f),
+ 		label = "spoke",
+ 	)
++	// Streaming unfolds into its two pills while it is the highlighted mode
++	val unfold by animateFloatAsState(
++		targetValue = if (highlighted == HomeMode.ANIME) 1f else 0f,
++		animationSpec = spring(dampingRatio = 0.68f, stiffness = 520f),
++		label = "streamingUnfold",
++	)
+ 	val glow by rememberInfiniteTransition(label = "fanGlow").animateFloat(
+ 		initialValue = 0.65f,
+ 		targetValue = 1f,
+@@ -642,13 +740,54 @@ private fun ModeFanPopup(
+ 					val a = Math.toRadians(m.fanAngle().toDouble())
+ 					val cx = g.center.x - g.nodeRadius * cos(a).toFloat()
+ 					val cy = g.center.y - g.nodeRadius * sin(a).toFloat()
+-					FanNode(
+-						mode = m,
+-						selected = m == highlighted,
+-						isCurrent = m == current,
+-						modifier = Modifier.offset { IntOffset((cx - nodeHalfW).roundToInt(), (cy - nodeHalfH).roundToInt()) },
+-						onClick = { onPick(m) },
+-					)
++					if (m == HomeMode.ANIME) {
++						// Streaming: the node, captioned with the half it opens on, hands over to the two pills
++						FanNode(
++							mode = m,
++							selected = m == highlighted,
++							isCurrent = m == current,
++							caption = stringResource((if (current == m) currentKind else defaultKind).titleRes),
++							modifier = Modifier
++								.offset { IntOffset((cx - nodeHalfW).roundToInt(), (cy - nodeHalfH).roundToInt()) }
++								.graphicsLayer { this.alpha = 1f - unfold.coerceIn(0f, 1f) },
++							// Tapping the node while it is folded unfolds the pills; between the pills it takes the default
++							onClick = {
++								if (highlighted == HomeMode.ANIME) {
++									onPick(HomeMode.ANIME, if (current == HomeMode.ANIME) currentKind else defaultKind)
++								} else {
++									onUnfoldStreaming()
++								}
++							},
++						)
++						if (unfold > 0.01f) {
++							StreamingPills(
++								litKind = highlightedKind,
++								currentKind = if (current == HomeMode.ANIME) currentKind else null,
++								modifier = Modifier
++									.offset {
++										IntOffset(
++											(cx - PILL_W.toPx() / 2f).roundToInt(),
++											(cy - (PILL_H * 2 + PILL_GAP).toPx() / 2f).roundToInt(),
++										)
++									}
++									.graphicsLayer {
++										val s = (0.55f + 0.45f * unfold).coerceAtLeast(0.01f)
++										scaleX = s
++										scaleY = s
++										this.alpha = unfold.coerceIn(0f, 1f)
++									},
++								onPick = { kind -> onPick(HomeMode.ANIME, kind) },
++							)
++						}
++					} else {
++						FanNode(
++							mode = m,
++							selected = m == highlighted,
++							isCurrent = m == current,
++							modifier = Modifier.offset { IntOffset((cx - nodeHalfW).roundToInt(), (cy - nodeHalfH).roundToInt()) },
++							onClick = { onPick(m, currentKind) },
++						)
++					}
+ 				}
+ 			}
+ 			// Preview pill above the fan: what the thumb is on right now. It lives outside the fan so it can never overlap a node.
+@@ -674,19 +813,29 @@ private fun ModeFanPopup(
+ 						letterSpacing = 1.sp,
+ 						color = MutedText,
+ 					)
++					// "Streaming · TV & Movies": Streaming also names which half the thumb is on
+ 					AnimatedContent(
+-						targetState = highlighted,
++						targetState = highlighted to (if (highlighted == HomeMode.ANIME) highlightedKind else null),
+ 						transitionSpec = {
+ 							(slideInVertically(spring(0.7f, 600f)) { it / 2 } + fadeIn(tween(120))) togetherWith
+ 								(slideOutVertically(tween(120)) { -it / 2 } + fadeOut(tween(90)))
+ 						},
+ 						label = "previewTitle",
+ 						modifier = Modifier.padding(top = 4.dp),
+-					) { m ->
++					) { (m, kind) ->
+ 						Row(verticalAlignment = Alignment.CenterVertically) {
+-							Icon(painterResource(modeIconRes(m)), null, tint = Color.White, modifier = Modifier.size(20.dp))
++							Icon(
++								painterResource(modeIconRes(m, kind ?: StreamingKind.ANIME)),
++								null,
++								tint = Color.White,
++								modifier = Modifier.size(20.dp),
++							)
+ 							Text(
+-								text = stringResource(modeTitleRes(m)),
++								text = if (kind != null) {
++									stringResource(R.string.ds_mode_streaming_kind, stringResource(modeTitleRes(m)), stringResource(kind.titleRes))
++								} else {
++									stringResource(modeTitleRes(m))
++								},
+ 								fontSize = 18.sp,
+ 								fontWeight = FontWeight.ExtraBold,
+ 								color = Color.White,
+@@ -723,7 +872,12 @@ private fun ModeFanPopup(
+ 					.graphicsLayer { this.alpha = alpha },
+ 			) {
+ 				Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+-					Icon(painterResource(modeIconRes(highlighted)), null, tint = Color(0xFFE5E5EA), modifier = Modifier.size(24.dp))
++					Icon(
++						painterResource(modeIconRes(highlighted, if (highlighted == HomeMode.ANIME) highlightedKind else currentKind)),
++						null,
++						tint = Color(0xFFE5E5EA),
++						modifier = Modifier.size(24.dp),
++					)
+ 				}
+ 			}
+ 		}
+@@ -737,6 +891,8 @@ private fun FanNode(
+ 	isCurrent: Boolean,
+ 	modifier: Modifier,
+ 	onClick: () -> Unit,
++	/** A small second line under the title; Streaming shows the half it opens on. */
++	caption: String? = null,
+ ) {
+ 	val scale by animateFloatAsState(
+ 		targetValue = if (selected) 1.16f else 1f,
+@@ -772,7 +928,7 @@ private fun FanNode(
+ 				modifier = Modifier.align(Alignment.Center),
+ 				horizontalAlignment = Alignment.CenterHorizontally,
+ 			) {
+-				Icon(painterResource(modeIconRes(mode)), null, tint = content, modifier = Modifier.size(22.dp))
++				Icon(painterResource(nodeIconRes(mode)), null, tint = content, modifier = Modifier.size(22.dp))
+ 				Text(
+ 					text = stringResource(modeTitleRes(mode)),
+ 					fontSize = 11.5.sp,
+@@ -780,6 +936,15 @@ private fun FanNode(
+ 					color = content,
+ 					modifier = Modifier.padding(top = 4.dp),
+ 				)
++				if (caption != null) {
++					Text(
++						text = caption,
++						fontSize = 9.sp,
++						fontWeight = FontWeight.Medium,
++						color = content.copy(alpha = 0.66f),
++						maxLines = 1,
++					)
++				}
+ 			}
+ 			if (isCurrent) {
+ 				// The mode the app is in right now
+@@ -794,3 +959,87 @@ private fun FanNode(
+ 		}
+ 	}
+ }
++
++/** Anime above, TV & Movies below: what Streaming unfolds into. The lit one is the one the thumb is on. */
++@Composable
++private fun StreamingPills(
++	litKind: StreamingKind,
++	/** The half that is on right now (shown with the green dot), or null when the app is not in Streaming. */
++	currentKind: StreamingKind?,
++	onPick: (StreamingKind) -> Unit,
++	modifier: Modifier = Modifier,
++) {
++	Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(PILL_GAP)) {
++		StreamingKind.entries.forEach { kind ->
++			StreamingPill(
++				kind = kind,
++				lit = kind == litKind,
++				isCurrent = kind == currentKind,
++				onClick = { onPick(kind) },
++			)
++		}
++	}
++}
++
++@Composable
++private fun StreamingPill(
++	kind: StreamingKind,
++	lit: Boolean,
++	isCurrent: Boolean,
++	onClick: () -> Unit,
++) {
++	val container by animateColorAsState(
++		targetValue = if (lit) Color.White else NodeFill.copy(alpha = 0.92f),
++		animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
++		label = "pillContainer",
++	)
++	val content by animateColorAsState(
++		targetValue = if (lit) Color.Black else Color(0xFFF5F5F7),
++		animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
++		label = "pillContent",
++	)
++	Surface(
++		shape = RoundedCornerShape(16.dp),
++		color = container,
++		contentColor = content,
++		shadowElevation = if (lit) 10.dp else 4.dp,
++		border = androidx.compose.foundation.BorderStroke(
++			1.5.dp,
++			if (lit) Color.White else Color.White.copy(alpha = 0.24f),
++		),
++		modifier = Modifier
++			.size(PILL_W, PILL_H)
++			.clickable(onClick = onClick),
++	) {
++		Box(Modifier.fillMaxSize()) {
++			Row(
++				modifier = Modifier.align(Alignment.Center),
++				verticalAlignment = Alignment.CenterVertically,
++			) {
++				Icon(
++					painter = painterResource(streamingKindIconRes(kind)),
++					contentDescription = null,
++					tint = content,
++					modifier = Modifier.size(16.dp),
++				)
++				Text(
++					text = stringResource(kind.titleRes),
++					fontSize = 12.sp,
++					fontWeight = FontWeight.Bold,
++					color = content,
++					maxLines = 1,
++					modifier = Modifier.padding(start = 6.dp),
++				)
++			}
++			if (isCurrent) {
++				Box(
++					Modifier
++						.align(Alignment.TopEnd)
++						.padding(7.dp)
++						.size(6.dp)
++						.background(if (lit) EmeraldOnWhite else Emerald, RoundedCornerShape(50)),
++				)
++			}
++		}
++	}
++}
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourceCatalogItem.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourceCatalogItem.kt
+index c057545..8cdf073 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourceCatalogItem.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourceCatalogItem.kt
+@@ -20,6 +20,8 @@ sealed interface SourceCatalogItem : ListModel {
+ 		val storeId: String? = null,
+ 		/** True when this extension is hidden from Explore (installed extensions only). */
+ 		val isHidden: Boolean = false,
++		/** True when this anime-family extension is tagged TV & Movies instead of anime. */
++		val isTvMovies: Boolean = false,
+ 		/** True when the extension list is in private mode (controls icon layout). */
+ 		val isPrivateMode: Boolean = false,
+ 	) : SourceCatalogItem {
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourceCatalogItemAD.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourceCatalogItemAD.kt
+index 7ba96f5..4e00455 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourceCatalogItemAD.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourceCatalogItemAD.kt
+@@ -22,6 +22,9 @@ interface ExtensionActionListener {
+ 	fun onExtensionSettingsClick(item: SourceCatalogItem.Extension)
+ 	fun onExtensionItemClick(item: SourceCatalogItem.Extension)
+ 	fun onExtensionHideClick(item: SourceCatalogItem.Extension)
++
++	/** Flips an anime extension between anime and TV & Movies. */
++	fun onExtensionTagClick(item: SourceCatalogItem.Extension)
+ }
+ 
+ 
+@@ -42,6 +45,9 @@ fun sourceCatalogItemExtensionAD(
+ 	binding.imageViewHide.setOnClickListener {
+ 		listener.onExtensionHideClick(item)
+ 	}
++	binding.imageViewTag.setOnClickListener {
++		listener.onExtensionTagClick(item)
++	}
+ 	binding.root.setOnClickListener {
+ 		listener.onExtensionItemClick(item)
+ 	}
+@@ -74,6 +80,16 @@ fun sourceCatalogItemExtensionAD(
+ 		binding.imageViewSettings.isVisible = isInstalled && item.sourceName != null && !isAnime
+ 		binding.imageViewSettings.isEnabled = !isInProgress
+ 		binding.imageViewSettings.alpha = if (isInProgress) 0.45f else 1f
++		// Only anime-family extensions can be tagged; it is the metadata that keeps Anime and TV & Movies apart
++		binding.imageViewTag.isVisible = isInstalled && isAnime
++		binding.imageViewTag.isEnabled = !isInProgress
++		binding.imageViewTag.alpha = if (isInProgress) 0.45f else 1f
++		if (isInstalled && isAnime) {
++			val tagDescription = context.getString(if (item.isTvMovies) R.string.ds_untag_tv_movies else R.string.ds_tag_tv_movies)
++			binding.imageViewTag.setIconResource(if (item.isTvMovies) R.drawable.ic_streaming else R.drawable.ic_tv)
++			binding.imageViewTag.contentDescription = tagDescription
++			TooltipCompat.setTooltipText(binding.imageViewTag, tagDescription)
++		}
+ 		binding.imageViewHide.isVisible = isInstalled
+ 		binding.imageViewHide.isEnabled = !isInProgress
+ 		binding.imageViewHide.alpha = if (isInProgress) 0.45f else 1f
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourcesCatalogActivity.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourcesCatalogActivity.kt
+index e96dce0..308d5dd 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourcesCatalogActivity.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourcesCatalogActivity.kt
+@@ -413,6 +413,10 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
+ 		viewModel.setExtensionHidden(item.packageName, !item.isHidden)
+ 	}
+ 
++	override fun onExtensionTagClick(item: SourceCatalogItem.Extension) {
++		viewModel.setExtensionTvMovies(item.packageName, !item.isTvMovies)
++	}
++
+ 	override fun onMenuItemActionExpand(item: MenuItem): Boolean {
+ 		pagesAdapter.setSearching(true)
+ 		setSearchTitleExpanded(true)
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourcesCatalogViewModel.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourcesCatalogViewModel.kt
+index 18d78a7..3bb66eb 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourcesCatalogViewModel.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/sources/catalog/SourcesCatalogViewModel.kt
+@@ -133,6 +133,7 @@ class SourcesCatalogViewModel @Inject constructor(
+ 		activeKind,
+ 		animeManager.extensions,
+ 		animeManager.hidden,
++		animeManager.tvMovies,
+ 	) { args ->
+ 		val q = args[0] as String?
+ 		val f = args[1] as SourcesCatalogFilter
+@@ -232,6 +233,16 @@ class SourcesCatalogViewModel @Inject constructor(
+ 		}
+ 	}
+ 
++	/**
++	 * Tags an installed anime extension as TV & Movies (or back to anime). Streaming mode shows the two kinds in
++	 * separate lists in Explore and Home, so this is how a TV or movie extension is told apart from an anime one.
++	 */
++	fun setExtensionTvMovies(packageName: String, tagged: Boolean) {
++		if (!animeManager.isInstalled(packageName)) return
++		animeManager.setTvMovies(packageName, tagged)
++		refreshTrigger.value++
++	}
++
+ 	/** Hides or shows an installed extension in Explore. It stays listed in the manager. */
+ 	fun setExtensionHidden(packageName: String, hidden: Boolean) {
+ 		if (animeManager.isInstalled(packageName)) {
+@@ -1042,6 +1053,7 @@ class SourcesCatalogViewModel @Inject constructor(
+ 	): AnimeRows {
+ 		val inProgress = installingPackages.value
+ 		val hidden = animeManager.hidden.value
++		val tvMovies = animeManager.tvMovies.value
+ 		val updates = ArrayList<SourceCatalogItem.Extension>()
+ 		val installed = ArrayList<SourceCatalogItem.Extension>()
+ 		for (local in animeManager.extensions.value) {
+@@ -1084,6 +1096,7 @@ class SourcesCatalogViewModel @Inject constructor(
+ 					sourceName = sourceName,
+ 					storeId = newerStore.id,
+ 					isHidden = local.pkg in hidden,
++					isTvMovies = local.pkg in tvMovies,
+ 					isPrivateMode = true,
+ 				)
+ 			}
+@@ -1102,6 +1115,7 @@ class SourcesCatalogViewModel @Inject constructor(
+ 				sourceName = sourceName,
+ 				storeId = ownerId,
+ 				isHidden = local.pkg in hidden,
++				isTvMovies = local.pkg in tvMovies,
+ 				isPrivateMode = true,
+ 			)
+ 		}
+diff --git a/android/app/src/main/res/drawable/ic_streaming.xml b/android/app/src/main/res/drawable/ic_streaming.xml
+new file mode 100644
+index 0000000..3ad8fb5
+--- /dev/null
++++ b/android/app/src/main/res/drawable/ic_streaming.xml
+@@ -0,0 +1,12 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24"
++    android:tint="?attr/colorControlNormal">
++  <!-- A screen with a play triangle: the Streaming mode, which holds Anime and TV & Movies -->
++  <path
++      android:fillColor="@android:color/white"
++      android:fillType="evenOdd"
++      android:pathData="M5,4h14c1.66,0 3,1.34 3,3v10c0,1.66 -1.34,3 -3,3H5c-1.66,0 -3,-1.34 -3,-3V7c0,-1.66 1.34,-3 3,-3zM5,6C4.45,6 4,6.45 4,7v10c0,0.55 0.45,1 1,1h14c0.55,0 1,-0.45 1,-1V7c0,-0.55 -0.45,-1 -1,-1H5zM10,8.5v7l6,-3.5z"/>
++</vector>
+diff --git a/android/app/src/main/res/drawable/ic_tv.xml b/android/app/src/main/res/drawable/ic_tv.xml
+new file mode 100644
+index 0000000..5c1f0da
+--- /dev/null
++++ b/android/app/src/main/res/drawable/ic_tv.xml
+@@ -0,0 +1,11 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24"
++    android:tint="?attr/colorControlNormal">
++  <path
++      android:fillColor="@android:color/white"
++      android:fillType="evenOdd"
++      android:pathData="M21,3H3C1.9,3 1,3.9 1,5v12c0,1.1 0.9,2 2,2h5v2h8v-2h5c1.1,0 1.99,-0.9 1.99,-2L23,5C23,3.9 22.1,3 21,3zM21,17H3V5h18V17z"/>
++</vector>
+diff --git a/android/app/src/main/res/layout/item_source_catalog.xml b/android/app/src/main/res/layout/item_source_catalog.xml
+index c97ed6d..3dc5321 100644
+--- a/android/app/src/main/res/layout/item_source_catalog.xml
++++ b/android/app/src/main/res/layout/item_source_catalog.xml
+@@ -82,6 +82,27 @@
+ 		android:layout_marginEnd="6dp"
+ 		android:spacing="2dp">
+ 
++		<!-- Anime extensions only: tags the extension as TV & Movies (or back to anime) -->
++		<com.google.android.material.button.MaterialButton
++			android:id="@+id/imageView_tag"
++			style="?attr/materialIconButtonFilledTonalStyle"
++			android:layout_width="@dimen/extension_action_button_size"
++			android:layout_height="@dimen/extension_action_button_size"
++			android:contentDescription="@string/ds_tag_tv_movies"
++			android:insetBottom="0dp"
++			android:insetLeft="0dp"
++			android:insetRight="0dp"
++			android:insetTop="0dp"
++			android:minWidth="0dp"
++			android:minHeight="0dp"
++			android:padding="0dp"
++			android:tooltipText="@string/ds_tag_tv_movies"
++			android:visibility="gone"
++			app:icon="@drawable/ic_tv"
++			app:iconGravity="textStart"
++			app:iconPadding="0dp"
++			app:iconSize="22dp" />
++
+ 		<com.google.android.material.button.MaterialButton
+ 			android:id="@+id/imageView_hide"
+ 			style="?attr/materialIconButtonFilledTonalStyle"
+diff --git a/android/app/src/main/res/values/strings.xml b/android/app/src/main/res/values/strings.xml
+index 425727e..479645c 100644
+--- a/android/app/src/main/res/values/strings.xml
++++ b/android/app/src/main/res/values/strings.xml
+@@ -1548,6 +1548,17 @@
+     <string name="novel_reader_background">Background</string>
+     <string name="advanced_novel_settings">Advanced novel settings</string>
+ 	<string name="ds_mode_anime">Anime</string>
++	<string name="ds_mode_streaming">Streaming</string>
++	<string name="ds_mode_tv_movies">TV &amp; Movies</string>
++	<!-- Preview pill in the mode fan: mode, then the half of it the thumb is on, e.g. "Streaming · Anime" -->
++	<string name="ds_mode_streaming_kind">%1$s · %2$s</string>
++	<string name="no_tv_movies_extension_installed">No TV &amp; Movies extension installed</string>
++	<string name="ds_streaming_group">Streaming</string>
++	<string name="ds_streaming_default">Streaming default</string>
++	<string name="ds_streaming_default_desc">What Streaming opens on. Anime and TV &amp; Movies stay one mode; rest your thumb on a pill in the mode fan to pick the other one.</string>
++	<string name="ds_tag_tv_movies">Tag as TV &amp; Movies</string>
++	<string name="ds_untag_tv_movies">Tag as anime</string>
++	<string name="ds_tagged_tv_movies">TV &amp; Movies</string>
+ 	<string name="ds_mode_switch">Switch mode</string>
+ 	<string name="watch">Watch</string>
+ 	<string name="episode_d_of_d">Episode %1$d of %2$d</string>
