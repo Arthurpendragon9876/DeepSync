@@ -52,10 +52,12 @@ import org.koitharu.kotatsu.home.ui.model.HeroSnapshot
 import org.koitharu.kotatsu.home.ui.model.HomeMode
 import org.koitharu.kotatsu.home.ui.model.HomeBannerStyle
 import org.koitharu.kotatsu.home.ui.model.HomeCarousel
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
 import org.koitharu.kotatsu.settings.compose.BaseComposeSettingsFragment
 import org.koitharu.kotatsu.settings.compose.DropSauceTheme
 import org.koitharu.kotatsu.settings.compose.SettingsGroup
 import org.koitharu.kotatsu.settings.compose.SettingsItem
+import org.koitharu.kotatsu.settings.compose.SegmentedSettingsItem
 import org.koitharu.kotatsu.settings.compose.SettingsScaffold
 import org.koitharu.kotatsu.settings.compose.SwitchSettingsItem
 import org.koitharu.kotatsu.settings.compose.rememberBooleanPref
@@ -96,6 +98,7 @@ internal fun HomeLayoutSettingsContent() {
 	var style by remember { mutableStateOf(settings.homeBannerStyle) }
 	var rotate by rememberBooleanPref(AppSettings.KEY_HOME_BANNER_ROTATE, true)
 	var hidden by remember { mutableStateOf(settings.homeHiddenCarousels) }
+	var streamingDefault by remember { mutableStateOf(settings.streamingDefault) }
 	var selected by remember { mutableStateOf(settings.homeFavCategories) }
 	val heroSnaps = remember { HeroSnapshot.decode(settings.homeHeroSnapshot) }
 	val anime = remember { settings.homeMode == HomeMode.ANIME }
@@ -134,6 +137,27 @@ internal fun HomeLayoutSettingsContent() {
 						checked = rotate,
 						onCheckedChange = { rotate = it },
 						icon = R.drawable.ic_appearance,
+						shape = pos.shape,
+					)
+				}
+			}
+		}
+
+		// Streaming default: what Streaming opens on. The Anime / TV & Movies split in the mode fan is optional.
+		item {
+			SettingsGroup(title = stringResource(R.string.ds_streaming_group)) {
+				item { pos ->
+					SegmentedSettingsItem(
+						title = stringResource(R.string.ds_streaming_default),
+						subtitle = stringResource(R.string.ds_streaming_default_desc),
+						labels = StreamingKind.entries.map { stringResource(it.titleRes) },
+						selectedIndex = streamingDefault.ordinal,
+						onSelected = { index ->
+							val picked = StreamingKind.entries[index]
+							streamingDefault = picked
+							settings.streamingDefault = picked
+						},
+						icon = R.drawable.ic_streaming,
 						shape = pos.shape,
 					)
 				}

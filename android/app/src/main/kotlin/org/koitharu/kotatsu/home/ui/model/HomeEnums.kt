@@ -9,6 +9,17 @@ import org.koitharu.kotatsu.scrobbling.common.domain.model.ScrobblerService
 @Keep
 enum class HomeMode { MANGA, NOVEL, ANIME }
 
+/**
+ * What the Streaming mode ([HomeMode.ANIME]) is showing right now: anime, or TV shows and movies.
+ * Streaming is one mode with one library; this only picks which extensions Explore and Home draw from.
+ * An extension is a TV & Movies one when it is tagged so in the extension manager, otherwise it is anime.
+ */
+@Keep
+enum class StreamingKind(@StringRes val titleRes: Int) {
+	ANIME(R.string.ds_mode_anime),
+	TV_MOVIES(R.string.ds_mode_tv_movies),
+}
+
 /** Where the hero and the Trending row get their titles from. */
 @Keep
 enum class HomeMetadata(@StringRes val titleRes: Int) {

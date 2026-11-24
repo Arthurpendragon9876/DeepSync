@@ -133,10 +133,11 @@ class ExploreFragment :
 		// single page and no kind tabs.
 		header.tabsKind.visibility = View.GONE
 		// ...but the rail next to "Extensions" names the mode being shown
-		viewModel.modeFlow.observe(viewLifecycleOwner) { mode ->
+		viewModel.modeAndKindFlow.observe(viewLifecycleOwner) { (mode, kind) ->
 			header.textKind.setText(
 				when (mode) {
-					org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME -> R.string.ds_mode_anime
+					// Streaming names the half it is showing: Anime or TV & Movies
+					org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME -> kind.titleRes
 					org.koitharu.kotatsu.home.ui.model.HomeMode.NOVEL -> R.string.ds_mode_novel
 					org.koitharu.kotatsu.home.ui.model.HomeMode.MANGA -> R.string.ds_mode_manga
 				},

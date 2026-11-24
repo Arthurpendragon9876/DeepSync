@@ -116,6 +116,22 @@ class AnimeExtensionManager @Inject constructor(
 		publishSources()
 	}
 
+	private val _tvMovies = MutableStateFlow(prefs.getStringSet(KEY_TV_MOVIES, emptySet()).orEmpty().toSet())
+
+	/**
+	 * Package names of extensions the user tagged as TV & Movies. Everything else is anime. The tag is the only
+	 * metadata that tells the two apart for now, so Explore and Home use it to keep them in separate lists.
+	 */
+	val tvMovies: StateFlow<Set<String>> = _tvMovies.asStateFlow()
+
+	fun isTvMovies(pkg: String): Boolean = pkg in _tvMovies.value
+
+	fun setTvMovies(pkg: String, tagged: Boolean) {
+		val updated = if (tagged) _tvMovies.value + pkg else _tvMovies.value - pkg
+		prefs.edit().putStringSet(KEY_TV_MOVIES, updated).apply()
+		_tvMovies.value = updated
+	}
+
 	private fun publishSources() {
 		val hiddenPkgs = _hidden.value
 		_mangaSources.value = _extensions.value.filter { it.pkg !in hiddenPkgs }.flatMap { ext ->
@@ -323,6 +339,9 @@ class AnimeExtensionManager @Inject constructor(
 		@Volatile
 		private var activeInstance: AnimeExtensionManager? = null
 
+		/** True when the extension [pkg] is tagged TV & Movies, without DI. */
+		fun isTvMoviesPackage(pkg: String): Boolean = activeInstance?.isTvMovies(pkg) == true
+
 		/** Resolves a stored `ANIME_<id>` source name without DI, mirroring the Mihon/LN lookups. */
 		fun getByName(name: String): AnimeMangaSource? {
 			val id = name.removePrefix("ANIME_").toLongOrNull() ?: return null
@@ -332,6 +351,7 @@ class AnimeExtensionManager @Inject constructor(
 		private const val TAG = "AnimeExtensionManager"
 		private const val KEY_REPOS = "repos"
 		private const val KEY_HIDDEN = "hidden_pkgs"
+		private const val KEY_TV_MOVIES = "tv_movies_pkgs"
 		private const val KEY_OWNER_PREFIX = "owner_"
 
 		private const val FEATURE = "tachiyomi.animeextension"

@@ -34,6 +34,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -100,6 +101,8 @@ import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.util.ext.HapticEffect
 import org.koitharu.kotatsu.core.util.ext.rememberHapticEffect
 import org.koitharu.kotatsu.home.ui.model.HomeMode
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -116,6 +119,11 @@ import kotlin.math.sin
  *    dims. The mode under the thumb is highlighted with a glowing spoke and a tick; releasing switches to it.
  *  - **Hold** for 0.85 s without pulling: opens the details of the last title, with a ring charging around the
  *    button and two soft ticks on the way.
+ *
+ * The Anime slot is **Streaming**: while the thumb rests on it the node unfolds into two pills, Anime and TV & Movies.
+ * Releasing without touching a pill lands on the Streaming default from settings (or on the kind already showing when
+ * the app is in Streaming), so the split stays optional. In the tap-opened fan, tapping Streaming unfolds the pills and
+ * a second tap picks one.
  *
  * Every step has its own haptic: a start when the fan opens, a tick each time the highlighted mode changes, a
  * confirm when the mode is switched, a long press when the hold completes. All of them go through the app's
@@ -147,6 +155,12 @@ private val FAN_END_CORNER = 26.dp
 private val FAN_SCREEN_GAP = 6.dp
 private val PILL_MAX_WIDTH = 270.dp
 private val NODE_W = 72.dp
+
+/** The Anime / TV & Movies pills that replace the Streaming node while it is highlighted. */
+private val PILL_W = 116.dp
+private val PILL_H = 40.dp
+private val PILL_GAP = 8.dp
+private val PILL_SLOP = 4.dp
 private val NODE_H = 68.dp
 private val FAB_SIZE = 52.dp
 
@@ -161,15 +175,29 @@ private val EmeraldOnWhite = Color(0xFF059669)
 
 private enum class FanEnd { TAP, PULL, HOLD }
 
+/** The icon of the mode button and chips: in Streaming it shows which half is on. */
 @DrawableRes
-internal fun modeIconRes(mode: HomeMode): Int = when (mode) {
-	HomeMode.ANIME -> R.drawable.ic_play_circle
+internal fun modeIconRes(mode: HomeMode, kind: StreamingKind = StreamingKind.ANIME): Int = when (mode) {
+	HomeMode.ANIME -> streamingKindIconRes(kind)
 	HomeMode.NOVEL -> R.drawable.ic_novel_menu_book
 	HomeMode.MANGA -> R.drawable.ic_read
 }
 
+@DrawableRes
+private fun streamingKindIconRes(kind: StreamingKind): Int = when (kind) {
+	StreamingKind.ANIME -> R.drawable.ic_play_circle
+	StreamingKind.TV_MOVIES -> R.drawable.ic_tv
+}
+
+/** The icon of a node in the fan: Streaming has its own, the others match the button. */
+@DrawableRes
+private fun nodeIconRes(mode: HomeMode): Int = when (mode) {
+	HomeMode.ANIME -> R.drawable.ic_streaming
+	else -> modeIconRes(mode)
+}
+
 private fun modeTitleRes(mode: HomeMode): Int = when (mode) {
-	HomeMode.ANIME -> R.string.ds_mode_anime
+	HomeMode.ANIME -> R.string.ds_mode_streaming
 	HomeMode.NOVEL -> R.string.ds_mode_novel
 	HomeMode.MANGA -> R.string.ds_mode_manga
 }
@@ -240,13 +268,32 @@ private fun pickMode(dx: Float, dy: Float, radiusPx: Float, nearPx: Float, deadP
 	}
 }
 
+/** The pill (Anime above, TV & Movies below) under a thumb at [x]/[y] in the window, or null when it is on neither. */
+private fun Density.streamingPillAt(x: Float, y: Float, g: FanGeometry): StreamingKind? {
+	val a = Math.toRadians(HomeMode.ANIME.fanAngle().toDouble())
+	val cx = g.center.x - g.nodeRadius * cos(a).toFloat()
+	val cy = g.center.y - g.nodeRadius * sin(a).toFloat()
+	val halfW = PILL_W.toPx() / 2f + PILL_SLOP.toPx()
+	val halfH = PILL_H.toPx() / 2f + PILL_SLOP.toPx()
+	val offset = (PILL_H + PILL_GAP).toPx() / 2f
+	if (abs(x - cx) > halfW) return null
+	return when {
+		abs(y - (cy - offset)) <= halfH -> StreamingKind.ANIME
+		abs(y - (cy + offset)) <= halfH -> StreamingKind.TV_MOVIES
+		else -> null
+	}
+}
+
 @Composable
 internal fun ModeFanButton(
 	mode: HomeMode,
+	streamingKind: StreamingKind,
+	streamingDefault: StreamingKind,
 	continueEnabled: Boolean,
 	fanOpen: Boolean,
 	onFanOpenChange: (Boolean) -> Unit,
 	onModeSelected: (HomeMode) -> Unit,
+	onStreamingSelected: (StreamingKind) -> Unit,
 	onContinue: () -> Unit,
 	onDetails: () -> Unit,
 ) {
@@ -256,6 +303,8 @@ internal fun ModeFanButton(
 	val ring = remember { Animatable(0f) }
 	var holding by remember { mutableStateOf(false) }
 	var highlighted by remember { mutableStateOf<HomeMode?>(null) }
+	// Which Streaming pill is lit while Streaming is highlighted
+	var highlightedKind by remember { mutableStateOf(streamingDefault) }
 	var locked by remember { mutableStateOf(false) }
 	// Where the real button is in the window right now, for the thumb maths. The fan itself is anchored to the
 	// screen corner and ignores it.
@@ -264,6 +313,9 @@ internal fun ModeFanButton(
 	val canContinue by rememberUpdatedState(continueEnabled)
 	val setOpen by rememberUpdatedState(onFanOpenChange)
 	val select by rememberUpdatedState(onModeSelected)
+	val currentKind by rememberUpdatedState(streamingKind)
+	val defaultKind by rememberUpdatedState(streamingDefault)
+	val selectStreaming by rememberUpdatedState(onStreamingSelected)
 	val doContinue by rememberUpdatedState(onContinue)
 	val doDetails by rememberUpdatedState(onDetails)
 
@@ -273,9 +325,17 @@ internal fun ModeFanButton(
 		setOpen(false)
 	}
 
+	/** The pill Streaming rests on when the thumb is not on one: the kind already showing, else the default. */
+	fun restingKind(): StreamingKind = if (currentMode == HomeMode.ANIME) currentKind else defaultKind
+
+	fun applyChoice(picked: HomeMode, kind: StreamingKind) {
+		if (picked == HomeMode.ANIME) selectStreaming(kind) else select(picked)
+	}
+
 	fun openFan(isLocked: Boolean) {
 		locked = isLocked
 		highlighted = currentMode
+		highlightedKind = restingKind()
 		haptic(HapticEffect.GESTURE_START)
 		setOpen(true)
 	}
@@ -325,6 +385,7 @@ internal fun ModeFanButton(
 	val actionDetails = stringResource(R.string.ds_mode_open_details)
 	val actionContinue = stringResource(R.string._continue)
 	val labelAnime = stringResource(R.string.ds_mode_anime)
+	val labelTvMovies = stringResource(R.string.ds_mode_tv_movies)
 	val labelManga = stringResource(R.string.ds_mode_manga)
 	val labelNovel = stringResource(R.string.ds_mode_novel)
 
@@ -360,7 +421,8 @@ internal fun ModeFanButton(
 				.semantics {
 					contentDescription = label
 					customActions = listOf(
-						CustomAccessibilityAction(labelAnime) { select(HomeMode.ANIME); true },
+						CustomAccessibilityAction(labelAnime) { selectStreaming(StreamingKind.ANIME); true },
+						CustomAccessibilityAction(labelTvMovies) { selectStreaming(StreamingKind.TV_MOVIES); true },
 						CustomAccessibilityAction(labelManga) { select(HomeMode.MANGA); true },
 						CustomAccessibilityAction(labelNovel) { select(HomeMode.NOVEL); true },
 					) + if (continueEnabled) {
@@ -459,17 +521,34 @@ internal fun ModeFanButton(
 										val dy = g.center.y - winY
 										// Ignore the stretch between the corner and the button, so a small pull never flips the highlight
 										val dead = hypot(g.center.x - g.fabCenter.x, g.center.y - g.fabCenter.y) + 12.dp.toPx()
-										val picked = pickMode(dx, dy, g.nodeRadius, nearPx, dead)
-										if (picked != null && picked != highlighted) {
-											highlighted = picked
-											haptic(HapticEffect.TICK)
+										// With Streaming unfolded, a thumb on one of its pills wins over the angle zones
+										val pill = if (highlighted == HomeMode.ANIME) streamingPillAt(winX, winY, g) else null
+										if (pill != null) {
+											if (pill != highlightedKind) {
+												highlightedKind = pill
+												haptic(HapticEffect.TICK)
+											}
+										} else {
+											val picked = pickMode(dx, dy, g.nodeRadius, nearPx, dead)
+											if (picked != null && picked != highlighted) {
+												highlighted = picked
+												highlightedKind = restingKind()
+												haptic(HapticEffect.TICK)
+											} else if (highlighted == HomeMode.ANIME && highlightedKind != restingKind()) {
+												// Off the pills again: Streaming falls back to its default, the split stays optional
+												highlightedKind = restingKind()
+												haptic(HapticEffect.LIGHT_TICK)
+											}
 										}
 									}
 									val chosen = highlighted
+									val chosenKind = highlightedKind
 									closeFan()
-									if (chosen != null && chosen != currentMode) {
+									val changed = chosen != null &&
+										(chosen != currentMode || (chosen == HomeMode.ANIME && chosenKind != currentKind))
+									if (chosen != null && changed) {
 										haptic(HapticEffect.CONFIRM)
-										select(chosen)
+										applyChoice(chosen, chosenKind)
 									} else {
 										haptic(HapticEffect.GESTURE_END)
 									}
@@ -492,7 +571,7 @@ internal fun ModeFanButton(
 					label = "fabIcon",
 				) { m ->
 					Icon(
-						painter = painterResource(modeIconRes(m)),
+						painter = painterResource(modeIconRes(m, currentKind)),
 						contentDescription = null,
 						tint = content,
 						modifier = Modifier.size(24.dp),
@@ -506,12 +585,21 @@ internal fun ModeFanButton(
 		ModeFanPopup(
 			progress = fanProgress,
 			current = mode,
+			currentKind = streamingKind,
+			defaultKind = streamingDefault,
 			highlighted = highlighted ?: mode,
-			onPick = { picked ->
-				val changed = picked != currentMode
+			highlightedKind = highlightedKind,
+			onPick = { picked, kind ->
+				val changed = picked != currentMode || (picked == HomeMode.ANIME && kind != currentKind)
 				closeFan()
 				haptic(if (changed) HapticEffect.CONFIRM else HapticEffect.TICK)
-				if (changed) select(picked)
+				if (changed) applyChoice(picked, kind)
+			},
+			// A tap on Streaming unfolds Anime / TV & Movies instead of choosing straight away
+			onUnfoldStreaming = {
+				highlighted = HomeMode.ANIME
+				highlightedKind = restingKind()
+				haptic(HapticEffect.TICK)
 			},
 			onDismiss = {
 				closeFan()
@@ -535,8 +623,12 @@ private object ZeroPosition : PopupPositionProvider {
 private fun ModeFanPopup(
 	progress: Float,
 	current: HomeMode,
+	currentKind: StreamingKind,
+	defaultKind: StreamingKind,
 	highlighted: HomeMode,
-	onPick: (HomeMode) -> Unit,
+	highlightedKind: StreamingKind,
+	onPick: (HomeMode, StreamingKind) -> Unit,
+	onUnfoldStreaming: () -> Unit,
 	onDismiss: () -> Unit,
 ) {
 	val density = LocalDensity.current
@@ -549,6 +641,12 @@ private fun ModeFanPopup(
 		targetValue = highlighted.fanAngle(),
 		animationSpec = spring(dampingRatio = 0.6f, stiffness = 520f),
 		label = "spoke",
+	)
+	// Streaming unfolds into its two pills while it is the highlighted mode
+	val unfold by animateFloatAsState(
+		targetValue = if (highlighted == HomeMode.ANIME) 1f else 0f,
+		animationSpec = spring(dampingRatio = 0.68f, stiffness = 520f),
+		label = "streamingUnfold",
 	)
 	val glow by rememberInfiniteTransition(label = "fanGlow").animateFloat(
 		initialValue = 0.65f,
@@ -642,13 +740,54 @@ private fun ModeFanPopup(
 					val a = Math.toRadians(m.fanAngle().toDouble())
 					val cx = g.center.x - g.nodeRadius * cos(a).toFloat()
 					val cy = g.center.y - g.nodeRadius * sin(a).toFloat()
-					FanNode(
-						mode = m,
-						selected = m == highlighted,
-						isCurrent = m == current,
-						modifier = Modifier.offset { IntOffset((cx - nodeHalfW).roundToInt(), (cy - nodeHalfH).roundToInt()) },
-						onClick = { onPick(m) },
-					)
+					if (m == HomeMode.ANIME) {
+						// Streaming: the node, captioned with the half it opens on, hands over to the two pills
+						FanNode(
+							mode = m,
+							selected = m == highlighted,
+							isCurrent = m == current,
+							caption = stringResource((if (current == m) currentKind else defaultKind).titleRes),
+							modifier = Modifier
+								.offset { IntOffset((cx - nodeHalfW).roundToInt(), (cy - nodeHalfH).roundToInt()) }
+								.graphicsLayer { this.alpha = 1f - unfold.coerceIn(0f, 1f) },
+							// Tapping the node while it is folded unfolds the pills; between the pills it takes the default
+							onClick = {
+								if (highlighted == HomeMode.ANIME) {
+									onPick(HomeMode.ANIME, if (current == HomeMode.ANIME) currentKind else defaultKind)
+								} else {
+									onUnfoldStreaming()
+								}
+							},
+						)
+						if (unfold > 0.01f) {
+							StreamingPills(
+								litKind = highlightedKind,
+								currentKind = if (current == HomeMode.ANIME) currentKind else null,
+								modifier = Modifier
+									.offset {
+										IntOffset(
+											(cx - PILL_W.toPx() / 2f).roundToInt(),
+											(cy - (PILL_H * 2 + PILL_GAP).toPx() / 2f).roundToInt(),
+										)
+									}
+									.graphicsLayer {
+										val s = (0.55f + 0.45f * unfold).coerceAtLeast(0.01f)
+										scaleX = s
+										scaleY = s
+										this.alpha = unfold.coerceIn(0f, 1f)
+									},
+								onPick = { kind -> onPick(HomeMode.ANIME, kind) },
+							)
+						}
+					} else {
+						FanNode(
+							mode = m,
+							selected = m == highlighted,
+							isCurrent = m == current,
+							modifier = Modifier.offset { IntOffset((cx - nodeHalfW).roundToInt(), (cy - nodeHalfH).roundToInt()) },
+							onClick = { onPick(m, currentKind) },
+						)
+					}
 				}
 			}
 			// Preview pill above the fan: what the thumb is on right now. It lives outside the fan so it can never overlap a node.
@@ -674,19 +813,29 @@ private fun ModeFanPopup(
 						letterSpacing = 1.sp,
 						color = MutedText,
 					)
+					// "Streaming · TV & Movies": Streaming also names which half the thumb is on
 					AnimatedContent(
-						targetState = highlighted,
+						targetState = highlighted to (if (highlighted == HomeMode.ANIME) highlightedKind else null),
 						transitionSpec = {
 							(slideInVertically(spring(0.7f, 600f)) { it / 2 } + fadeIn(tween(120))) togetherWith
 								(slideOutVertically(tween(120)) { -it / 2 } + fadeOut(tween(90)))
 						},
 						label = "previewTitle",
 						modifier = Modifier.padding(top = 4.dp),
-					) { m ->
+					) { (m, kind) ->
 						Row(verticalAlignment = Alignment.CenterVertically) {
-							Icon(painterResource(modeIconRes(m)), null, tint = Color.White, modifier = Modifier.size(20.dp))
+							Icon(
+								painterResource(modeIconRes(m, kind ?: StreamingKind.ANIME)),
+								null,
+								tint = Color.White,
+								modifier = Modifier.size(20.dp),
+							)
 							Text(
-								text = stringResource(modeTitleRes(m)),
+								text = if (kind != null) {
+									stringResource(R.string.ds_mode_streaming_kind, stringResource(modeTitleRes(m)), stringResource(kind.titleRes))
+								} else {
+									stringResource(modeTitleRes(m))
+								},
 								fontSize = 18.sp,
 								fontWeight = FontWeight.ExtraBold,
 								color = Color.White,
@@ -723,7 +872,12 @@ private fun ModeFanPopup(
 					.graphicsLayer { this.alpha = alpha },
 			) {
 				Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-					Icon(painterResource(modeIconRes(highlighted)), null, tint = Color(0xFFE5E5EA), modifier = Modifier.size(24.dp))
+					Icon(
+						painterResource(modeIconRes(highlighted, if (highlighted == HomeMode.ANIME) highlightedKind else currentKind)),
+						null,
+						tint = Color(0xFFE5E5EA),
+						modifier = Modifier.size(24.dp),
+					)
 				}
 			}
 		}
@@ -737,6 +891,8 @@ private fun FanNode(
 	isCurrent: Boolean,
 	modifier: Modifier,
 	onClick: () -> Unit,
+	/** A small second line under the title; Streaming shows the half it opens on. */
+	caption: String? = null,
 ) {
 	val scale by animateFloatAsState(
 		targetValue = if (selected) 1.16f else 1f,
@@ -772,7 +928,7 @@ private fun FanNode(
 				modifier = Modifier.align(Alignment.Center),
 				horizontalAlignment = Alignment.CenterHorizontally,
 			) {
-				Icon(painterResource(modeIconRes(mode)), null, tint = content, modifier = Modifier.size(22.dp))
+				Icon(painterResource(nodeIconRes(mode)), null, tint = content, modifier = Modifier.size(22.dp))
 				Text(
 					text = stringResource(modeTitleRes(mode)),
 					fontSize = 11.5.sp,
@@ -780,6 +936,15 @@ private fun FanNode(
 					color = content,
 					modifier = Modifier.padding(top = 4.dp),
 				)
+				if (caption != null) {
+					Text(
+						text = caption,
+						fontSize = 9.sp,
+						fontWeight = FontWeight.Medium,
+						color = content.copy(alpha = 0.66f),
+						maxLines = 1,
+					)
+				}
 			}
 			if (isCurrent) {
 				// The mode the app is in right now
@@ -789,6 +954,90 @@ private fun FanNode(
 						.padding(7.dp)
 						.size(6.dp)
 						.background(if (selected) EmeraldOnWhite else Emerald, RoundedCornerShape(50)),
+				)
+			}
+		}
+	}
+}
+
+/** Anime above, TV & Movies below: what Streaming unfolds into. The lit one is the one the thumb is on. */
+@Composable
+private fun StreamingPills(
+	litKind: StreamingKind,
+	/** The half that is on right now (shown with the green dot), or null when the app is not in Streaming. */
+	currentKind: StreamingKind?,
+	onPick: (StreamingKind) -> Unit,
+	modifier: Modifier = Modifier,
+) {
+	Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(PILL_GAP)) {
+		StreamingKind.entries.forEach { kind ->
+			StreamingPill(
+				kind = kind,
+				lit = kind == litKind,
+				isCurrent = kind == currentKind,
+				onClick = { onPick(kind) },
+			)
+		}
+	}
+}
+
+@Composable
+private fun StreamingPill(
+	kind: StreamingKind,
+	lit: Boolean,
+	isCurrent: Boolean,
+	onClick: () -> Unit,
+) {
+	val container by animateColorAsState(
+		targetValue = if (lit) Color.White else NodeFill.copy(alpha = 0.92f),
+		animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+		label = "pillContainer",
+	)
+	val content by animateColorAsState(
+		targetValue = if (lit) Color.Black else Color(0xFFF5F5F7),
+		animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+		label = "pillContent",
+	)
+	Surface(
+		shape = RoundedCornerShape(16.dp),
+		color = container,
+		contentColor = content,
+		shadowElevation = if (lit) 10.dp else 4.dp,
+		border = androidx.compose.foundation.BorderStroke(
+			1.5.dp,
+			if (lit) Color.White else Color.White.copy(alpha = 0.24f),
+		),
+		modifier = Modifier
+			.size(PILL_W, PILL_H)
+			.clickable(onClick = onClick),
+	) {
+		Box(Modifier.fillMaxSize()) {
+			Row(
+				modifier = Modifier.align(Alignment.Center),
+				verticalAlignment = Alignment.CenterVertically,
+			) {
+				Icon(
+					painter = painterResource(streamingKindIconRes(kind)),
+					contentDescription = null,
+					tint = content,
+					modifier = Modifier.size(16.dp),
+				)
+				Text(
+					text = stringResource(kind.titleRes),
+					fontSize = 12.sp,
+					fontWeight = FontWeight.Bold,
+					color = content,
+					maxLines = 1,
+					modifier = Modifier.padding(start = 6.dp),
+				)
+			}
+			if (isCurrent) {
+				Box(
+					Modifier
+						.align(Alignment.TopEnd)
+						.padding(7.dp)
+						.size(6.dp)
+						.background(if (lit) EmeraldOnWhite else Emerald, RoundedCornerShape(50)),
 				)
 			}
 		}

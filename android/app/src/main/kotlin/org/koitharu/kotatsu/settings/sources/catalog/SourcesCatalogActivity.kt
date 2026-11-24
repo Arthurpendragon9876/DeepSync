@@ -413,6 +413,10 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 		viewModel.setExtensionHidden(item.packageName, !item.isHidden)
 	}
 
+	override fun onExtensionTagClick(item: SourceCatalogItem.Extension) {
+		viewModel.setExtensionTvMovies(item.packageName, !item.isTvMovies)
+	}
+
 	override fun onMenuItemActionExpand(item: MenuItem): Boolean {
 		pagesAdapter.setSearching(true)
 		setSearchTitleExpanded(true)

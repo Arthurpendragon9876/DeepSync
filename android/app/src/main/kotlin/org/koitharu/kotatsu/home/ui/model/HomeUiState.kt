@@ -84,6 +84,8 @@ data class HomeConfig(
 	val autoRotate: Boolean = true,
 	/** [HomeCarousel.key]s the user switched off. */
 	val hiddenCarousels: Set<String> = emptySet(),
+	/** Which half of Streaming mode Home shows; not used in the other modes. */
+	val streamingKind: StreamingKind = StreamingKind.ANIME,
 ) {
 
 	fun shows(carousel: HomeCarousel): Boolean = carousel.key !in hiddenCarousels
@@ -93,7 +95,10 @@ data class HomeConfig(
 	val filterCount: Int get() = include.size + exclude.size + if (hideNsfw) 1 else 0
 
 	val query: HomeQuery
-		get() = HomeQuery(mode, sourceNames, include, exclude, hideNsfw)
+		get() = HomeQuery(mode, sourceNames, include, exclude, hideNsfw, streamingKind)
+
+	/** True for the half of Streaming mode that has no tracker metadata yet, so Home reads from its sources instead. */
+	val isTvMovies: Boolean get() = mode == HomeMode.ANIME && streamingKind == StreamingKind.TV_MOVIES
 }
 
 data class HomeUiState(

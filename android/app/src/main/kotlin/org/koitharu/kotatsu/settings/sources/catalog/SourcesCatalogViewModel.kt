@@ -133,6 +133,7 @@ class SourcesCatalogViewModel @Inject constructor(
 		activeKind,
 		animeManager.extensions,
 		animeManager.hidden,
+		animeManager.tvMovies,
 	) { args ->
 		val q = args[0] as String?
 		val f = args[1] as SourcesCatalogFilter
@@ -230,6 +231,16 @@ class SourcesCatalogViewModel @Inject constructor(
 			ContentWarning.MIXED -> ContentWarning.SAFE
 			ContentWarning.SAFE -> ContentWarning.NSFW
 		}
+	}
+
+	/**
+	 * Tags an installed anime extension as TV & Movies (or back to anime). Streaming mode shows the two kinds in
+	 * separate lists in Explore and Home, so this is how a TV or movie extension is told apart from an anime one.
+	 */
+	fun setExtensionTvMovies(packageName: String, tagged: Boolean) {
+		if (!animeManager.isInstalled(packageName)) return
+		animeManager.setTvMovies(packageName, tagged)
+		refreshTrigger.value++
 	}
 
 	/** Hides or shows an installed extension in Explore. It stays listed in the manager. */
@@ -1042,6 +1053,7 @@ class SourcesCatalogViewModel @Inject constructor(
 	): AnimeRows {
 		val inProgress = installingPackages.value
 		val hidden = animeManager.hidden.value
+		val tvMovies = animeManager.tvMovies.value
 		val updates = ArrayList<SourceCatalogItem.Extension>()
 		val installed = ArrayList<SourceCatalogItem.Extension>()
 		for (local in animeManager.extensions.value) {
@@ -1084,6 +1096,7 @@ class SourcesCatalogViewModel @Inject constructor(
 					sourceName = sourceName,
 					storeId = newerStore.id,
 					isHidden = local.pkg in hidden,
+					isTvMovies = local.pkg in tvMovies,
 					isPrivateMode = true,
 				)
 			}
@@ -1102,6 +1115,7 @@ class SourcesCatalogViewModel @Inject constructor(
 				sourceName = sourceName,
 				storeId = ownerId,
 				isHidden = local.pkg in hidden,
+				isTvMovies = local.pkg in tvMovies,
 				isPrivateMode = true,
 			)
 		}

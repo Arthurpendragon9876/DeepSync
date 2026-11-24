@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.koitharu.kotatsu.core.prefs.NavItem
 import org.koitharu.kotatsu.home.ui.model.HomeMode
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
 import org.koitharu.kotatsu.main.ui.nav.FloatingNavBar
 import org.koitharu.kotatsu.main.ui.nav.FloatingNavBarColors
 import org.koitharu.kotatsu.main.ui.nav.FloatingNavBarItem
@@ -47,7 +48,10 @@ class FloatingBottomNavigationView @JvmOverloads constructor(
 	private val continueVisibleState = MutableStateFlow(false)
 	private val continueEnabledState = MutableStateFlow(false)
 	private val homeModeState = MutableStateFlow(HomeMode.MANGA)
+	private val streamingKindState = MutableStateFlow(StreamingKind.ANIME)
+	private val streamingDefaultState = MutableStateFlow(StreamingKind.ANIME)
 	private var modeSelectedListener: ((HomeMode) -> Unit)? = null
+	private var streamingKindListener: ((StreamingKind) -> Unit)? = null
 	private var continueClickListener: (() -> Unit)? = null
 	private var continueLongClickListener: (() -> Unit)? = null
 	private val sourceItems = mutableListOf<NavItem>()
@@ -76,6 +80,8 @@ class FloatingBottomNavigationView @JvmOverloads constructor(
 				val showContinue by continueVisibleState.collectAsState()
 				val continueEnabled by continueEnabledState.collectAsState()
 				val homeMode by homeModeState.collectAsState()
+				val streamingKind by streamingKindState.collectAsState()
+				val streamingDefault by streamingDefaultState.collectAsState()
 				Box(
 					modifier = Modifier
 						.fillMaxWidth()
@@ -96,7 +102,10 @@ class FloatingBottomNavigationView @JvmOverloads constructor(
 						showContinue = showContinue,
 						continueEnabled = continueEnabled,
 						mode = homeMode,
+						streamingKind = streamingKind,
+						streamingDefault = streamingDefault,
 						onModeSelected = { modeSelectedListener?.invoke(it) },
+						onStreamingSelected = { streamingKindListener?.invoke(it) },
 						onContinueClick = { continueClickListener?.invoke() },
 						onContinueLongClick = { continueLongClickListener?.invoke() },
 					)
@@ -175,6 +184,19 @@ class FloatingBottomNavigationView @JvmOverloads constructor(
 	/** The Manga | Novel mode shown selected in the book menu. */
 	fun setHomeMode(mode: HomeMode) {
 		homeModeState.value = mode
+	}
+
+	fun setStreamingKind(kind: StreamingKind) {
+		streamingKindState.value = kind
+	}
+
+	/** What a plain pick of Streaming lands on; the Anime / TV & Movies choice is optional. */
+	fun setStreamingDefault(kind: StreamingKind) {
+		streamingDefaultState.value = kind
+	}
+
+	fun setOnStreamingKindSelectedListener(listener: ((StreamingKind) -> Unit)?) {
+		streamingKindListener = listener
 	}
 
 	fun setOnHomeModeSelectedListener(listener: ((HomeMode) -> Unit)?) {

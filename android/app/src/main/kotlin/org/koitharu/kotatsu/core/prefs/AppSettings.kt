@@ -848,6 +848,19 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		get() = prefs.getEnumValue(KEY_HOME_MODE, HomeMode.MANGA)
 		set(value) = prefs.edit { putEnumValue(KEY_HOME_MODE, value) }
 
+	/** Which half of Streaming mode is showing: anime, or TV & Movies. Set from the mode fan. */
+	var streamingKind: org.koitharu.kotatsu.home.ui.model.StreamingKind
+		get() = prefs.getEnumValue(KEY_STREAMING_KIND, streamingDefault)
+		set(value) = prefs.edit { putEnumValue(KEY_STREAMING_KIND, value) }
+
+	/**
+	 * What Streaming opens on: a quick pick of Streaming in the mode fan lands here, and the Anime / TV & Movies
+	 * choice only appears when the thumb rests on it. Set in Home layout settings.
+	 */
+	var streamingDefault: org.koitharu.kotatsu.home.ui.model.StreamingKind
+		get() = prefs.getEnumValue(KEY_STREAMING_DEFAULT, org.koitharu.kotatsu.home.ui.model.StreamingKind.ANIME)
+		set(value) = prefs.edit { putEnumValue(KEY_STREAMING_DEFAULT, value) }
+
 	var homeBannerStyle: HomeBannerStyle
 		get() = prefs.getEnumValue(KEY_HOME_BANNER_STYLE, HomeBannerStyle.PANELS)
 		set(value) = prefs.edit { putEnumValue(KEY_HOME_BANNER_STYLE, value) }
@@ -1906,6 +1919,8 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_MANGA_LIST_BADGES = "manga_list_badges"
 		const val KEY_NOVEL_SOURCE_IDS = "novel_source_ids"
 		const val KEY_HOME_MODE = "home_mode"
+		const val KEY_STREAMING_KIND = "streaming_kind"
+		const val KEY_STREAMING_DEFAULT = "streaming_default"
 		const val KEY_HOME_BANNER_STYLE = "home_banner_style"
 		const val KEY_HOME_BANNER_ROTATE = "home_banner_rotate"
 		const val KEY_HOME_HERO_SNAPSHOT = "home_hero_snapshot"

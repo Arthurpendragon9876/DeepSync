@@ -110,6 +110,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import org.koitharu.kotatsu.home.ui.model.HomeMode
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.util.ext.HapticEffect
 import org.koitharu.kotatsu.core.util.ext.rememberHapticEffect
@@ -391,7 +392,10 @@ fun FloatingNavBar(
 	/** There is something to resume; only then does the mode button's menu offer "Continue". */
 	continueEnabled: Boolean = false,
 	mode: HomeMode = HomeMode.MANGA,
+	streamingKind: StreamingKind = StreamingKind.ANIME,
+	streamingDefault: StreamingKind = StreamingKind.ANIME,
 	onModeSelected: (HomeMode) -> Unit = {},
+	onStreamingSelected: (StreamingKind) -> Unit = {},
 	onContinueClick: () -> Unit = {},
 	onContinueLongClick: () -> Unit = {},
 ) {
@@ -1186,10 +1190,13 @@ fun FloatingNavBar(
 		) {
 			ModeFanButton(
 				mode = mode,
+				streamingKind = streamingKind,
+				streamingDefault = streamingDefault,
 				continueEnabled = continueEnabled,
 				fanOpen = fanOpen,
 				onFanOpenChange = { fanOpen = it },
 				onModeSelected = onModeSelected,
+				onStreamingSelected = onStreamingSelected,
 				onContinue = onContinueClick,
 				onDetails = onContinueLongClick,
 			)

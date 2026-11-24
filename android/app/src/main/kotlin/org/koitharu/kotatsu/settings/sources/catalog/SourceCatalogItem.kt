@@ -20,6 +20,8 @@ sealed interface SourceCatalogItem : ListModel {
 		val storeId: String? = null,
 		/** True when this extension is hidden from Explore (installed extensions only). */
 		val isHidden: Boolean = false,
+		/** True when this anime-family extension is tagged TV & Movies instead of anime. */
+		val isTvMovies: Boolean = false,
 		/** True when the extension list is in private mode (controls icon layout). */
 		val isPrivateMode: Boolean = false,
 	) : SourceCatalogItem {

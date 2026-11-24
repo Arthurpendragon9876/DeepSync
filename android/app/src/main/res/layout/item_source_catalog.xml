@@ -82,6 +82,27 @@
 		android:layout_marginEnd="6dp"
 		android:spacing="2dp">
 
+		<!-- Anime extensions only: tags the extension as TV & Movies (or back to anime) -->
+		<com.google.android.material.button.MaterialButton
+			android:id="@+id/imageView_tag"
+			style="?attr/materialIconButtonFilledTonalStyle"
+			android:layout_width="@dimen/extension_action_button_size"
+			android:layout_height="@dimen/extension_action_button_size"
+			android:contentDescription="@string/ds_tag_tv_movies"
+			android:insetBottom="0dp"
+			android:insetLeft="0dp"
+			android:insetRight="0dp"
+			android:insetTop="0dp"
+			android:minWidth="0dp"
+			android:minHeight="0dp"
+			android:padding="0dp"
+			android:tooltipText="@string/ds_tag_tv_movies"
+			android:visibility="gone"
+			app:icon="@drawable/ic_tv"
+			app:iconGravity="textStart"
+			app:iconPadding="0dp"
+			app:iconSize="22dp" />
+
 		<com.google.android.material.button.MaterialButton
 			android:id="@+id/imageView_hide"
 			style="?attr/materialIconButtonFilledTonalStyle"

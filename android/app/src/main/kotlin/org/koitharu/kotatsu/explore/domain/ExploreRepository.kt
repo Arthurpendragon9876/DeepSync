@@ -2,6 +2,8 @@ package org.koitharu.kotatsu.explore.domain
 
 import org.koitharu.kotatsu.core.model.contentMode
 import org.koitharu.kotatsu.home.ui.model.HomeMode
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
+import org.koitharu.kotatsu.core.model.isInStreamingKind
 import org.koitharu.kotatsu.core.model.isNsfw
 import org.koitharu.kotatsu.core.parser.MangaRepository
 import org.koitharu.kotatsu.core.prefs.AppSettings
@@ -31,7 +33,13 @@ data class HomeQuery(
 	val include: Set<String> = emptySet(),
 	val exclude: Set<String> = emptySet(),
 	val hideNsfw: Boolean = false,
+	/** Only matters in Streaming mode: whether anime or TV & Movies extensions are asked. */
+	val streamingKind: StreamingKind = StreamingKind.ANIME,
 )
+
+/** In Streaming mode a source also has to be in the chosen half (anime or TV & Movies); other modes ignore [kind]. */
+private fun MangaSource.isOfMode(mode: HomeMode, kind: StreamingKind): Boolean =
+	contentMode == mode && (mode != HomeMode.ANIME || isInStreamingKind(kind))
 
 class ExploreRepository @Inject constructor(
 	private val settings: AppSettings,
@@ -46,7 +54,7 @@ class ExploreRepository @Inject constructor(
 		val tags = historyRepository.getPopularTags(tagsLimit).mapNotNull {
 			if (it in tagsBlacklist) null else it.title
 		}
-		val sources = sourcesRepository.getEnabledSources().filter { mode == null || it.contentMode == mode }.shuffled()
+		val sources = sourcesRepository.getEnabledSources().filter { mode == null || it.isOfMode(mode, settings.streamingKind) }.shuffled()
 		check(sources.isNotEmpty()) { "No sources available" }
 		// Try every source in turn (a few rounds at most) rather than five random picks of possibly the same
 		// broken one: anime and novel hosts are slower and fail more often than manga ones.
@@ -131,11 +139,11 @@ class ExploreRepository @Inject constructor(
 
 	/** The enabled sources of one kind, for the Home source picker (which shows their real titles and icons). */
 	suspend fun getEnabledSources(mode: HomeMode): List<MangaSource> =
-		sourcesRepository.getEnabledSources().filter { it.contentMode == mode }
+		sourcesRepository.getEnabledSources().filter { it.isOfMode(mode, settings.streamingKind) }
 
 	/** Names of the enabled sources of one kind. */
 	suspend fun getEnabledSourceNames(mode: HomeMode): List<String> =
-		sourcesRepository.getEnabledSources().filter { it.contentMode == mode }.map { it.name }.sorted()
+		sourcesRepository.getEnabledSources().filter { it.isOfMode(mode, settings.streamingKind) }.map { it.name }.sorted()
 
 	/**
 	 * Lists from a few of the enabled sources using the first of [preferred] each source supports,
@@ -152,7 +160,7 @@ class ExploreRepository @Inject constructor(
 		sourcesLimit: Int = 4,
 		query: HomeQuery = HomeQuery(),
 	): List<Manga> = coroutineScope {
-		val enabled = sourcesRepository.getEnabledSources().filter { it.contentMode == query.mode }
+		val enabled = sourcesRepository.getEnabledSources().filter { it.isOfMode(query.mode, query.streamingKind) }
 		val picked = if (query.sourceNames.isEmpty()) emptyList() else enabled.filter { it.name in query.sourceNames }
 		// A saved pick that matches nothing enabled (source removed, renamed, picked in another mode) used
 		// to leave every Home row empty. Treat it as "all sources" instead.
@@ -215,7 +223,7 @@ class ExploreRepository @Inject constructor(
 		val queries = names.map { it.trim() }.filter { it.isNotEmpty() }
 			.distinctBy { TitleMatcher.normalize(it) }.take(MAX_SEARCH_NAMES)
 		if (queries.isEmpty()) return@coroutineScope null
-		val sources = sourcesRepository.getEnabledSources().filter { it.contentMode == mode }.take(MAX_SEARCH_SOURCES)
+		val sources = sourcesRepository.getEnabledSources().filter { it.isOfMode(mode, settings.streamingKind) }.take(MAX_SEARCH_SOURCES)
 		val found = sources.flatMap { source ->
 			queries.map { q ->
 				async {

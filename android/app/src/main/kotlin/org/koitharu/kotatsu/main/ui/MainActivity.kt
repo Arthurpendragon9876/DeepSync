@@ -165,9 +165,22 @@ class MainActivity : BaseActivity<ActivityMainBinding>(), AppBarOwner, BottomNav
 		viewBinding.bottomNav?.setOnContinueLongClickListener { viewModel.openLastDetails() }
 		// The book button's menu holds the Manga | Novel switch for Home
 		viewBinding.bottomNav?.setOnHomeModeSelectedListener { settings.homeMode = it }
+		// Streaming picks Anime or TV & Movies as well as the mode itself
+		viewBinding.bottomNav?.setOnStreamingKindSelectedListener { kind ->
+			settings.streamingKind = kind
+			settings.homeMode = org.koitharu.kotatsu.home.ui.model.HomeMode.ANIME
+		}
 		viewBinding.bottomNav?.setHomeMode(settings.homeMode)
+		viewBinding.bottomNav?.setStreamingKind(settings.streamingKind)
+		viewBinding.bottomNav?.setStreamingDefault(settings.streamingDefault)
 		settings.observe(AppSettings.KEY_HOME_MODE).observe(this) {
 			viewBinding.bottomNav?.setHomeMode(settings.homeMode)
+		}
+		settings.observe(AppSettings.KEY_STREAMING_KIND).observe(this) {
+			viewBinding.bottomNav?.setStreamingKind(settings.streamingKind)
+		}
+		settings.observe(AppSettings.KEY_STREAMING_DEFAULT).observe(this) {
+			viewBinding.bottomNav?.setStreamingDefault(settings.streamingDefault)
 		}
 		viewBinding.buttonOverflow.setOnClickListener(this::showMainOverflowMenu)
 		viewBinding.buttonSettings.setOnClickListener {

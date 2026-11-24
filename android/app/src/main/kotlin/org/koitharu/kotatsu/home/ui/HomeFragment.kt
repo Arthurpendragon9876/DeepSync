@@ -242,7 +242,8 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 	// ---- Rendering ---------------------------------------------------------------------------
 
 	private fun render(binding: FragmentHomeBinding, state: HomeUiState) {
-		val modeChanged = modeShown != null && modeShown != state.config.mode
+		val modeChanged = modeShown != null && (modeShown != state.config.mode || kindShown != state.config.streamingKind)
+		kindShown = state.config.streamingKind
 		config = state.config
 		renderConfig(binding, state.config)
 		renderHero(binding, state.hero)
@@ -253,6 +254,7 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 	}
 
 	private var modeShown: HomeMode? = null
+	private var kindShown: org.koitharu.kotatsu.home.ui.model.StreamingKind? = null
 
 	/** Manga, then Anime, then Novel, then round again. */
 	private fun cycleMode(anchor: View) {
@@ -285,7 +287,7 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 	}
 
 	private fun modeTitleRes(mode: HomeMode) = when (mode) {
-		HomeMode.ANIME -> R.string.ds_mode_anime
+		HomeMode.ANIME -> R.string.ds_mode_streaming
 		HomeMode.NOVEL -> R.string.ds_mode_novel
 		HomeMode.MANGA -> R.string.ds_mode_manga
 	}
@@ -296,7 +298,7 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 		val apply = {
 			val name = getString(modeTitleRes(mode))
 			chip.text = name
-			chip.setIconResource(org.koitharu.kotatsu.main.ui.nav.modeIconRes(mode))
+			chip.setIconResource(org.koitharu.kotatsu.main.ui.nav.modeIconRes(mode, config.streamingKind))
 			chip.contentDescription = getString(R.string.ds_mode_cycle, name)
 		}
 		if (!animate) {

@@ -354,6 +354,7 @@ class HomeViewModel @Inject constructor(
 			banner = settings.homeBannerStyle,
 			autoRotate = settings.isHomeBannerAutoRotate,
 			hiddenCarousels = settings.homeHiddenCarousels,
+			streamingKind = settings.streamingKind,
 		)
 	}
 
@@ -363,6 +364,7 @@ class HomeViewModel @Inject constructor(
 		return combine(
 			listOf(
 				pref(AppSettings.KEY_HOME_MODE) { homeMode },
+				pref(AppSettings.KEY_STREAMING_KIND) { streamingKind },
 				pref(AppSettings.KEY_HOME_METADATA) { homeMetadata },
 				pref(AppSettings.KEY_HOME_PROVIDER) { homeMetadataProvider },
 				pref(AppSettings.KEY_HOME_CATALOGUE) { isHomeSourceCatalogue },
@@ -683,7 +685,9 @@ class HomeViewModel @Inject constructor(
 		}.catch { emit(emptyRow(id, kind, titleRes)) }
 	}.onStart { emit(HomeRow(id, kind, titleRes, state = HomeSectionState.Loading)) }
 
-	private fun isMetaActive(cfg: HomeConfig) = metadataRepository.supports(cfg.metadata, cfg.mode)
+	// There is no metadata for TV & Movies yet (AniList and MAL only know anime), so that half of Streaming
+	// always reads from its own sources.
+	private fun isMetaActive(cfg: HomeConfig) = !cfg.isTvMovies && metadataRepository.supports(cfg.metadata, cfg.mode)
 
 	private suspend fun loadMetaTitles(cfg: HomeConfig, kind: org.koitharu.kotatsu.metadata.MetaList, limit: Int) = runCatching {
 		metadataRepository.list(

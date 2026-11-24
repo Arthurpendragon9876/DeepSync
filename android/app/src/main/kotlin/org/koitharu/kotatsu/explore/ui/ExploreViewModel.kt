@@ -22,7 +22,9 @@ import kotlinx.coroutines.plus
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.model.MangaSourceInfo
 import org.koitharu.kotatsu.core.model.contentMode
+import org.koitharu.kotatsu.core.model.isInStreamingKind
 import org.koitharu.kotatsu.home.ui.model.HomeMode
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
 import org.koitharu.kotatsu.core.os.AppShortcutManager
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.observeAsFlow
@@ -62,10 +64,17 @@ class ExploreViewModel @Inject constructor(
 	private val shortcutManager: AppShortcutManager,
 	private val extensionStoreManager: ExtensionStoreManager,
 	private val suggestionsScheduler: SuggestionsWorker.Scheduler,
+	private val animeExtensions: org.koitharu.kotatsu.anime.AnimeExtensionManager,
 ) : BaseViewModel() {
 
 	/** The mode Explore is showing, as a flow, for the label next to "Extensions". */
 	val modeFlow: kotlinx.coroutines.flow.Flow<HomeMode> = settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode }
+
+	/** Mode plus which half of Streaming is on, for the label next to "Extensions". */
+	val modeAndKindFlow: kotlinx.coroutines.flow.Flow<Pair<HomeMode, StreamingKind>> = kotlinx.coroutines.flow.combine(
+		modeFlow,
+		settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
+	) { mode, kind -> mode to kind }
 
 	/** The mode Explore is showing; follows the nav bar's mode button. */
 	val currentMode: HomeMode
@@ -129,7 +138,8 @@ class ExploreViewModel @Inject constructor(
 	val visibleSources: kotlinx.coroutines.flow.Flow<List<ListModel>> = kotlinx.coroutines.flow.combine(
 		sources,
 		settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
-	) { content, mode -> content[mode] }
+		settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
+	) { content, mode, kind -> content[mode, kind] }
 
 	init {
 		launchJob(Dispatchers.IO) {
@@ -222,7 +232,7 @@ class ExploreViewModel @Inject constructor(
 
 	fun sourcesSnapshot(ids: LongSet): List<MangaSourceInfo> {
 		val content = sources.value
-		return (content.manga + content.novel + content.anime).mapNotNull {
+		return (content.manga + content.novel + content.anime + content.tvMovies).mapNotNull {
 			(it as? MangaSourceItem)?.takeIf { x -> x.id in ids }?.source
 		}
 	}
@@ -235,6 +245,8 @@ class ExploreViewModel @Inject constructor(
 		sourcesRepository.observeHasMultiLanguageSources(),
 		settings.observeAsFlow(AppSettings.KEY_TIPS_CLOSED) { isTipEnabled(TIP_LANGUAGES) },
 		extensionStoreManager.packagesWithUpdates,
+		// A TV & Movies tag does not change the source list itself, so it has to re-trigger the build.
+		animeExtensions.tvMovies,
 	) { args ->
 		val allSources = args[0] as List<MangaSourceInfo>
 		val isExtensionsLoading = args[1] as Boolean
@@ -251,7 +263,11 @@ class ExploreViewModel @Inject constructor(
 			),
 			anime = buildSourcesPage(
 				allSources, isExtensionsLoading, isGrid, hasMultiLanguageSources, isLanguageTipEnabled, packagesWithUpdates,
-				false, HomeMode.ANIME,
+				false, HomeMode.ANIME, StreamingKind.ANIME,
+			),
+			tvMovies = buildSourcesPage(
+				allSources, isExtensionsLoading, isGrid, hasMultiLanguageSources, isLanguageTipEnabled, packagesWithUpdates,
+				false, HomeMode.ANIME, StreamingKind.TV_MOVIES,
 			),
 		)
 	}.withErrorHandling()
@@ -265,10 +281,13 @@ class ExploreViewModel @Inject constructor(
 		packagesWithUpdates: Set<String>,
 		isNovelShown: Boolean,
 		forcedMode: HomeMode? = null,
+		streamingKind: StreamingKind = StreamingKind.ANIME,
 	): List<ListModel> {
 		val result = ArrayList<ListModel>(sources.size + 2)
 		val mode = forcedMode ?: if (isNovelShown) HomeMode.NOVEL else HomeMode.MANGA
-		val shown = sources.filter { it.contentMode == mode }
+		val shown = sources.filter {
+			it.contentMode == mode && (mode != HomeMode.ANIME || it.isInStreamingKind(streamingKind))
+		}
 		when {
 			shown.isNotEmpty() -> shown.mapTo(result) {
 				val pkgName = (it.mangaSource as? MihonMangaSource)?.pkgName
@@ -281,7 +300,11 @@ class ExploreViewModel @Inject constructor(
 				icon = R.drawable.ic_empty_common,
 				textPrimary = when (mode) {
 					HomeMode.NOVEL -> R.string.no_novel_extension_installed
-					HomeMode.ANIME -> R.string.no_anime_extension_installed
+					HomeMode.ANIME -> if (streamingKind == StreamingKind.TV_MOVIES) {
+						R.string.no_tv_movies_extension_installed
+					} else {
+						R.string.no_anime_extension_installed
+					}
 					HomeMode.MANGA -> R.string.no_external_source_installed
 				},
 				textSecondary = R.string.manage_manga_extensions_from_settings_icon,
@@ -341,7 +364,7 @@ class ExploreViewModel @Inject constructor(
 		exploreRepository.getTrending(
 			limit = SUGGESTIONS_COUNT,
 			sourcesLimit = 3,
-			query = HomeQuery(mode = mode, hideNsfw = settings.isSuggestionsExcludeNsfw),
+			query = HomeQuery(mode = mode, hideNsfw = settings.isSuggestionsExcludeNsfw, streamingKind = settings.streamingKind),
 		)
 	}.getOrDefault(emptyList())
 

@@ -17,6 +17,7 @@ import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.util.ext.isHttpUrl
 import org.koitharu.kotatsu.extensions.runtime.getExternalExtensionLanguageDisplayName
 import org.koitharu.kotatsu.home.ui.model.HomeMode
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
 import org.koitharu.kotatsu.lnreader.LnPluginManager
 import org.koitharu.kotatsu.lnreader.model.LnMangaSource
 import org.koitharu.kotatsu.mihon.MihonExtensionLoader
@@ -144,6 +145,17 @@ val MangaSource.isAnimeSource: Boolean
 		is MissingMangaSource -> source.name.startsWith("ANIME_")
 		else -> false
 	}
+
+/**
+ * True for an anime-family source whose extension is tagged TV & Movies. Untagged anime sources, and
+ * ones whose extension is not loaded yet, count as anime.
+ */
+val MangaSource.isTvMoviesSource: Boolean
+	get() = (unwrap() as? AnimeMangaSource)?.let { AnimeExtensionManager.isTvMoviesPackage(it.pkgName) } == true
+
+/** Which half of Streaming this source is in; [kind] is always [StreamingKind.ANIME] for a non-streaming source. */
+fun MangaSource.isInStreamingKind(kind: StreamingKind): Boolean =
+	!isAnimeSource || (isTvMoviesSource == (kind == StreamingKind.TV_MOVIES))
 
 /** The app-wide content mode (Anime / Manga / Novel) a source belongs to. */
 val MangaSource.contentMode: HomeMode

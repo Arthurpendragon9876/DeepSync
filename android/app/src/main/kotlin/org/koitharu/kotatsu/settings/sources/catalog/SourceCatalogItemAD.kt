@@ -22,6 +22,9 @@ interface ExtensionActionListener {
 	fun onExtensionSettingsClick(item: SourceCatalogItem.Extension)
 	fun onExtensionItemClick(item: SourceCatalogItem.Extension)
 	fun onExtensionHideClick(item: SourceCatalogItem.Extension)
+
+	/** Flips an anime extension between anime and TV & Movies. */
+	fun onExtensionTagClick(item: SourceCatalogItem.Extension)
 }
 
 
@@ -41,6 +44,9 @@ fun sourceCatalogItemExtensionAD(
 	}
 	binding.imageViewHide.setOnClickListener {
 		listener.onExtensionHideClick(item)
+	}
+	binding.imageViewTag.setOnClickListener {
+		listener.onExtensionTagClick(item)
 	}
 	binding.root.setOnClickListener {
 		listener.onExtensionItemClick(item)
@@ -74,6 +80,16 @@ fun sourceCatalogItemExtensionAD(
 		binding.imageViewSettings.isVisible = isInstalled && item.sourceName != null && !isAnime
 		binding.imageViewSettings.isEnabled = !isInProgress
 		binding.imageViewSettings.alpha = if (isInProgress) 0.45f else 1f
+		// Only anime-family extensions can be tagged; it is the metadata that keeps Anime and TV & Movies apart
+		binding.imageViewTag.isVisible = isInstalled && isAnime
+		binding.imageViewTag.isEnabled = !isInProgress
+		binding.imageViewTag.alpha = if (isInProgress) 0.45f else 1f
+		if (isInstalled && isAnime) {
+			val tagDescription = context.getString(if (item.isTvMovies) R.string.ds_untag_tv_movies else R.string.ds_tag_tv_movies)
+			binding.imageViewTag.setIconResource(if (item.isTvMovies) R.drawable.ic_streaming else R.drawable.ic_tv)
+			binding.imageViewTag.contentDescription = tagDescription
+			TooltipCompat.setTooltipText(binding.imageViewTag, tagDescription)
+		}
 		binding.imageViewHide.isVisible = isInstalled
 		binding.imageViewHide.isEnabled = !isInProgress
 		binding.imageViewHide.alpha = if (isInProgress) 0.45f else 1f
