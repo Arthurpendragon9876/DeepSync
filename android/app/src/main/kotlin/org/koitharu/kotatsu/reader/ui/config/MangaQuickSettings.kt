@@ -6,7 +6,10 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.aspectRatio
@@ -125,10 +128,16 @@ internal fun MangaQuickSettings(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = maxHeight),
+                .heightIn(max = maxHeight)
+                // Registers the panel as a touch target so taps and drags on its empty areas
+                // are consumed here instead of falling through to the reader pages behind it.
+                .pointerInput(Unit) { detectTapGestures { } },
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surfaceContainerLow,
-            shadowElevation = 8.dp,
+            // No shadow: the overlay view is exactly as big as the panel, so a shadow gets cut
+            // off at the view bounds and leaves sharp rectangular corners around the rounded shape.
+            shadowElevation = 0.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
         ) {
             MangaQuickSettingsContent(mode, settings, viewModel, orientationHelper, callback, router, onDismiss)
         }

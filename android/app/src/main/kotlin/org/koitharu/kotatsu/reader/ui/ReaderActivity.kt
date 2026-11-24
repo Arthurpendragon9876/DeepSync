@@ -275,7 +275,8 @@ class ReaderActivity :
         }
         addMenuProvider(
             ReaderMenuProvider(
-                onOpenMenu = ::openMenu,
+                onBookmark = ::onBookmarkClick,
+                isBookmarkAdded = { viewModel.isBookmarkAdded.value == true },
                 onSearchBook = ::openEpubSearch,
                 onShowUpscalePreview = ::showUpscalePreview,
                 isEpub = { readerManager.isEpub },
@@ -356,6 +357,8 @@ class ReaderActivity :
         val overlay = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
             translationZ = 32 * resources.displayMetrics.density // above the XML bars
+            // Swallow every touch that lands on the panel so nothing reaches the pages behind it
+            isClickable = true
             setContent {
                 DropSauceTheme {
                     MangaQuickSettings(
@@ -643,6 +646,7 @@ class ReaderActivity :
             rawY >= viewBinding.root.height - gestureInsets.bottom ||
             viewBinding.appbarTop.hasGlobalPoint(rawX, rawY) ||
             viewBinding.toolbarDocked?.hasGlobalPoint(rawX, rawY) == true ||
+            (quickSettingsVisible && quickSettingsOverlay?.hasGlobalPoint(rawX, rawY) == true) ||
             novelChrome.isOnChrome(rawX, rawY)
         ) {
             false
