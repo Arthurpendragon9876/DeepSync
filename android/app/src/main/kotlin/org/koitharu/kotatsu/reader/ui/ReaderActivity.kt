@@ -169,7 +169,7 @@ class ReaderActivity :
     private var quickSettingsOverlay: ComposeView? = null
     private val quickSettingsBackCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
-            setQuickSettingsVisible(false)
+            updateQuickSettingsVisibility(false)
         }
     }
     private var isScrollPausedByEyeReminder = false
@@ -366,7 +366,7 @@ class ReaderActivity :
                         orientationHelper = screenOrientationHelper,
                         callback = this@ReaderActivity,
                         router = this@ReaderActivity.router,
-                        onDismiss = { setQuickSettingsVisible(false) },
+                        onDismiss = { updateQuickSettingsVisibility(false) },
                     )
                 }
             }
@@ -386,7 +386,7 @@ class ReaderActivity :
         }
     }
 
-    private fun setQuickSettingsVisible(visible: Boolean) {
+    private fun updateQuickSettingsVisibility(visible: Boolean) {
         if (quickSettingsVisible == visible) return
         if (visible) {
             quickSettingsMode = readerManager.currentMode ?: return
@@ -792,7 +792,7 @@ class ReaderActivity :
 
     private fun setUiIsVisible(isUiVisible: Boolean) {
         novelChrome.visible = isUiVisible
-        if (!isUiVisible) setQuickSettingsVisible(false)
+        if (!isUiVisible) updateQuickSettingsVisibility(false)
         if (viewBinding.appbarTop.isVisible != isUiVisible) {
             var isAnimated = false
             if (isAnimationsEnabled) {
@@ -896,12 +896,12 @@ class ReaderActivity :
         if (readerManager.currentMode == null) return
         // The Settings button of the bar is a toggle: a second tap closes the panel
         if (quickSettingsVisible) {
-            setQuickSettingsVisible(false)
+            updateQuickSettingsVisibility(false)
             return
         }
         // The panel opens above the bar, so the bar has to be on screen (and laid out) first
         if (!viewBinding.appbarTop.isVisible) setUiIsVisible(true)
-        viewBinding.root.post { setQuickSettingsVisible(true) }
+        viewBinding.root.post { updateQuickSettingsVisibility(true) }
     }
 
     override fun scrollBy(delta: Int, smooth: Boolean): Boolean {
