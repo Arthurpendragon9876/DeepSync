@@ -227,7 +227,7 @@ class ReaderActionsView @JvmOverloads constructor(
 	private fun isTopSideLookIntact(): Boolean = children
 		.filterIsInstance<FrameLayout>()
 		.filter { it.isVisible }
-		.all { (it.getChildAt(0) as? MaterialButton)?.hasTonalSegmentBackground() ?: true }
+		.all { it.hasTonalSegmentBackground() }
 
 	override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
 		super.onWindowFocusChanged(hasWindowFocus)
@@ -505,8 +505,11 @@ class ReaderActionsView @JvmOverloads constructor(
 			button.setPadding(0, 0, 0, 0)
 			button.iconPadding = 0
 			button.iconSize = iconSize
-			// The segment is the button's own background, so its ripple is bounded to the shape.
-			button.applyTonalSegmentBackground(
+			// The fill lives on the frame around the button (a MaterialButton's transparent background
+			// tint would hide it there); the button keeps only a shape-bounded ripple as its foreground.
+			button.rippleColor = ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
+			frame.applyTonalSegmentBackground(
+				button = button,
 				roundLeft = if (isRtl) isLast else isFirst,
 				roundRight = if (isRtl) isFirst else isLast,
 			)
