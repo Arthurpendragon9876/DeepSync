@@ -133,6 +133,25 @@ class ExploreMetadataViewModel @Inject constructor(
 	/** 0 = Sources, 1 = Discover; kept here so a rotation does not bounce back to the sources. */
 	val selectedTab = MutableStateFlow(if (settings.isExploreDiscoverDefault) 1 else 0)
 
+	// The mode and the "Open on Discover" value the tab above was last set from
+	private var tabDefaultMode = settings.homeMode
+	private var tabDefaultValue = settings.isExploreDiscoverDefault
+
+	/**
+	 * "Open on Discover" is kept per mode and can be changed in Settings, but [selectedTab] is only read when this view
+	 * model is created. Called when Explore is shown again or the mode changes: if the mode or the setting differs from
+	 * what the tab was last set from, the tab goes back to that default. Returns true when the tab was changed.
+	 */
+	fun applyTabDefaultIfChanged(): Boolean {
+		val mode = settings.homeMode
+		val wanted = settings.isExploreDiscoverDefault
+		if (mode == tabDefaultMode && wanted == tabDefaultValue) return false
+		tabDefaultMode = mode
+		tabDefaultValue = wanted
+		selectedTab.value = if (wanted) 1 else 0
+		return true
+	}
+
 	private val mutableQuickPrefs = MutableStateFlow(readQuickPrefs())
 	val quickPrefs: StateFlow<ExploreQuickPrefs> = mutableQuickPrefs.asStateFlow()
 

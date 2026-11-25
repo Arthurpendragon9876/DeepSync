@@ -298,7 +298,17 @@ class ExploreFragment :
 		// The content mode (or the Anime / TV & Movies half of Streaming) can change from the nav bar while this tab
 		// is open; both reset the filters and reload, so nothing of the old mode lingers until a manual refresh.
 		viewModel.modeAndKindFlow.observe(viewLifecycleOwner) {
-			if (metaViewModel.selectedTab.value == 1) metaViewModel.sync()
+			applyTabDefaultOrSync()
+		}
+	}
+
+	/** Re-applies "Open on Discover" if the mode or the setting changed, otherwise just refreshes Discover when shown. */
+	private fun applyTabDefaultOrSync() {
+		val binding = viewBinding
+		if (binding != null && metaViewModel.applyTabDefaultIfChanged()) {
+			showExploreTab(binding, metaViewModel.selectedTab.value)
+		} else if (metaViewModel.selectedTab.value == 1) {
+			metaViewModel.sync()
 		}
 	}
 
@@ -335,6 +345,8 @@ class ExploreFragment :
 	override fun onHiddenChanged(hidden: Boolean) {
 		super.onHiddenChanged(hidden)
 		syncMainAppBar()
+		// Settings may have been changed while another tab was showing
+		if (!hidden) applyTabDefaultOrSync()
 	}
 
 	override fun onStop() {
@@ -351,8 +363,8 @@ class ExploreFragment :
 	override fun onResume() {
 		super.onResume()
 		if (!isHidden) syncMainAppBar()
-		// The metadata provider is chosen in Home settings; re-read it when coming back from there.
-		if (metaViewModel.selectedTab.value == 1) metaViewModel.sync()
+		// The metadata provider and "Open on Discover" are chosen in Settings; re-read them when coming back from there.
+		applyTabDefaultOrSync()
 	}
 
 	override fun onApplyWindowInsets(v: View, insets: WindowInsetsCompat): WindowInsetsCompat {
