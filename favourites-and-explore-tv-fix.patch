@@ -1,0 +1,134 @@
+diff -ruN DeepSync-main.orig2/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreFragment.kt DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreFragment.kt
+--- DeepSync-main.orig2/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreFragment.kt	2026-11-25 05:39:56.040661035 +0000
++++ DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/ExploreFragment.kt	2026-11-25 05:39:56.765006999 +0000
+@@ -295,8 +295,9 @@
+ 				shownResultsPage = resultsPage
+ 				shownForYouPage = forYouPage
+ 			}
+-		// The content mode can change from the nav bar while this tab is open.
+-		viewModel.modeFlow.observe(viewLifecycleOwner) {
++		// The content mode (or the Anime / TV & Movies half of Streaming) can change from the nav bar while this tab
++		// is open; both reset the filters and reload, so nothing of the old mode lingers until a manual refresh.
++		viewModel.modeAndKindFlow.observe(viewLifecycleOwner) {
+ 			if (metaViewModel.selectedTab.value == 1) metaViewModel.sync()
+ 		}
+ 	}
+diff -ruN DeepSync-main.orig2/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/meta/ExploreMetadataViewModel.kt DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/meta/ExploreMetadataViewModel.kt
+--- DeepSync-main.orig2/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/meta/ExploreMetadataViewModel.kt	2026-11-25 05:39:56.042242232 +0000
++++ DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/explore/ui/meta/ExploreMetadataViewModel.kt	2026-11-25 05:39:56.764427300 +0000
+@@ -107,7 +107,7 @@
+ 
+ 	private val mutableState = MutableStateFlow(
+ 		ExploreMetaState(
+-			provider = settings.homeMetadata,
++			provider = effectiveProvider(isTvMoviesNow(settings.homeMode)),
+ 			mode = settings.homeMode,
+ 			tvMovies = isTvMoviesNow(settings.homeMode),
+ 			isListView = settings.isExploreListView,
+@@ -118,6 +118,15 @@
+ 	private fun isTvMoviesNow(mode: HomeMode) =
+ 		mode == HomeMode.ANIME && settings.streamingKind == org.koitharu.kotatsu.home.ui.model.StreamingKind.TV_MOVIES
+ 
++	/**
++	 * TV & Movies has no AniList / MAL / MangaBaka metadata, only Simkl. Home already maps to it; Explore must too,
++	 * otherwise every request goes to a tracker that returns nothing and the page stays blank.
++	 */
++	private fun effectiveProvider(tv: Boolean): HomeMetadata {
++		val chosen = settings.homeMetadata
++		return if (tv && chosen != HomeMetadata.SOURCES) HomeMetadata.SIMKL else chosen
++	}
++
+ 	val onOpen = MutableEventFlow<MetaTarget>()
+ 
+ 	/** 0 = Sources, 1 = Discover; kept here so a rotation does not bounce back to the sources. */
+@@ -140,9 +149,9 @@
+ 	 * settings, the nav bar's mode button), so they are re-read here and everything reloads on a change.
+ 	 */
+ 	fun sync() {
+-		val provider = settings.homeMetadata
+ 		val mode = settings.homeMode
+ 		val tv = isTvMoviesNow(mode)
++		val provider = effectiveProvider(tv)
+ 		val current = mutableState.value
+ 		if (started && provider == current.provider && mode == current.mode && tv == current.tvMovies) return
+ 		started = true
+@@ -269,7 +278,12 @@
+ 			)
+ 		}
+ 		forYouJob = viewModelScope.launch {
+-			val listing = fetch(snapshot, filters, page)
++			var listing = fetch(snapshot, filters, page)
++			// A provider that cannot filter by genre server side (Simkl) can leave the user's top genre with nothing on
++			// its one page; show the unfiltered feed rather than a blank page
++			if (page == 1 && genres.isNotEmpty() && listing.error == null && listing.items.isEmpty()) {
++				listing = fetch(snapshot, filters.copy(include = emptySet()), page)
++			}
+ 			mutableState.update {
+ 				if (it.forYouGenre == snapshot.forYouGenre && it.feed == snapshot.feed) it.copy(forYou = listing) else it
+ 			}
+@@ -344,6 +358,8 @@
+ 
+ 	fun setProvider(provider: HomeMetadata) {
+ 		if (provider == HomeMetadata.SOURCES) return
++		// TV & Movies has the one provider (Simkl); choosing it must not overwrite the tracker picked for anime / manga
++		if (mutableState.value.tvMovies) return
+ 		settings.homeMetadata = provider
+ 		reload()
+ 	}
+@@ -363,7 +379,7 @@
+ 			hideAdult = settings.isHomeHideNsfw,
+ 			adultAllowed = !hideAdult(),
+ 			metadataFromTracker = settings.isMetadataFromTracker,
+-			provider = settings.homeMetadataProvider,
++			provider = if (isTvMoviesNow(mode)) HomeMetadata.SIMKL else settings.homeMetadataProvider,
+ 			providers = HomeMetadata.values().filter { it != HomeMetadata.SOURCES && repository.supports(it, mode) },
+ 		)
+ 	}
+@@ -371,8 +387,8 @@
+ 	// ---- opening ---------------------------------------------------------------------------------
+ 
+ 	fun open(title: MetadataTitle) {
+-		val provider = settings.homeMetadata
+ 		val mode = settings.homeMode
++		val provider = effectiveProvider(isTvMoviesNow(mode))
+ 		val ref = MetaRef(provider, title.id, mode)
+ 		// Info comes from the tracker: show its page now and let that page find the source.
+ 		if (settings.isMetadataFromTracker) {
+diff -ruN DeepSync-main.orig2/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/LocalFavoritesObserver.kt DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/LocalFavoritesObserver.kt
+--- DeepSync-main.orig2/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/LocalFavoritesObserver.kt	2026-11-25 05:39:56.045073333 +0000
++++ DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/LocalFavoritesObserver.kt	2026-11-25 05:39:56.763630176 +0000
+@@ -43,6 +43,8 @@
+ 	 * downloaded anime or novel.
+ 	 */
+ 	private fun Flow<List<FavouriteManga>>.inCurrentMode(): Flow<List<FavouriteManga>> = map { list ->
++		// "Keep favourite categories in every mode": the categories carry their titles too, whatever the mode
++		if (settings.isShowEmptyModeCategories) return@map list
+ 		val mode = settings.homeMode
+ 		val kind = settings.streamingKind
+ 		list.filter { toManga(it).source.isInMode(mode, kind) }
+diff -ruN DeepSync-main.orig2/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/list/FavouritesListViewModel.kt DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/list/FavouritesListViewModel.kt
+--- DeepSync-main.orig2/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/list/FavouritesListViewModel.kt	2026-11-25 05:39:56.048873511 +0000
++++ DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/list/FavouritesListViewModel.kt	2026-11-25 05:39:56.764046416 +0000
+@@ -243,7 +243,8 @@
+ 		mihonExtensionManager.isReady,
+ 		settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
+ 		settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
+-	) { _, mode, _ -> mode }
++		settings.observeAsFlow(AppSettings.KEY_SHOW_EMPTY_MODE_CATEGORIES) { isShowEmptyModeCategories },
++	) { _, mode, _, _ -> mode }
+ 
+ 	/**
+ 	 * Anime / Manga / Novel are separate worlds: keep only the active mode's titles. The "On device" filter already
+@@ -252,7 +253,11 @@
+ 	private fun kotlinx.coroutines.flow.Flow<List<Manga>>.filterByMode(
+ 		mode: org.koitharu.kotatsu.home.ui.model.HomeMode,
+ 		filters: Set<ListFilterOption>,
+-	) = if (ListFilterOption.Downloaded in filters) this else map { list -> list.filter { it.source.isInMode(mode, settings.streamingKind) } }
++	) = if (ListFilterOption.Downloaded in filters || settings.isShowEmptyModeCategories) {
++		this
++	} else {
++		map { list -> list.filter { it.source.isInMode(mode, settings.streamingKind) } }
++	}
+ 
+ 	// Pins apply only in the default (unfiltered) state; the global SFW option is a setting, not a user filter
+ 	private fun List<Long>.takeIfDefaultState(filters: Set<ListFilterOption>): List<Long> =
