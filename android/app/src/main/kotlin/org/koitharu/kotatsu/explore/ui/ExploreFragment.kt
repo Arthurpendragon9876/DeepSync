@@ -295,8 +295,9 @@ class ExploreFragment :
 				shownResultsPage = resultsPage
 				shownForYouPage = forYouPage
 			}
-		// The content mode can change from the nav bar while this tab is open.
-		viewModel.modeFlow.observe(viewLifecycleOwner) {
+		// The content mode (or the Anime / TV & Movies half of Streaming) can change from the nav bar while this tab
+		// is open; both reset the filters and reload, so nothing of the old mode lingers until a manual refresh.
+		viewModel.modeAndKindFlow.observe(viewLifecycleOwner) {
 			if (metaViewModel.selectedTab.value == 1) metaViewModel.sync()
 		}
 	}

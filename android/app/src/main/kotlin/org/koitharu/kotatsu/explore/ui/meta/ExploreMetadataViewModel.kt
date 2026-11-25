@@ -107,7 +107,7 @@ class ExploreMetadataViewModel @Inject constructor(
 
 	private val mutableState = MutableStateFlow(
 		ExploreMetaState(
-			provider = settings.homeMetadata,
+			provider = effectiveProvider(isTvMoviesNow(settings.homeMode)),
 			mode = settings.homeMode,
 			tvMovies = isTvMoviesNow(settings.homeMode),
 			isListView = settings.isExploreListView,
@@ -117,6 +117,15 @@ class ExploreMetadataViewModel @Inject constructor(
 
 	private fun isTvMoviesNow(mode: HomeMode) =
 		mode == HomeMode.ANIME && settings.streamingKind == org.koitharu.kotatsu.home.ui.model.StreamingKind.TV_MOVIES
+
+	/**
+	 * TV & Movies has no AniList / MAL / MangaBaka metadata, only Simkl. Home already maps to it; Explore must too,
+	 * otherwise every request goes to a tracker that returns nothing and the page stays blank.
+	 */
+	private fun effectiveProvider(tv: Boolean): HomeMetadata {
+		val chosen = settings.homeMetadata
+		return if (tv && chosen != HomeMetadata.SOURCES) HomeMetadata.SIMKL else chosen
+	}
 
 	val onOpen = MutableEventFlow<MetaTarget>()
 
@@ -140,9 +149,9 @@ class ExploreMetadataViewModel @Inject constructor(
 	 * settings, the nav bar's mode button), so they are re-read here and everything reloads on a change.
 	 */
 	fun sync() {
-		val provider = settings.homeMetadata
 		val mode = settings.homeMode
 		val tv = isTvMoviesNow(mode)
+		val provider = effectiveProvider(tv)
 		val current = mutableState.value
 		if (started && provider == current.provider && mode == current.mode && tv == current.tvMovies) return
 		started = true
@@ -269,7 +278,12 @@ class ExploreMetadataViewModel @Inject constructor(
 			)
 		}
 		forYouJob = viewModelScope.launch {
-			val listing = fetch(snapshot, filters, page)
+			var listing = fetch(snapshot, filters, page)
+			// A provider that cannot filter by genre server side (Simkl) can leave the user's top genre with nothing on
+			// its one page; show the unfiltered feed rather than a blank page
+			if (page == 1 && genres.isNotEmpty() && listing.error == null && listing.items.isEmpty()) {
+				listing = fetch(snapshot, filters.copy(include = emptySet()), page)
+			}
 			mutableState.update {
 				if (it.forYouGenre == snapshot.forYouGenre && it.feed == snapshot.feed) it.copy(forYou = listing) else it
 			}
@@ -344,6 +358,8 @@ class ExploreMetadataViewModel @Inject constructor(
 
 	fun setProvider(provider: HomeMetadata) {
 		if (provider == HomeMetadata.SOURCES) return
+		// TV & Movies has the one provider (Simkl); choosing it must not overwrite the tracker picked for anime / manga
+		if (mutableState.value.tvMovies) return
 		settings.homeMetadata = provider
 		reload()
 	}
@@ -363,7 +379,7 @@ class ExploreMetadataViewModel @Inject constructor(
 			hideAdult = settings.isHomeHideNsfw,
 			adultAllowed = !hideAdult(),
 			metadataFromTracker = settings.isMetadataFromTracker,
-			provider = settings.homeMetadataProvider,
+			provider = if (isTvMoviesNow(mode)) HomeMetadata.SIMKL else settings.homeMetadataProvider,
 			providers = HomeMetadata.values().filter { it != HomeMetadata.SOURCES && repository.supports(it, mode) },
 		)
 	}
@@ -371,8 +387,8 @@ class ExploreMetadataViewModel @Inject constructor(
 	// ---- opening ---------------------------------------------------------------------------------
 
 	fun open(title: MetadataTitle) {
-		val provider = settings.homeMetadata
 		val mode = settings.homeMode
+		val provider = effectiveProvider(isTvMoviesNow(mode))
 		val ref = MetaRef(provider, title.id, mode)
 		// Info comes from the tracker: show its page now and let that page find the source.
 		if (settings.isMetadataFromTracker) {

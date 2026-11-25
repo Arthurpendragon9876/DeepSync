@@ -43,6 +43,8 @@ class LocalFavoritesObserver @Inject constructor(
 	 * downloaded anime or novel.
 	 */
 	private fun Flow<List<FavouriteManga>>.inCurrentMode(): Flow<List<FavouriteManga>> = map { list ->
+		// "Keep favourite categories in every mode": the categories carry their titles too, whatever the mode
+		if (settings.isShowEmptyModeCategories) return@map list
 		val mode = settings.homeMode
 		val kind = settings.streamingKind
 		list.filter { toManga(it).source.isInMode(mode, kind) }
