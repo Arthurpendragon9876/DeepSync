@@ -1,0 +1,1052 @@
+diff -ruN DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt
+--- DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt	2026-11-25 06:03:23.249088458 +0000
+@@ -541,46 +541,49 @@
+ 		set(value) = prefs.edit { putBoolean(KEY_CHAPTER_JUMP_DIALOG, value) }
+ 
+ 	/**
+-	 * The reader bottom bar layout: every control in the user's order, paired with whether it is
+-	 * shown. Hidden controls keep their slot so re-enabling one puts it back where it was.
+-	 * Serialized as a comma-separated list of names, hidden ones prefixed with '-'.
++	 * The reader bars' layout: every control in the user's order, with the slot it sits in (left or
++	 * right side of the top or bottom bar) and whether it is shown. Hidden controls keep their place
++	 * so re-enabling one puts it back where it was.
++	 * Serialized as a comma-separated list of `NAME@SLOT`, hidden ones prefixed with '-'.
++	 * Builds that only had a bottom bar stored a plain ordered list of names under
++	 * [KEY_READER_CONTROLS] (and before that an unordered set under [KEY_READER_CONTROLS_LEGACY]);
++	 * they are read until the layout is first saved, so an update keeps a customised bar.
+ 	 */
+-	var readerControlsLayout: List<Pair<ReaderControl, Boolean>>
++	var readerBarLayout: ReaderBarLayout
+ 		get() {
+-			val stored = prefs.getString(KEY_READER_CONTROLS, null)
+-				?.split(',')
+-				?.mapNotNull { token ->
+-					val name = token.trim()
+-					val control = ReaderControl.entries.find(name.removePrefix("-")) ?: return@mapNotNull null
+-					control to !name.startsWith('-')
+-				}
+-				?.distinctBy { it.first }
+-				.orEmpty()
+-			val base = stored.ifEmpty { legacyReaderControlsLayout() }
+-			// Controls introduced by a later version are appended, hidden.
+-			val known = base.mapToSet { it.first }
+-			return base + ReaderControl.entries.filterNot { it in known }.map { it to false }
++			val stored = prefs.getString(KEY_READER_BAR_LAYOUT, null)
++			if (stored != null) {
++				return ReaderBars.parse(stored, { name -> ReaderControl.entries.find(name) }, { name -> ReaderBarSlot.entries.find(name) })
++			}
++			// Nothing stored under either older format: a fresh install.
++			val old = singleListReaderControls() ?: return ReaderBars.DEFAULT
++			return ReaderBars.fromSingleList(old)
+ 		}
+ 		set(value) = prefs.edit {
+-			putString(KEY_READER_CONTROLS, value.joinToString(",") { (c, isShown) -> if (isShown) c.name else "-${c.name}" })
++			putString(KEY_READER_BAR_LAYOUT, ReaderBars.serialize(value))
+ 		}
+ 
+-	/** Just the controls the bar renders, left to right. */
+-	val readerControls: List<ReaderControl>
+-		get() = readerControlsLayout.mapNotNull { (control, isShown) -> control.takeIf { isShown } }
++	/** The previous, bottom-bar-only format: controls in order, hidden ones prefixed with '-'. */
++	private fun singleListReaderControls(): List<Pair<ReaderControl, Boolean>>? {
++		val stored = prefs.getString(KEY_READER_CONTROLS, null)
++			?.split(',')
++			?.mapNotNull { token ->
++				val name = token.trim()
++				val control = ReaderControl.entries.find(name.removePrefix("-")) ?: return@mapNotNull null
++				control to !name.startsWith('-')
++			}
++			?.distinctBy { it.first }
++			.orEmpty()
++		return stored.ifEmpty { legacyReaderControlsLayout() }
++	}
+ 
+ 	// Pre-ordering builds stored an unordered string set under a different key; read it once so an
+ 	// update does not silently reset a customised bar.
+-	private fun legacyReaderControlsLayout(): List<Pair<ReaderControl, Boolean>> {
++	private fun legacyReaderControlsLayout(): List<Pair<ReaderControl, Boolean>>? {
+ 		val legacy = runCatching {
+ 			prefs.getStringSet(KEY_READER_CONTROLS_LEGACY, null)
+-		}.getOrNull()
+-		val shown = if (legacy != null) {
+-			ReaderControl.entries.filter { it.name in legacy }
+-		} else {
+-			ReaderControl.DEFAULT
+-		}
+-		return shown.map { it to true }
++		}.getOrNull() ?: return null
++		return ReaderControl.entries.filter { it.name in legacy }.map { it to true }
+ 	}
+ 
+ 	val isOfflineCheckDisabled: Boolean
+@@ -1738,6 +1741,7 @@
+ 		const val KEY_TRACKER_DOWNLOAD = "tracker_download"
+ 		const val KEY_READER_ANIMATION = "reader_animation2"
+ 		const val KEY_READER_CONTROLS = "reader_controls_order"
++		const val KEY_READER_BAR_LAYOUT = "reader_bar_layout"
+ 		private const val KEY_READER_CONTROLS_LEGACY = "reader_controls"
+ 		const val KEY_READER_MODE = "reader_mode"
+ 		const val KEY_EXPLORE_NOVEL_TAB_FIRST = "explore_novel_tab_first"
+diff -ruN DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/ReaderBarLayout.kt DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/ReaderBarLayout.kt
+--- DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/ReaderBarLayout.kt	1970-01-01 00:00:00.000000000 +0000
++++ DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/ReaderBarLayout.kt	2026-11-25 06:03:05.158874767 +0000
+@@ -0,0 +1,111 @@
++package org.koitharu.kotatsu.core.prefs
++
++import androidx.annotation.StringRes
++import org.koitharu.kotatsu.R
++import org.koitharu.kotatsu.core.prefs.ReaderBarSlot.BOTTOM_END
++import org.koitharu.kotatsu.core.prefs.ReaderBarSlot.BOTTOM_START
++import org.koitharu.kotatsu.core.prefs.ReaderBarSlot.TOP_END
++
++/**
++ * The four places a [ReaderControl] can sit: the left and right side of the top bar and of the
++ * bottom bar. The bottom bar's page slider lives between its two sides.
++ */
++enum class ReaderBarSlot(@StringRes val titleResId: Int) {
++
++	TOP_START(R.string.reader_bar_top_start),
++	TOP_END(R.string.reader_bar_top_end),
++	BOTTOM_START(R.string.reader_bar_bottom_start),
++	BOTTOM_END(R.string.reader_bar_bottom_end),
++}
++
++/**
++ * One control of the reader's bars: which [slot] it sits in and whether it is [isShown]. A hidden
++ * control keeps its place, so turning it back on puts it where it was.
++ */
++data class ReaderBarItem(
++	val control: ReaderControl,
++	val slot: ReaderBarSlot,
++	val isShown: Boolean,
++)
++
++/**
++ * Every control in the user's order. Controls of the same slot keep their relative order here;
++ * the order between slots does not matter.
++ */
++typealias ReaderBarLayout = List<ReaderBarItem>
++
++object ReaderBars {
++
++	/** The bars as they ship: Chapters and Previous | slider | Next and Settings, plus Bookmark on top. */
++	val DEFAULT: ReaderBarLayout = listOf(
++		ReaderBarItem(ReaderControl.PAGES_SHEET, BOTTOM_START, true),
++		ReaderBarItem(ReaderControl.PREV_CHAPTER, BOTTOM_START, true),
++		ReaderBarItem(ReaderControl.SLIDER, BOTTOM_START, true),
++		ReaderBarItem(ReaderControl.NEXT_CHAPTER, BOTTOM_END, true),
++		ReaderBarItem(ReaderControl.OPTIONS, BOTTOM_END, true),
++		ReaderBarItem(ReaderControl.BOOKMARK, TOP_END, true),
++		ReaderBarItem(ReaderControl.SCREEN_ROTATION, BOTTOM_END, false),
++		ReaderBarItem(ReaderControl.SAVE_PAGE, BOTTOM_END, false),
++		ReaderBarItem(ReaderControl.TIMER, BOTTOM_END, false),
++	)
++
++	/** Where a control that no stored layout knows yet goes, hidden. */
++	val DEFAULT_SLOT: ReaderBarSlot = BOTTOM_END
++
++	fun serialize(layout: ReaderBarLayout): String = layout.joinToString(",") { (control, slot, isShown) ->
++		(if (isShown) "" else "-") + control.name + "@" + slot.name
++	}
++
++	/**
++	 * Parses [serialize]'s output. Unknown names are dropped, a control without a slot lands in
++	 * [DEFAULT_SLOT], and controls added by a later version are appended hidden.
++	 */
++	fun parse(value: String, findControl: (String) -> ReaderControl?, findSlot: (String) -> ReaderBarSlot?): ReaderBarLayout {
++		val items = value.split(',')
++			.mapNotNull { token ->
++				val name = token.trim()
++				val control = findControl(name.removePrefix("-").substringBefore('@')) ?: return@mapNotNull null
++				val slot = name.substringAfter('@', "").let(findSlot) ?: DEFAULT_SLOT
++				ReaderBarItem(control, slot, isShown = !name.startsWith('-'))
++			}
++			.distinctBy { it.control }
++		return withMissingControls(items)
++	}
++
++	fun withMissingControls(items: ReaderBarLayout): ReaderBarLayout {
++		val known = items.map { it.control }.toSet()
++		return items + ReaderControl.entries.filterNot { it in known }.map { ReaderBarItem(it, DEFAULT_SLOT, false) }
++	}
++
++	/**
++	 * Turns an old single-list bottom bar (shown or hidden controls in one order, the slider among
++	 * them) into slots: what was left of the slider is now the left side, the rest the right side.
++	 * A bar saved before Settings was a control of its own had Chapters pinned first and Settings
++	 * pinned last, so that look is kept instead of hiding the Settings button. Bookmark used to
++	 * live in the top bar whenever it was off in the bottom bar, so it stays there.
++	 */
++	fun fromSingleList(old: List<Pair<ReaderControl, Boolean>>): ReaderBarLayout {
++		var list = old
++		if (list.none { it.first == ReaderControl.OPTIONS }) {
++			val pages = list.filter { it.first == ReaderControl.PAGES_SHEET }
++			list = pages + list.filter { it.first != ReaderControl.PAGES_SHEET } + (ReaderControl.OPTIONS to true)
++		}
++		val sliderIndex = list.indexOfFirst { it.first == ReaderControl.SLIDER }
++		val items = list.mapIndexed { index, (control, isShown) ->
++			val slot = if (sliderIndex < 0 || index <= sliderIndex) BOTTOM_START else BOTTOM_END
++			if (control == ReaderControl.BOOKMARK && !isShown) {
++				ReaderBarItem(control, TOP_END, true)
++			} else {
++				ReaderBarItem(control, slot, isShown)
++			}
++		}
++		return withMissingControls(items).let { full ->
++			// BOOKMARK was absent from a very old list: still keep the top bar bookmark it always had.
++			if (list.none { it.first == ReaderControl.BOOKMARK }) {
++				full.map { if (it.control == ReaderControl.BOOKMARK) it.copy(slot = TOP_END, isShown = true) else it }
++			} else {
++				full
++			}
++		}
++	}
++}
+diff -ruN DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/ReaderControl.kt DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/ReaderControl.kt
+--- DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/ReaderControl.kt	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/ReaderControl.kt	2026-11-25 06:03:05.154929872 +0000
+@@ -5,10 +5,12 @@
+ import org.koitharu.kotatsu.R
+ 
+ /**
+- * A single button (or the slider) of the reader's bottom bar. The user picks which ones are shown
+- * and in which order — see the "Reader controls in bottom bar" settings screen. Storage is an
+- * ordered list, so the declaration order here only matters as the fallback for controls that are
+- * turned on later.
++ * A single button (or the slider) of the reader's bars. The user picks which ones are shown, in
++ * which bar slot ([ReaderBarSlot]) and in which order — see the "Customise reader bottom bar and
++ * top bar" settings screen. Every control, Chapters and Settings included, can be moved to any
++ * slot; only [SLIDER] is tied to the bottom bar, between its two sides. Storage is an ordered
++ * list, so the declaration order here only matters as the fallback for controls that are turned on
++ * later.
+  */
+ enum class ReaderControl(
+ 	@StringRes val titleResId: Int,
+@@ -23,10 +25,6 @@
+ 	SCREEN_ROTATION(R.string.screen_orientation, R.drawable.ic_screen_rotation),
+ 	SAVE_PAGE(R.string.save_page, R.drawable.ic_save),
+ 	TIMER(R.string.automatic_scroll, R.drawable.ic_timer),
+-	BOOKMARK(R.string.bookmark_add, R.drawable.ic_bookmark, R.string.highlight_in_novels);
+-
+-	companion object {
+-
+-		val DEFAULT: List<ReaderControl> = listOf(PREV_CHAPTER, SLIDER, NEXT_CHAPTER, PAGES_SHEET)
+-	}
++	BOOKMARK(R.string.bookmark_add, R.drawable.ic_bookmark, R.string.highlight_in_novels),
++	OPTIONS(R.string.reader_bar_settings_button, R.drawable.ic_tune);
+ }
+diff -ruN DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActionsView.kt DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActionsView.kt
+--- DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActionsView.kt	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActionsView.kt	2026-11-25 06:05:42.744000950 +0000
+@@ -14,6 +14,7 @@
+ import android.widget.FrameLayout
+ import android.widget.LinearLayout
+ import androidx.annotation.AttrRes
++import androidx.core.content.res.use
+ import androidx.core.view.isVisible
+ import androidx.core.view.updateLayoutParams
+ import kotlin.math.roundToInt
+@@ -21,6 +22,7 @@
+ import org.koitharu.kotatsu.R
+ import org.koitharu.kotatsu.core.nav.AppRouter
+ import org.koitharu.kotatsu.core.prefs.AppSettings
++import org.koitharu.kotatsu.core.prefs.ReaderBarSlot
+ import org.koitharu.kotatsu.core.prefs.ReaderControl
+ import org.koitharu.kotatsu.core.util.ext.HapticEffect
+ import org.koitharu.kotatsu.core.util.ext.hapticFeedback
+@@ -53,6 +55,15 @@
+ 	lateinit var settings: AppSettings
+ 
+ 	private val binding = LayoutReaderActionsBinding.inflate(LayoutInflater.from(context), this)
++
++	/**
++	 * Which part of the bars' layout this view draws. Every instance inflates all the buttons and
++	 * shows only the controls of its own slots, so one layout preference drives the bottom bar and
++	 * both sides of the top bar.
++	 */
++	private val area: Area = context.obtainStyledAttributes(attrs, R.styleable.ReaderActionsView).use {
++		Area.entries.getOrElse(it.getInt(R.styleable.ReaderActionsView_readerBarArea, 0)) { Area.BOTTOM }
++	}
+ 	private val rotationObserver = object : ContentObserver(handler) {
+ 		override fun onChange(selfChange: Boolean) {
+ 			post {
+@@ -258,7 +269,7 @@
+ 
+ 	override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
+ 		when (key) {
+-			AppSettings.KEY_READER_CONTROLS -> updateControlsVisibility()
++			AppSettings.KEY_READER_BAR_LAYOUT -> updateControlsVisibility()
+ 			AppSettings.KEY_PAGES_TAB,
+ 			AppSettings.KEY_DETAILS_TAB,
+ 			AppSettings.KEY_DETAILS_LAST_TAB -> updatePagesSheetButton()
+@@ -286,27 +297,45 @@
+ 	}
+ 
+ 	private fun updateControlsVisibility() {
+-		val controls = settings.readerControls
+-		binding.buttonPrev.isVisible = ReaderControl.PREV_CHAPTER in controls
+-		binding.buttonNext.isVisible = ReaderControl.NEXT_CHAPTER in controls
+-		binding.buttonPagesThumbs.isVisible = ReaderControl.PAGES_SHEET in controls
+-		binding.buttonScreenRotation.isVisible = ReaderControl.SCREEN_ROTATION in controls
+-		binding.buttonSave.isVisible = ReaderControl.SAVE_PAGE in controls
+-		binding.buttonTimer.isVisible = ReaderControl.TIMER in controls
+-		binding.buttonBookmark.isVisible = ReaderControl.BOOKMARK in controls
+-		binding.buttonOptions.isVisible = true
+-		binding.slider.isVisible = ReaderControl.SLIDER in controls
++		val layout = settings.readerBarLayout
++		val shown = layout.filter { it.isShown && it.control != ReaderControl.SLIDER }
++		// The controls of this view's own slots, left to right. A null slot is the page slider,
++		// which sits between the two sides of the bottom bar.
++		val ordered = ArrayList<ReaderControl>()
++		var hasSlider = false
++		for (slot in area.slots) {
++			if (slot == null) {
++				hasSlider = layout.any { it.control == ReaderControl.SLIDER && it.isShown }
++			} else {
++				shown.filter { it.slot == slot }.mapTo(ordered) { it.control }
++			}
++		}
++		binding.buttonPrev.isVisible = ReaderControl.PREV_CHAPTER in ordered
++		binding.buttonNext.isVisible = ReaderControl.NEXT_CHAPTER in ordered
++		binding.buttonPagesThumbs.isVisible = ReaderControl.PAGES_SHEET in ordered
++		binding.buttonScreenRotation.isVisible = ReaderControl.SCREEN_ROTATION in ordered
++		binding.buttonSave.isVisible = ReaderControl.SAVE_PAGE in ordered
++		binding.buttonTimer.isVisible = ReaderControl.TIMER in ordered
++		binding.buttonBookmark.isVisible = ReaderControl.BOOKMARK in ordered
++		binding.buttonOptions.isVisible = ReaderControl.OPTIONS in ordered
++		binding.slider.isVisible = hasSlider
+ 		// bringChildToFront moves a child to the end of the child list, so walking the ordered
+-		// list left to right leaves the children in exactly that order. Like the novel bar, Chapters
+-		// stays pinned first and Settings pinned last, with the other controls in between.
+-		bringChildToFront(binding.buttonPagesThumbs.slot())
+-		for (control in controls) {
+-			if (control != ReaderControl.PAGES_SHEET) {
+-				bringChildToFront(control.view())
++		// list left to right leaves the children in exactly that order. Nothing is pinned: every
++		// control sits wherever the user put it.
++		for (slot in area.slots) {
++			if (slot == null) {
++				if (hasSlider) bringChildToFront(binding.slider)
++			} else {
++				shown.filter { it.slot == slot }.forEach { bringChildToFront(it.control.view()) }
+ 			}
+ 		}
+-		bringChildToFront(binding.buttonOptions.slot())
+ 		adjustLayoutParams()
++		// The rotation icon is only set while its button is visible, and it may just have become so.
++		updateRotationButton()
++		// A top-bar side with nothing on it must not leave its padding in the toolbar.
++		if (area.isTopSide) {
++			visibility = if (ordered.isEmpty()) GONE else VISIBLE
++		}
+ 	}
+ 
+ 	/** The direct child of this LinearLayout that hosts the given control. */
+@@ -319,6 +348,7 @@
+ 		ReaderControl.SAVE_PAGE -> binding.buttonSave.slot()
+ 		ReaderControl.TIMER -> binding.buttonTimer.slot()
+ 		ReaderControl.BOOKMARK -> binding.buttonBookmark.slot()
++		ReaderControl.OPTIONS -> binding.buttonOptions.slot()
+ 	}
+ 
+ 	private fun View.slot(): View = parent as View
+@@ -384,13 +414,17 @@
+ 
+ 	private fun adjustLayoutParams() {
+ 		val isSliderVisible = binding.slider.isVisible
++		// With no slider the buttons share the row's width, except on a top-bar side, which only
++		// takes the room its buttons need so the title keeps the rest of the toolbar.
++		val spread = !isSliderVisible && !area.isTopSide
+ 		repeat(childCount) { i ->
+ 			val child = getChildAt(i)
+ 			if (child is FrameLayout) {
+ 				child.isVisible = child.hasVisibleChildren
+ 				child.updateLayoutParams<LayoutParams> {
+-					width = if (isSliderVisible) LayoutParams.WRAP_CONTENT else 0
+-					weight = if (isSliderVisible) 0f else 1f
++					width = if (spread) 0 else LayoutParams.WRAP_CONTENT
++					weight = if (spread) 1f else 0f
++					if (area.isTopSide) marginEnd = 0
+ 				}
+ 			}
+ 		}
+@@ -423,4 +457,16 @@
+ 		Settings.System.ACCELEROMETER_ROTATION,
+ 		0,
+ 	) == 1
++
++	/** What a [ReaderActionsView] draws; null in [slots] stands for the page slider. */
++	private enum class Area(val slots: List<ReaderBarSlot?>) {
++
++		BOTTOM(listOf(ReaderBarSlot.BOTTOM_START, null, ReaderBarSlot.BOTTOM_END)),
++		TOP_START(listOf(ReaderBarSlot.TOP_START)),
++		TOP_END(listOf(ReaderBarSlot.TOP_END)),
++		ALL(listOf(ReaderBarSlot.TOP_START, ReaderBarSlot.BOTTOM_START, null, ReaderBarSlot.BOTTOM_END, ReaderBarSlot.TOP_END));
++
++		val isTopSide: Boolean
++			get() = this == TOP_START || this == TOP_END
++	}
+ }
+diff -ruN DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt
+--- DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActivity.kt	2026-11-25 06:04:24.323921284 +0000
+@@ -190,19 +190,19 @@
+         pageSaveHelper = pageSaveHelperFactory.create(this)
+         controlDelegate = ReaderControlDelegate(resources, settings, tapGridSettings, this)
+         viewBinding.zoomControl.listener = this
+-        viewBinding.actionsView.listener = this
++        actionViews.forEach { it.listener = this }
+         viewBinding.buttonTimerFab?.setOnClickListener(this)
+         idlingDetector.bindToLifecycle(this)
+         screenOrientationHelper.applySettings()
+-        viewModel.isBookmarkAdded.observe(this) { viewBinding.actionsView.isBookmarkAdded = it }
+-        viewModel.isHighlightPicking.observe(this) {
+-            novelChrome.isHighlightArmed = it
+-            viewBinding.actionsView.isHighlightPicking = it
+-            if (it) viewBinding.toastView.show(R.string.tap_sentence_to_highlight) else viewBinding.toastView.hide()
++        viewModel.isBookmarkAdded.observe(this) { added -> actionViews.forEach { it.isBookmarkAdded = added } }
++        viewModel.isHighlightPicking.observe(this) { picking ->
++            novelChrome.isHighlightArmed = picking
++            actionViews.forEach { it.isHighlightPicking = picking }
++            if (picking) viewBinding.toastView.show(R.string.tap_sentence_to_highlight) else viewBinding.toastView.hide()
+         }
+         scrollTimer.isActive.observe(this) {
+             updateScrollTimerButton()
+-            viewBinding.actionsView.setTimerActive(it)
++            actionViews.forEach { view -> view.setTimerActive(it) }
+         }
+         viewBinding.timerControl.onVisibilityChangeListener = this
+         viewBinding.timerControl.attach(scrollTimer, this)
+@@ -398,7 +398,7 @@
+         }
+         quickSettingsVisible = visible
+         quickSettingsBackCallback.isEnabled = visible
+-        viewBinding.actionsView.isSettingsOpen = visible
++        actionViews.forEach { it.isSettingsOpen = visible }
+     }
+ 
+     /** Puts the panel just above the bottom bar, with the same side margins as the bar. */
+@@ -433,6 +433,14 @@
+         updateScrollTimerButton()
+     }
+ 
++    /**
++     * Every bar view that can hold the user's buttons: the bottom bar and the two sides of the top
++     * bar (the latter are absent from the wide layouts, which keep a single combined bar). Button
++     * state (bookmarked, timer running, ...) goes to all of them, since any button can sit in any.
++     */
++    private val actionViews: List<ReaderActionsView>
++        get() = listOfNotNull(viewBinding.actionsView, viewBinding.actionsTopStart, viewBinding.actionsTopEnd)
++
+     private fun applyNovelChrome(isEpub: Boolean) {
+         novelChrome.active = isEpub
+         if (isEpub) novelChrome.visible = viewBinding.appbarTop.isVisible
+@@ -1024,7 +1032,7 @@
+             return
+         }
+         viewBinding.actionsView.isSliderSmooth = uiState.isEpub && !uiState.isEpubPaged
+-        viewBinding.actionsView.isHighlightMode = uiState.isEpub
++        actionViews.forEach { it.isHighlightMode = uiState.isEpub }
+         // Only trade Material's value label for the thumbnail when the pages are really resolvable;
+         // otherwise the scrub would show neither.
+         viewBinding.actionsView.isScrubPreviewEnabled = uiState.isSliderAvailable() &&
+@@ -1053,8 +1061,8 @@
+             viewBinding.actionsView.setSliderValue(0, 1)
+         }
+         viewBinding.actionsView.isSliderEnabled = uiState.isSliderAvailable()
+-        viewBinding.actionsView.isNextEnabled = uiState.hasNextChapter()
+-        viewBinding.actionsView.isPrevEnabled = uiState.hasPreviousChapter()
++        actionViews.forEach { it.isNextEnabled = uiState.hasNextChapter() }
++        actionViews.forEach { it.isPrevEnabled = uiState.hasPreviousChapter() }
+     }
+ 
+     /**
+diff -ruN DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderMenuProvider.kt DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderMenuProvider.kt
+--- DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderMenuProvider.kt	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderMenuProvider.kt	2026-11-25 06:04:19.375108849 +0000
+@@ -21,19 +21,14 @@
+ 
+ 	override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
+ 		menuInflater.inflate(R.menu.opt_reader, menu)
+-		menu.findItem(R.id.action_bookmark)?.isVisible = !isLandscape && !isEpub()
++		// The bookmark button is one of the user's bar buttons now ("Customise reader bottom bar and
++		// top bar"), drawn by the bars themselves, so the menu no longer carries one.
++		menu.findItem(R.id.action_bookmark)?.isVisible = false
+ 	}
+ 
+ 	override fun onPrepareMenu(menu: Menu) {
+ 		menu.findItem(R.id.action_epub_search)?.isVisible = isEpub()
+-		// The old three-dot button is gone (quick settings live in the bottom bar): the top bar now
+-		// carries a bookmark toggle instead.
+-		menu.findItem(R.id.action_bookmark)?.let { item ->
+-			val added = isBookmarkAdded()
+-			item.isVisible = !isLandscape && !isEpub()
+-			item.setIcon(if (added) R.drawable.ic_bookmark_added else R.drawable.ic_bookmark)
+-			item.setTitle(if (added) R.string.bookmark_remove else R.string.bookmark_add)
+-		}
++		menu.findItem(R.id.action_bookmark)?.isVisible = false
+ 		menu.findItem(R.id.action_upscale_preview)?.isVisible = isUpscaleActive()
+ 		// Novels have their own web button in the reader bar, beside the highlighter
+ 		menu.findItem(R.id.action_webview)?.isVisible = !isEpub() && canOpenWeb()
+diff -ruN DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/reader/ReaderBarSettingsFragment.kt DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/reader/ReaderBarSettingsFragment.kt
+--- DeepSync-main.orig/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/reader/ReaderBarSettingsFragment.kt	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/reader/ReaderBarSettingsFragment.kt	2026-11-25 06:05:42.744307082 +0000
+@@ -18,7 +18,10 @@
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
++import androidx.compose.material3.DropdownMenu
++import androidx.compose.material3.DropdownMenuItem
+ import androidx.compose.material3.Icon
++import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
+ import androidx.compose.material3.Switch
+ import androidx.compose.material3.Text
+@@ -53,6 +56,10 @@
+ import dagger.hilt.android.AndroidEntryPoint
+ import org.koitharu.kotatsu.R
+ import org.koitharu.kotatsu.core.prefs.AppSettings
++import org.koitharu.kotatsu.core.prefs.ReaderBarItem
++import org.koitharu.kotatsu.core.prefs.ReaderBarLayout
++import org.koitharu.kotatsu.core.prefs.ReaderBarSlot
++import org.koitharu.kotatsu.core.prefs.ReaderBars
+ import org.koitharu.kotatsu.core.prefs.ReaderControl
+ import org.koitharu.kotatsu.core.util.ext.HapticEffect
+ import org.koitharu.kotatsu.core.util.ext.rememberHapticEffect
+@@ -68,9 +75,11 @@
+ import kotlin.math.roundToInt
+ 
+ /**
+- * Customises the reader's bottom bar: one list holding every control, toggled with a switch and
+- * reordered by dragging its handle. The preview on top is the real [ReaderActionsView] reading the
+- * same preference, so it always matches the reader.
++ * Customises the reader's bars. Every control lives in one of four slots (left or right side of
++ * the top bar, left or right side of the bottom bar); the page slider sits between the bottom
++ * bar's two sides. A control is toggled with its switch, reordered by dragging its handle within
++ * its slot, and sent to another slot with its move menu. The previews on top are the real
++ * [ReaderActionsView]s reading the same preference, so they always match the reader.
+  */
+ @AndroidEntryPoint
+ class ReaderBarSettingsFragment :
+@@ -88,15 +97,15 @@
+ 		setContent {
+ 			DropSauceTheme {
+ 				ReaderBarScreen(
+-					initial = settings.readerControlsLayout,
+-					onChanged = { settings.readerControlsLayout = it },
++					initial = settings.readerBarLayout,
++					onChanged = { settings.readerBarLayout = it },
+ 				)
+ 			}
+ 		}
+ 	}
+ }
+ 
+-private typealias BarLayout = List<Pair<ReaderControl, Boolean>>
++private typealias BarLayout = ReaderBarLayout
+ 
+ @Composable
+ private fun ReaderBarScreen(
+@@ -109,6 +118,8 @@
+ 		onChanged(value)
+ 	}
+ 	SettingsScaffold {
++		item { TopBarPreview() }
++		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
+ 		item { BottomBarPreview() }
+ 		item { Spacer(Modifier.height(16.dp).fillMaxWidth()) }
+ 		item { ControlList(layout = layout, onChange = apply) }
+@@ -116,6 +127,14 @@
+ }
+ 
+ @Composable
++private fun TopBarPreview() {
++	AndroidView(
++		modifier = Modifier.fillMaxWidth(),
++		factory = { ctx -> LayoutInflater.from(ctx).inflate(R.layout.view_reader_top_bar_preview, null) },
++	)
++}
++
++@Composable
+ private fun BottomBarPreview() {
+ 	AndroidView(
+ 		modifier = Modifier.fillMaxWidth(),
+@@ -130,9 +149,32 @@
+ 	)
+ }
+ 
++/** The controls of one slot, in the order they are drawn. The slider is not part of any slot. */
++private fun BarLayout.inSlot(slot: ReaderBarSlot): List<ReaderBarItem> =
++	filter { it.slot == slot && it.control != ReaderControl.SLIDER }
++
++/** What the bars look like, ignoring how the slots are interleaved in the list. */
++private fun BarLayout.appearance(): List<List<Pair<ReaderControl, Boolean>>> =
++	ReaderBarSlot.entries.map { slot -> inSlot(slot).map { it.control to it.isShown } } +
++		listOf(filter { it.control == ReaderControl.SLIDER }.map { it.control to it.isShown })
++
++/** [newOrder] fills the places the slot's controls already had, so other slots stay untouched. */
++private fun BarLayout.withSlotOrder(slot: ReaderBarSlot, newOrder: List<ReaderBarItem>): BarLayout {
++	val replacements = newOrder.iterator()
++	return map { item -> if (item.slot == slot && item.control != ReaderControl.SLIDER) replacements.next() else item }
++}
++
++/** Sends a control to the end of [target]. */
++private fun BarLayout.moved(control: ReaderControl, target: ReaderBarSlot): BarLayout {
++	val item = firstOrNull { it.control == control } ?: return this
++	val rest = filterNot { it.control == control }
++	return rest.toMutableList().apply { add(rest.indexOfLast { it.slot == target } + 1, item.copy(slot = target)) }
++}
++
+ /**
+- * The whole bar as one reorderable settings group. Rows are uniform height, so a drag is turned
+- * into an index shift by dividing the accumulated offset by the row pitch.
++ * Every control of the bars, grouped by slot, each group a reorderable settings group. Rows are
++ * uniform height, so a drag is turned into an index shift by dividing the accumulated offset by
++ * the row pitch.
+  */
+ @Composable
+ private fun ControlList(
+@@ -140,7 +182,77 @@
+ 	onChange: (BarLayout) -> Unit,
+ ) {
+ 	val haptic = rememberHapticEffect()
++	Column {
++		var isConfirmingReset by remember { mutableStateOf(false) }
++		SettingsGroupTitle(
++			title = stringResource(R.string.customize),
++			isResetEnabled = layout.appearance() != ReaderBars.DEFAULT.appearance(),
++			onResetClick = { isConfirmingReset = true },
++		)
++		if (isConfirmingReset) {
++			ConfirmDialog(
++				title = stringResource(R.string.reset),
++				message = stringResource(R.string.config_reset_confirm),
++				confirmLabel = stringResource(R.string.reset),
++				onConfirm = {
++					onChange(ReaderBars.DEFAULT)
++					haptic(HapticEffect.CONFIRM)
++				},
++				onDismiss = { isConfirmingReset = false },
++			)
++		}
++		SlotSection(ReaderBarSlot.TOP_START, layout, onChange)
++		SlotSection(ReaderBarSlot.TOP_END, layout, onChange)
++		SlotSection(ReaderBarSlot.BOTTOM_START, layout, onChange)
++		SliderSection(layout, onChange)
++		SlotSection(ReaderBarSlot.BOTTOM_END, layout, onChange)
++	}
++}
++
++@Composable
++private fun SlotTitle(title: String) {
++	Text(
++		text = title,
++		style = MaterialTheme.typography.labelLarge,
++		color = MaterialTheme.colorScheme.onSurfaceVariant,
++		modifier = Modifier
++			.fillMaxWidth()
++			.padding(start = 12.dp, top = 16.dp, bottom = 6.dp),
++	)
++}
++
++/** The page slider: on or off, always between the bottom bar's left and right side. */
++@Composable
++private fun SliderSection(
++	layout: BarLayout,
++	onChange: (BarLayout) -> Unit,
++) {
++	val item = layout.firstOrNull { it.control == ReaderControl.SLIDER } ?: return
++	SettingsItem(
++		title = stringResource(item.control.titleResId),
++		subtitle = stringResource(R.string.reader_bar_slider_note),
++		icon = item.control.iconResId,
++		shape = groupItemShape(0, 1),
++		modifier = Modifier.padding(top = 14.dp),
++		onClick = { onChange(layout.map { if (it.control == item.control) it.copy(isShown = !it.isShown) else it }) },
++		trailing = {
++			Switch(
++				checked = item.isShown,
++				onCheckedChange = { shown -> onChange(layout.map { if (it.control == item.control) it.copy(isShown = shown) else it }) },
++			)
++		},
++	)
++}
++
++@Composable
++private fun SlotSection(
++	slot: ReaderBarSlot,
++	layout: BarLayout,
++	onChange: (BarLayout) -> Unit,
++) {
++	val haptic = rememberHapticEffect()
+ 	val gap = with(LocalDensity.current) { GROUP_GAP.toPx() }
++	val rows = layout.inSlot(slot)
+ 	var rowPitch by remember { mutableFloatStateOf(0f) }
+ 	var dragIndex by remember { mutableIntStateOf(-1) }
+ 	var dragOffset by remember { mutableFloatStateOf(0f) }
+@@ -149,9 +261,9 @@
+ 		dragOffset += dy
+ 		if (rowPitch > 0f && dragIndex >= 0) {
+ 			val target = (dragIndex + (dragOffset / rowPitch).roundToInt())
+-				.coerceIn(0, layout.lastIndex)
++				.coerceIn(0, rows.lastIndex)
+ 			if (target != dragIndex) {
+-				onChange(layout.toMutableList().apply { add(target, removeAt(dragIndex)) })
++				onChange(layout.withSlotOrder(slot, rows.toMutableList().apply { add(target, removeAt(dragIndex)) }))
+ 				dragOffset -= (target - dragIndex) * rowPitch
+ 				dragIndex = target
+ 				haptic(HapticEffect.LIGHT_TICK)
+@@ -159,61 +271,56 @@
+ 		}
+ 	}
+ 
+-	Column {
+-		var isConfirmingReset by remember { mutableStateOf(false) }
+-		SettingsGroupTitle(
+-			title = stringResource(R.string.customize),
+-			isResetEnabled = layout != DEFAULT_LAYOUT,
+-			onResetClick = { isConfirmingReset = true },
++	SlotTitle(stringResource(slot.titleResId))
++	if (rows.isEmpty()) {
++		Text(
++			text = stringResource(R.string.reader_bar_slot_empty),
++			style = MaterialTheme.typography.bodySmall,
++			color = MaterialTheme.colorScheme.onSurfaceVariant,
++			modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+ 		)
+-		if (isConfirmingReset) {
+-			ConfirmDialog(
+-				title = stringResource(R.string.reset),
+-				message = stringResource(R.string.config_reset_confirm),
+-				confirmLabel = stringResource(R.string.reset),
+-				onConfirm = {
+-					onChange(DEFAULT_LAYOUT)
++		return
++	}
++	rows.forEachIndexed { index, item ->
++		// Keyed by control so each row's state — and its slide animation — follows the item as
++		// the list reorders instead of staying with the slot.
++		key(item.control) {
++			val isDragging = index == dragIndex
++			val slide = rememberReorderSlide(index, rowPitch, isDragging)
++			ControlRow(
++				control = item.control,
++				isShown = item.isShown,
++				slot = slot,
++				shape = groupItemShape(index, rows.size),
++				modifier = Modifier
++					.zIndex(if (isDragging) 1f else 0f)
++					.graphicsLayer {
++						translationY = if (isDragging) dragOffset else slide.floatValue
++						shadowElevation = if (isDragging) DRAG_ELEVATION.toPx() else 0f
++					}
++					.onSizeChanged { rowPitch = it.height + gap },
++				onToggle = {
++					onChange(layout.map { if (it.control == item.control) it.copy(isShown = !it.isShown) else it })
++				},
++				onMove = { target ->
++					onChange(layout.moved(item.control, target))
+ 					haptic(HapticEffect.CONFIRM)
+ 				},
+-				onDismiss = { isConfirmingReset = false },
++				onDragStart = {
++					dragIndex = index
++					dragOffset = 0f
++					haptic(HapticEffect.GESTURE_START)
++				},
++				onDrag = onDrag,
++				onDragEnd = {
++					dragIndex = -1
++					dragOffset = 0f
++					haptic(HapticEffect.GESTURE_END)
++				},
+ 			)
+ 		}
+-		layout.forEachIndexed { index, (control, isShown) ->
+-			// Keyed by control so each row's state — and its slide animation — follows the item as
+-			// the list reorders instead of staying with the slot.
+-			key(control) {
+-				val isDragging = index == dragIndex
+-				val slide = rememberReorderSlide(index, rowPitch, isDragging)
+-				ControlRow(
+-					control = control,
+-					isShown = isShown,
+-					shape = groupItemShape(index, layout.size),
+-					modifier = Modifier
+-						.zIndex(if (isDragging) 1f else 0f)
+-						.graphicsLayer {
+-							translationY = if (isDragging) dragOffset else slide.floatValue
+-							shadowElevation = if (isDragging) DRAG_ELEVATION.toPx() else 0f
+-						}
+-						.onSizeChanged { rowPitch = it.height + gap },
+-					onToggle = {
+-						onChange(layout.toMutableList().apply { this[index] = control to !isShown })
+-					},
+-					onDragStart = {
+-						dragIndex = index
+-						dragOffset = 0f
+-						haptic(HapticEffect.GESTURE_START)
+-					},
+-					onDrag = onDrag,
+-					onDragEnd = {
+-						dragIndex = -1
+-						dragOffset = 0f
+-						haptic(HapticEffect.GESTURE_END)
+-					},
+-				)
+-			}
+-			if (index < layout.lastIndex) {
+-				Spacer(Modifier.height(GROUP_GAP))
+-			}
++		if (index < rows.lastIndex) {
++			Spacer(Modifier.height(GROUP_GAP))
+ 		}
+ 	}
+ }
+@@ -292,9 +399,11 @@
+ private fun ControlRow(
+ 	control: ReaderControl,
+ 	isShown: Boolean,
++	slot: ReaderBarSlot,
+ 	shape: Shape,
+ 	modifier: Modifier,
+ 	onToggle: () -> Unit,
++	onMove: (ReaderBarSlot) -> Unit,
+ 	onDragStart: () -> Unit,
+ 	onDrag: (Float) -> Unit,
+ 	onDragEnd: () -> Unit,
+@@ -309,12 +418,43 @@
+ 		trailing = {
+ 			Row(verticalAlignment = Alignment.CenterVertically) {
+ 				Switch(checked = isShown, onCheckedChange = { onToggle() })
++				MoveButton(current = slot, onMove = onMove)
+ 				DragHandle(onDragStart = onDragStart, onDrag = onDrag, onDragEnd = onDragEnd)
+ 			}
+ 		},
+ 	)
+ }
+ 
++/** Opens a menu of the other three slots; picking one sends the control to the end of it. */
++@Composable
++private fun MoveButton(
++	current: ReaderBarSlot,
++	onMove: (ReaderBarSlot) -> Unit,
++) {
++	var isExpanded by remember { mutableStateOf(false) }
++	Box {
++		IconButton(onClick = { isExpanded = true }, modifier = Modifier.size(40.dp)) {
++			Icon(
++				painter = painterResource(R.drawable.ic_swap),
++				contentDescription = stringResource(R.string.reader_bar_move_to),
++				modifier = Modifier.size(22.dp),
++				tint = MaterialTheme.colorScheme.onSurfaceVariant,
++			)
++		}
++		DropdownMenu(expanded = isExpanded, onDismissRequest = { isExpanded = false }) {
++			ReaderBarSlot.entries.filterNot { it == current }.forEach { slot ->
++				DropdownMenuItem(
++					text = { Text(stringResource(slot.titleResId)) },
++					onClick = {
++						isExpanded = false
++						onMove(slot)
++					},
++				)
++			}
++		}
++	}
++}
++
+ @Composable
+ private fun DragHandle(
+ 	onDragStart: () -> Unit,
+@@ -351,9 +491,5 @@
+ 	}
+ }
+ 
+-/** The bar as it ships: the default controls in their default order, everything else hidden. */
+-private val DEFAULT_LAYOUT: BarLayout = ReaderControl.DEFAULT.map { it to true } +
+-	ReaderControl.entries.filterNot { it in ReaderControl.DEFAULT }.map { it to false }
+-
+ private val GROUP_GAP = 2.dp
+ private val DRAG_ELEVATION = 8.dp
+diff -ruN DeepSync-main.orig/android/app/src/main/res/layout/activity_reader.xml DeepSync-main/android/app/src/main/res/layout/activity_reader.xml
+--- DeepSync-main.orig/android/app/src/main/res/layout/activity_reader.xml	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/res/layout/activity_reader.xml	2026-11-25 06:04:05.635030619 +0000
+@@ -82,7 +82,25 @@
+ 			app:contentInsetEndWithActions="@dimen/reader_toolbar_actions_end_inset"
+ 			app:elevation="4dp"
+ 			app:popupTheme="@style/ThemeOverlay.Kotatsu"
+-			tools:menu="@menu/opt_reader" />
++			tools:menu="@menu/opt_reader">
++
++			<!-- The user's top-bar buttons ("Customise reader bottom bar and top bar"): the left group
++			     sits after the back arrow, the right one before the menu actions. -->
++			<org.koitharu.kotatsu.reader.ui.ReaderActionsView
++				android:id="@+id/actions_top_start"
++				android:layout_width="wrap_content"
++				android:layout_height="wrap_content"
++				android:layout_gravity="center_vertical|start"
++				app:readerBarArea="topStart" />
++
++			<org.koitharu.kotatsu.reader.ui.ReaderActionsView
++				android:id="@+id/actions_top_end"
++				android:layout_width="wrap_content"
++				android:layout_height="wrap_content"
++				android:layout_gravity="center_vertical|end"
++				app:readerBarArea="topEnd" />
++
++		</com.google.android.material.appbar.MaterialToolbar>
+ 
+ 	</com.google.android.material.appbar.AppBarLayout>
+ 
+diff -ruN DeepSync-main.orig/android/app/src/main/res/layout/view_reader_bar_preview.xml DeepSync-main/android/app/src/main/res/layout/view_reader_bar_preview.xml
+--- DeepSync-main.orig/android/app/src/main/res/layout/view_reader_bar_preview.xml	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/res/layout/view_reader_bar_preview.xml	2026-11-25 06:04:50.183743697 +0000
+@@ -1,5 +1,5 @@
+ <?xml version="1.0" encoding="utf-8"?>
+-<!-- Live preview of the reader's bottom bar for the "Reader controls in bottom bar" settings
++<!-- Live preview of the reader's bottom bar for the "Customise reader bottom bar and top bar" settings
+      screen. It hosts the real ReaderActionsView (so it always matches the reader exactly) with a
+      transparent overlay on top that swallows every touch — the preview is look-only. -->
+ <FrameLayout
+diff -ruN DeepSync-main.orig/android/app/src/main/res/layout/view_reader_top_bar_preview.xml DeepSync-main/android/app/src/main/res/layout/view_reader_top_bar_preview.xml
+--- DeepSync-main.orig/android/app/src/main/res/layout/view_reader_top_bar_preview.xml	1970-01-01 00:00:00.000000000 +0000
++++ DeepSync-main/android/app/src/main/res/layout/view_reader_top_bar_preview.xml	2026-11-25 06:04:50.182073820 +0000
+@@ -0,0 +1,56 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Live preview of the reader's top bar for the "Customise reader bottom bar and top bar"
++     settings screen: a back arrow, then the two real ReaderActionsView groups (left and right
++     side) reading the same preference as the reader, with a transparent overlay on top that
++     swallows every touch — the preview is look-only. -->
++<FrameLayout
++	xmlns:android="http://schemas.android.com/apk/res/android"
++	xmlns:app="http://schemas.android.com/apk/res-auto"
++	android:layout_width="match_parent"
++	android:layout_height="wrap_content">
++
++	<LinearLayout
++		android:layout_width="match_parent"
++		android:layout_height="wrap_content"
++		android:background="@drawable/bg_card"
++		android:backgroundTint="?colorSurfaceContainer"
++		android:gravity="center_vertical"
++		android:minHeight="?actionBarSize"
++		android:orientation="horizontal"
++		android:paddingHorizontal="@dimen/margin_small">
++
++		<ImageView
++			android:layout_width="48dp"
++			android:layout_height="48dp"
++			android:importantForAccessibility="no"
++			android:padding="12dp"
++			android:src="@drawable/ic_arrow_back"
++			app:tint="?colorOnSurface" />
++
++		<org.koitharu.kotatsu.reader.ui.ReaderActionsView
++			android:id="@+id/actionsTopStart"
++			android:layout_width="wrap_content"
++			android:layout_height="wrap_content"
++			app:readerBarArea="topStart" />
++
++		<Space
++			android:layout_width="0dp"
++			android:layout_height="1dp"
++			android:layout_weight="1" />
++
++		<org.koitharu.kotatsu.reader.ui.ReaderActionsView
++			android:id="@+id/actionsTopEnd"
++			android:layout_width="wrap_content"
++			android:layout_height="wrap_content"
++			app:readerBarArea="topEnd" />
++
++	</LinearLayout>
++
++	<View
++		android:layout_width="match_parent"
++		android:layout_height="match_parent"
++		android:clickable="true"
++		android:focusable="false"
++		android:importantForAccessibility="no" />
++
++</FrameLayout>
+diff -ruN DeepSync-main.orig/android/app/src/main/res/layout-w600dp-land/activity_reader.xml DeepSync-main/android/app/src/main/res/layout-w600dp-land/activity_reader.xml
+--- DeepSync-main.orig/android/app/src/main/res/layout-w600dp-land/activity_reader.xml	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/res/layout-w600dp-land/activity_reader.xml	2026-11-25 06:04:05.635442570 +0000
+@@ -79,7 +79,8 @@
+ 				android:id="@+id/actionsView"
+ 				android:layout_width="400dp"
+ 				android:layout_height="wrap_content"
+-				android:layout_gravity="center_vertical|end" />
++				android:layout_gravity="center_vertical|end"
++				app:readerBarArea="all" />
+ 
+ 		</com.google.android.material.appbar.MaterialToolbar>
+ 
+diff -ruN DeepSync-main.orig/android/app/src/main/res/layout-w840dp/activity_reader.xml DeepSync-main/android/app/src/main/res/layout-w840dp/activity_reader.xml
+--- DeepSync-main.orig/android/app/src/main/res/layout-w840dp/activity_reader.xml	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/res/layout-w840dp/activity_reader.xml	2026-11-25 06:04:05.635265419 +0000
+@@ -79,7 +79,8 @@
+ 				android:id="@+id/actionsView"
+ 				android:layout_width="400dp"
+ 				android:layout_height="wrap_content"
+-				android:layout_gravity="center_vertical|end" />
++				android:layout_gravity="center_vertical|end"
++				app:readerBarArea="all" />
+ 
+ 		</com.google.android.material.appbar.MaterialToolbar>
+ 
+diff -ruN DeepSync-main.orig/android/app/src/main/res/values/arrays.xml DeepSync-main/android/app/src/main/res/values/arrays.xml
+--- DeepSync-main.orig/android/app/src/main/res/values/arrays.xml	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/res/values/arrays.xml	2026-11-25 06:02:48.151207059 +0000
+@@ -146,6 +146,7 @@
+ 		<item>@string/save_page</item>
+ 		<item>@string/automatic_scroll</item>
+ 		<item>@string/bookmark_add</item>
++		<item>@string/reader_bar_settings_button</item>
+ 	</string-array>
+ 	<string-array name="list_badges" translatable="false">
+ 		<item>@string/favourites</item>
+diff -ruN DeepSync-main.orig/android/app/src/main/res/values/attrs.xml DeepSync-main/android/app/src/main/res/values/attrs.xml
+--- DeepSync-main.orig/android/app/src/main/res/values/attrs.xml	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/res/values/attrs.xml	2026-11-25 06:03:45.857483250 +0000
+@@ -28,6 +28,17 @@
+ 		<attr name="crossfadeEnabled" format="boolean" />
+ 	</declare-styleable>
+ 
++	<!-- Which part of the reader bars layout a ReaderActionsView draws: the bottom bar (with the
++	     slider), one side of the top bar, or everything in one row (wide screens). -->
++	<declare-styleable name="ReaderActionsView">
++		<attr name="readerBarArea" format="enum">
++			<enum name="bottom" value="0" />
++			<enum name="topStart" value="1" />
++			<enum name="topEnd" value="2" />
++			<enum name="all" value="3" />
++		</attr>
++	</declare-styleable>
++
+ 	<declare-styleable name="CoverImageView">
+ 		<attr name="aspectRationHeight" format="integer" />
+ 		<attr name="aspectRationWidth" format="integer" />
+diff -ruN DeepSync-main.orig/android/app/src/main/res/values/strings.xml DeepSync-main/android/app/src/main/res/values/strings.xml
+--- DeepSync-main.orig/android/app/src/main/res/values/strings.xml	2026-11-25 05:44:22.000000000 +0000
++++ DeepSync-main/android/app/src/main/res/values/strings.xml	2026-11-25 06:03:30.852057037 +0000
+@@ -1205,8 +1205,16 @@
+ 	<string name="no_highlights_summary">Hold and select any text while reading to highlight it</string>
+ 	<string name="highlights_removed">Highlights removed</string>
+     <string name="restoring_backup">Restoring backup</string>
+-    <string name="reader_controls_in_bottom_bar">Reader controls in bottom bar</string>
+-    <string name="reader_controls_in_bottom_bar_summary">Choose the buttons and their order</string>
++    <string name="reader_controls_in_bottom_bar">Customise reader bottom bar and top bar</string>
++    <string name="reader_controls_in_bottom_bar_summary">Choose the buttons, their order and which bar they sit in</string>
++    <string name="reader_bar_settings_button">Reader settings</string>
++    <string name="reader_bar_top_start">Top bar · left</string>
++    <string name="reader_bar_top_end">Top bar · right</string>
++    <string name="reader_bar_bottom_start">Bottom bar · left</string>
++    <string name="reader_bar_bottom_end">Bottom bar · right</string>
++    <string name="reader_bar_slot_empty">Nothing here yet. Move a button here with its move icon.</string>
++    <string name="reader_bar_move_to">Move to</string>
++    <string name="reader_bar_slider_note">Sits between the left and right side of the bottom bar</string>
+     <string name="customize">Customize</string>
+     <string name="chapters_and_pages">Chapters and pages</string>
+     <string name="pages_slider">Page switch slider</string>
