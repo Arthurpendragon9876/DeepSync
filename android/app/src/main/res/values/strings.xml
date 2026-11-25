@@ -1545,6 +1545,9 @@
     <string name="ds_carousel_popular">Popular</string>
     <string name="ds_carousel_popular_desc">All-time favourites</string>
     <string name="ds_custom_carousel">Custom carousel</string>
+    <string name="ds_home_per_mode">Custom homepage for each mode</string>
+    <string name="ds_home_per_mode_desc">Manga, Novel and Streaming each keep their own Home: tracker, carousels, custom carousel, banner and filters</string>
+    <string name="ds_home_per_mode_editing">Editing the %1$s Home. Switch mode to edit another one.</string>
     <string name="ds_custom_carousel_desc">Show favourites categories you pick as carousels</string>
     <string name="ds_custom_carousel_choose">Choose categories</string>
     <string name="ds_custom_carousel_count">%1$d categories on Home</string>

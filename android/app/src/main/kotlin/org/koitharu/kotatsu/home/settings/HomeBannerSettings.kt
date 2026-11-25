@@ -60,7 +60,6 @@ import org.koitharu.kotatsu.settings.compose.SettingsItem
 import org.koitharu.kotatsu.settings.compose.SegmentedSettingsItem
 import org.koitharu.kotatsu.settings.compose.SettingsScaffold
 import org.koitharu.kotatsu.settings.compose.SwitchSettingsItem
-import org.koitharu.kotatsu.settings.compose.rememberBooleanPref
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)
@@ -95,11 +94,21 @@ internal fun HomeLayoutSettingsContent() {
 		EntryPointAccessors.fromApplication(context.applicationContext, HomeLayoutSettingsEntryPoint::class.java)
 	}
 	val settings = remember { entryPoint.settings() }
-	var style by remember { mutableStateOf(settings.homeBannerStyle) }
-	var rotate by rememberBooleanPref(AppSettings.KEY_HOME_BANNER_ROTATE, true)
-	var hidden by remember { mutableStateOf(settings.homeHiddenCarousels) }
+	// "Custom homepage for each mode": every value below belongs to the current mode while it is on, so
+	// they are re-read whenever the switch flips.
+	var perMode by remember { mutableStateOf(settings.isHomePerMode) }
+	var style by remember(perMode) { mutableStateOf(settings.homeBannerStyle) }
+	var rotate by remember(perMode) { mutableStateOf(settings.isHomeBannerAutoRotate) }
+	var hidden by remember(perMode) { mutableStateOf(settings.homeHiddenCarousels) }
 	var streamingDefault by remember { mutableStateOf(settings.streamingDefault) }
-	var selected by remember { mutableStateOf(settings.homeFavCategories) }
+	var selected by remember(perMode) { mutableStateOf(settings.homeFavCategories) }
+	val modeName = stringResource(
+		when (settings.homeMode) {
+			HomeMode.MANGA -> R.string.ds_mode_manga
+			HomeMode.NOVEL -> R.string.ds_mode_novel
+			HomeMode.ANIME -> R.string.ds_mode_streaming
+		},
+	)
 	val heroSnaps = remember { HeroSnapshot.decode(settings.homeHeroSnapshot) }
 	val anime = remember { settings.homeMode == HomeMode.ANIME }
 	val categories by remember { entryPoint.favourites().observeCategories() }.collectAsState(initial = emptyList())
@@ -113,6 +122,30 @@ internal fun HomeLayoutSettingsContent() {
 	val customOn = HomeCarousel.CUSTOM.key !in hidden
 
 	SettingsScaffold {
+		// One Home for all modes, or one per mode
+		item {
+			SettingsGroup {
+				item { pos ->
+					SwitchSettingsItem(
+						title = stringResource(R.string.ds_home_per_mode),
+						subtitle = if (perMode) {
+							stringResource(R.string.ds_home_per_mode_editing, modeName)
+						} else {
+							stringResource(R.string.ds_home_per_mode_desc)
+						},
+						checked = perMode,
+						onCheckedChange = {
+							settings.isHomePerMode = it
+							perMode = it
+						},
+						icon = R.drawable.ic_appearance,
+						shape = pos.shape,
+					)
+				}
+			}
+		}
+		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
+
 		// Banner: the preview is always visible, the chips under it change it
 		item {
 			BannerStyleCard(
@@ -135,7 +168,10 @@ internal fun HomeLayoutSettingsContent() {
 						title = stringResource(R.string.ds_banner_rotate),
 						subtitle = stringResource(R.string.ds_banner_rotate_summary),
 						checked = rotate,
-						onCheckedChange = { rotate = it },
+						onCheckedChange = {
+							rotate = it
+							settings.isHomeBannerAutoRotate = it
+						},
 						icon = R.drawable.ic_appearance,
 						shape = pos.shape,
 					)

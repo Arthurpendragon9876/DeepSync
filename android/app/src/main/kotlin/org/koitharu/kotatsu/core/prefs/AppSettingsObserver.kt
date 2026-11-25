@@ -11,7 +11,7 @@ fun <T> AppSettings.observeAsFlow(key: String, valueProducer: AppSettings.() -> 
 	var lastValue: T = valueProducer()
 	emit(lastValue)
 	observeChanges().collect {
-		if (it == key) {
+		if (AppSettings.isChangeOf(it, key)) {
 			val value = valueProducer()
 			if (value != lastValue) {
 				emit(value)
@@ -26,7 +26,7 @@ fun <T> AppSettings.observeAsStateFlow(
 	key: String,
 	valueProducer: AppSettings.() -> T,
 ): StateFlow<T> = observeChanges().transform {
-	if (it == key) {
+	if (AppSettings.isChangeOf(it, key)) {
 		emit(valueProducer())
 	}
 }.stateIn(scope, SharingStarted.Eagerly, valueProducer())
