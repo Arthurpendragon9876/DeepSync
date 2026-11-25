@@ -1,0 +1,286 @@
+diff -u a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettings.kt
+@@ -879,9 +879,30 @@
+ 		get() = prefs.getEnumValue(KEY_STREAMING_DEFAULT, org.koitharu.kotatsu.home.ui.model.StreamingKind::class.java)
+ 		set(value) = prefs.edit { putEnumValue(KEY_STREAMING_DEFAULT, value) }
+ 
++	/**
++	 * "Custom homepage for each mode": Manga, Novel and Streaming each keep their own Home settings (the
++	 * ones read through [homeReadKey] / written through [homeWriteKey] below): tracker, source catalogue,
++	 * banner, carousels, custom carousel and filters. A mode that has not been set yet starts from the
++	 * shared value, so turning this on changes nothing until something is edited. Off: one set for all.
++	 */
++	var isHomePerMode: Boolean
++		get() = prefs.getBoolean(KEY_HOME_PER_MODE, false)
++		set(value) = prefs.edit { putBoolean(KEY_HOME_PER_MODE, value) }
++
++	/** The key a per-mode Home setting is written to: the current mode's own key while per-mode is on. */
++	private fun homeWriteKey(base: String): String =
++		if (isHomePerMode) perModeKey(base, homeMode) else base
++
++	/** The key it is read from: the current mode's own key once set, otherwise the shared one. */
++	private fun homeReadKey(base: String): String {
++		if (!isHomePerMode) return base
++		val own = perModeKey(base, homeMode)
++		return if (prefs.contains(own)) own else base
++	}
++
+ 	var homeBannerStyle: HomeBannerStyle
+-		get() = prefs.getEnumValue(KEY_HOME_BANNER_STYLE, HomeBannerStyle.PANELS)
+-		set(value) = prefs.edit { putEnumValue(KEY_HOME_BANNER_STYLE, value) }
++		get() = prefs.getEnumValue(homeReadKey(KEY_HOME_BANNER_STYLE), HomeBannerStyle.PANELS)
++		set(value) = prefs.edit { putEnumValue(homeWriteKey(KEY_HOME_BANNER_STYLE), value) }
+ 
+ 	/**
+ 	 * The titles Home's banner showed last (JSON), kept so Settings > Home layout can draw the real banner
+@@ -892,8 +913,8 @@
+ 		set(value) = prefs.edit { putString(KEY_HOME_HERO_SNAPSHOT, value) }
+ 
+ 	var isHomeBannerAutoRotate: Boolean
+-		get() = prefs.getBoolean(KEY_HOME_BANNER_ROTATE, true)
+-		set(value) = prefs.edit { putBoolean(KEY_HOME_BANNER_ROTATE, value) }
++		get() = prefs.getBoolean(homeReadKey(KEY_HOME_BANNER_ROTATE), true)
++		set(value) = prefs.edit { putBoolean(homeWriteKey(KEY_HOME_BANNER_ROTATE), value) }
+ 
+ 	/**
+ 	 * Which tracker supplies Home's rows, search and the details shown for a title. Always a tracker, never
+@@ -901,7 +922,7 @@
+ 	 */
+ 	var homeMetadataProvider: HomeMetadata
+ 		get() {
+-			val own = prefs.getEnumValue(KEY_HOME_PROVIDER, HomeMetadata.SOURCES)
++			val own = prefs.getEnumValue(homeReadKey(KEY_HOME_PROVIDER), HomeMetadata.SOURCES)
+ 			// Older versions kept one choice (sources or a tracker) under the old key
+ 			val legacy = prefs.getEnumValue(KEY_HOME_METADATA, HomeMetadata.SOURCES)
+ 			return when {
+@@ -910,16 +931,16 @@
+ 				else -> HomeMetadata.ANILIST
+ 			}
+ 		}
+-		set(value) = prefs.edit { putEnumValue(KEY_HOME_PROVIDER, if (value == HomeMetadata.SOURCES) HomeMetadata.ANILIST else value) }
++		set(value) = prefs.edit { putEnumValue(homeWriteKey(KEY_HOME_PROVIDER), if (value == HomeMetadata.SOURCES) HomeMetadata.ANILIST else value) }
+ 
+ 	/** "Source catalogue": Home lists what the installed sources offer instead of a tracker's catalogue. */
+ 	var isHomeSourceCatalogue: Boolean
+-		get() = if (prefs.contains(KEY_HOME_CATALOGUE)) {
+-			prefs.getBoolean(KEY_HOME_CATALOGUE, false)
++		get() = if (prefs.contains(homeReadKey(KEY_HOME_CATALOGUE))) {
++			prefs.getBoolean(homeReadKey(KEY_HOME_CATALOGUE), false)
+ 		} else {
+ 			prefs.getEnumValue(KEY_HOME_METADATA, HomeMetadata.SOURCES) == HomeMetadata.SOURCES
+ 		}
+-		set(value) = prefs.edit { putBoolean(KEY_HOME_CATALOGUE, value) }
++		set(value) = prefs.edit { putBoolean(homeWriteKey(KEY_HOME_CATALOGUE), value) }
+ 
+ 	/** What Home, search and details actually use: [HomeMetadata.SOURCES] while the catalogue is on. */
+ 	var homeMetadata: HomeMetadata
+@@ -939,12 +960,12 @@
+ 	 * Until the user decides, it follows the old behaviour: the tracker, unless the source catalogue was on.
+ 	 */
+ 	var isMetadataFromTracker: Boolean
+-		get() = if (prefs.contains(KEY_METADATA_FROM_TRACKER)) {
+-			prefs.getBoolean(KEY_METADATA_FROM_TRACKER, true)
++		get() = if (prefs.contains(homeReadKey(KEY_METADATA_FROM_TRACKER))) {
++			prefs.getBoolean(homeReadKey(KEY_METADATA_FROM_TRACKER), true)
+ 		} else {
+ 			!isHomeSourceCatalogue
+ 		}
+-		set(value) = prefs.edit { putBoolean(KEY_METADATA_FROM_TRACKER, value) }
++		set(value) = prefs.edit { putBoolean(homeWriteKey(KEY_METADATA_FROM_TRACKER), value) }
+ 
+ 	/** Source names Home reads from in [mode]. Empty means every enabled source of that kind. */
+ 	fun getHomeSources(mode: HomeMode): Set<String> =
+@@ -955,30 +976,30 @@
+ 	}
+ 
+ 	var homeGenresInclude: Set<String>
+-		get() = prefs.getStringSet(KEY_HOME_GENRES_INCLUDE, emptySet()).orEmpty().toSet()
+-		set(value) = prefs.edit { putStringSet(KEY_HOME_GENRES_INCLUDE, value) }
++		get() = prefs.getStringSet(homeReadKey(KEY_HOME_GENRES_INCLUDE), emptySet()).orEmpty().toSet()
++		set(value) = prefs.edit { putStringSet(homeWriteKey(KEY_HOME_GENRES_INCLUDE), value) }
+ 
+ 	var homeGenresExclude: Set<String>
+-		get() = prefs.getStringSet(KEY_HOME_GENRES_EXCLUDE, emptySet()).orEmpty().toSet()
+-		set(value) = prefs.edit { putStringSet(KEY_HOME_GENRES_EXCLUDE, value) }
++		get() = prefs.getStringSet(homeReadKey(KEY_HOME_GENRES_EXCLUDE), emptySet()).orEmpty().toSet()
++		set(value) = prefs.edit { putStringSet(homeWriteKey(KEY_HOME_GENRES_EXCLUDE), value) }
+ 
+ 	/** Extra to the global content filter: hides NSFW titles on Home only. */
+ 	var isHomeHideNsfw: Boolean
+-		get() = prefs.getBoolean(KEY_HOME_HIDE_NSFW, false)
+-		set(value) = prefs.edit { putBoolean(KEY_HOME_HIDE_NSFW, value) }
++		get() = prefs.getBoolean(homeReadKey(KEY_HOME_HIDE_NSFW), false)
++		set(value) = prefs.edit { putBoolean(homeWriteKey(KEY_HOME_HIDE_NSFW), value) }
+ 
+ 	/** Favourites categories shown as carousels on Home, by category id. */
+ 	var homeFavCategories: Set<Long>
+-		get() = prefs.getStringSet(KEY_HOME_FAV_CATEGORIES, emptySet()).orEmpty().mapNotNullToSet { it.toLongOrNull() }
+-		set(value) = prefs.edit { putStringSet(KEY_HOME_FAV_CATEGORIES, value.mapToSet { it.toString() }) }
++		get() = prefs.getStringSet(homeReadKey(KEY_HOME_FAV_CATEGORIES), emptySet()).orEmpty().mapNotNullToSet { it.toLongOrNull() }
++		set(value) = prefs.edit { putStringSet(homeWriteKey(KEY_HOME_FAV_CATEGORIES), value.mapToSet { it.toString() }) }
+ 
+ 	/**
+ 	 * Home carousels the user switched off, by [org.koitharu.kotatsu.home.ui.model.HomeCarousel.key].
+ 	 * Empty means every carousel is on, which is also what a fresh install gets.
+ 	 */
+ 	var homeHiddenCarousels: Set<String>
+-		get() = prefs.getStringSet(KEY_HOME_HIDDEN_CAROUSELS, emptySet()).orEmpty().toSet()
+-		set(value) = prefs.edit { putStringSet(KEY_HOME_HIDDEN_CAROUSELS, value) }
++		get() = prefs.getStringSet(homeReadKey(KEY_HOME_HIDDEN_CAROUSELS), emptySet()).orEmpty().toSet()
++		set(value) = prefs.edit { putStringSet(homeWriteKey(KEY_HOME_HIDDEN_CAROUSELS), value) }
+ 
+ 	/**
+ 	 * The three ways an untracked title gets tracked are mutually exclusive: ask, link the closest match
+@@ -1630,7 +1651,7 @@
+ 	fun observeChanges() = prefs.observeChanges()
+ 
+ 	fun observe(vararg keys: String): Flow<String?> = prefs.observeChanges()
+-		.filter { key -> key == null || key in keys }
++		.filter { changed -> changed == null || keys.any { isChangeOf(changed, it) } }
+ 		.onStart { emit(null) }
+ 		.flowOn(Dispatchers.IO)
+ 
+@@ -1956,6 +1977,28 @@
+ 		const val KEY_METADATA_FROM_TRACKER = "metadata_from_tracker"
+ 		const val KEY_HOME_FAV_CATEGORIES = "home_fav_categories"
+ 		const val KEY_HOME_HIDDEN_CAROUSELS = "home_hidden_carousels"
++		const val KEY_HOME_PER_MODE = "home_per_mode"
++
++		/** Separates a per-mode Home setting's key from the mode it belongs to: `home_hidden_carousels__anime`. */
++		private const val PER_MODE_SEPARATOR = "__"
++
++		/** The Home settings that [isHomePerMode] splits by mode. */
++		private val PER_MODE_KEYS = setOf(
++			KEY_HOME_BANNER_STYLE, KEY_HOME_BANNER_ROTATE, KEY_HOME_PROVIDER, KEY_HOME_CATALOGUE,
++			KEY_METADATA_FROM_TRACKER, KEY_HOME_GENRES_INCLUDE, KEY_HOME_GENRES_EXCLUDE, KEY_HOME_HIDE_NSFW,
++			KEY_HOME_FAV_CATEGORIES, KEY_HOME_HIDDEN_CAROUSELS,
++		)
++
++		fun perModeKey(base: String, mode: HomeMode): String = base + PER_MODE_SEPARATOR + mode.name.lowercase()
++
++		/**
++		 * Whether a preference change reported as [changed] concerns [key]: the key itself, its per-mode
++		 * copy (so observers of the shared key keep working), or the per-mode switch / the mode itself, which
++		 * change what every per-mode setting reads as.
++		 */
++		fun isChangeOf(changed: String?, key: String): Boolean = changed == key ||
++			(changed != null && changed.startsWith(key + PER_MODE_SEPARATOR)) ||
++			((changed == KEY_HOME_PER_MODE || changed == KEY_HOME_MODE) && key in PER_MODE_KEYS)
+ 		const val KEY_SCROBBLING_ASK = "scrobbling_ask"
+ 		const val KEY_TRACKER_AUTO_SYNC = "tracker_auto_sync"
+ 		const val KEY_TRACKER_LAST_SYNC = "tracker_last_sync"
+diff -u a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettingsObserver.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettingsObserver.kt
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettingsObserver.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/prefs/AppSettingsObserver.kt
+@@ -11,7 +11,7 @@
+ 	var lastValue: T = valueProducer()
+ 	emit(lastValue)
+ 	observeChanges().collect {
+-		if (it == key) {
++		if (AppSettings.isChangeOf(it, key)) {
+ 			val value = valueProducer()
+ 			if (value != lastValue) {
+ 				emit(value)
+@@ -26,7 +26,7 @@
+ 	key: String,
+ 	valueProducer: AppSettings.() -> T,
+ ): StateFlow<T> = observeChanges().transform {
+-	if (it == key) {
++	if (AppSettings.isChangeOf(it, key)) {
+ 		emit(valueProducer())
+ 	}
+ }.stateIn(scope, SharingStarted.Eagerly, valueProducer())
+diff -u a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/settings/HomeBannerSettings.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/settings/HomeBannerSettings.kt
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/home/settings/HomeBannerSettings.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/home/settings/HomeBannerSettings.kt
+@@ -60,7 +60,6 @@
+ import org.koitharu.kotatsu.settings.compose.SegmentedSettingsItem
+ import org.koitharu.kotatsu.settings.compose.SettingsScaffold
+ import org.koitharu.kotatsu.settings.compose.SwitchSettingsItem
+-import org.koitharu.kotatsu.settings.compose.rememberBooleanPref
+ 
+ @EntryPoint
+ @InstallIn(SingletonComponent::class)
+@@ -95,11 +94,21 @@
+ 		EntryPointAccessors.fromApplication(context.applicationContext, HomeLayoutSettingsEntryPoint::class.java)
+ 	}
+ 	val settings = remember { entryPoint.settings() }
+-	var style by remember { mutableStateOf(settings.homeBannerStyle) }
+-	var rotate by rememberBooleanPref(AppSettings.KEY_HOME_BANNER_ROTATE, true)
+-	var hidden by remember { mutableStateOf(settings.homeHiddenCarousels) }
++	// "Custom homepage for each mode": every value below belongs to the current mode while it is on, so
++	// they are re-read whenever the switch flips.
++	var perMode by remember { mutableStateOf(settings.isHomePerMode) }
++	var style by remember(perMode) { mutableStateOf(settings.homeBannerStyle) }
++	var rotate by remember(perMode) { mutableStateOf(settings.isHomeBannerAutoRotate) }
++	var hidden by remember(perMode) { mutableStateOf(settings.homeHiddenCarousels) }
+ 	var streamingDefault by remember { mutableStateOf(settings.streamingDefault) }
+-	var selected by remember { mutableStateOf(settings.homeFavCategories) }
++	var selected by remember(perMode) { mutableStateOf(settings.homeFavCategories) }
++	val modeName = stringResource(
++		when (settings.homeMode) {
++			HomeMode.MANGA -> R.string.ds_mode_manga
++			HomeMode.NOVEL -> R.string.ds_mode_novel
++			HomeMode.ANIME -> R.string.ds_mode_streaming
++		},
++	)
+ 	val heroSnaps = remember { HeroSnapshot.decode(settings.homeHeroSnapshot) }
+ 	val anime = remember { settings.homeMode == HomeMode.ANIME }
+ 	val categories by remember { entryPoint.favourites().observeCategories() }.collectAsState(initial = emptyList())
+@@ -113,6 +122,30 @@
+ 	val customOn = HomeCarousel.CUSTOM.key !in hidden
+ 
+ 	SettingsScaffold {
++		// One Home for all modes, or one per mode
++		item {
++			SettingsGroup {
++				item { pos ->
++					SwitchSettingsItem(
++						title = stringResource(R.string.ds_home_per_mode),
++						subtitle = if (perMode) {
++							stringResource(R.string.ds_home_per_mode_editing, modeName)
++						} else {
++							stringResource(R.string.ds_home_per_mode_desc)
++						},
++						checked = perMode,
++						onCheckedChange = {
++							settings.isHomePerMode = it
++							perMode = it
++						},
++						icon = R.drawable.ic_appearance,
++						shape = pos.shape,
++					)
++				}
++			}
++		}
++		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
++
+ 		// Banner: the preview is always visible, the chips under it change it
+ 		item {
+ 			BannerStyleCard(
+@@ -135,7 +168,10 @@
+ 						title = stringResource(R.string.ds_banner_rotate),
+ 						subtitle = stringResource(R.string.ds_banner_rotate_summary),
+ 						checked = rotate,
+-						onCheckedChange = { rotate = it },
++						onCheckedChange = {
++							rotate = it
++							settings.isHomeBannerAutoRotate = it
++						},
+ 						icon = R.drawable.ic_appearance,
+ 						shape = pos.shape,
+ 					)
+diff -u a/android/app/src/main/res/values/strings.xml b/android/app/src/main/res/values/strings.xml
+--- a/android/app/src/main/res/values/strings.xml
++++ b/android/app/src/main/res/values/strings.xml
+@@ -1545,6 +1545,9 @@
+     <string name="ds_carousel_popular">Popular</string>
+     <string name="ds_carousel_popular_desc">All-time favourites</string>
+     <string name="ds_custom_carousel">Custom carousel</string>
++    <string name="ds_home_per_mode">Custom homepage for each mode</string>
++    <string name="ds_home_per_mode_desc">Manga, Novel and Streaming each keep their own Home: tracker, carousels, custom carousel, banner and filters</string>
++    <string name="ds_home_per_mode_editing">Editing the %1$s Home. Switch mode to edit another one.</string>
+     <string name="ds_custom_carousel_desc">Show favourites categories you pick as carousels</string>
+     <string name="ds_custom_carousel_choose">Choose categories</string>
+     <string name="ds_custom_carousel_count">%1$d categories on Home</string>
