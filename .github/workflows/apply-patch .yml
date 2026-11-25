@@ -1,0 +1,130 @@
+name: Apply patch
+
+on:
+  workflow_dispatch:
+    inputs:
+      patch_file:
+        description: Patch file path in the repo
+        default: novel-reader-bar-size-and-press-feedback.patch
+      strip:
+        description: Path strip level (auto tries -p1 then -p2)
+        type: choice
+        options:
+          - auto
+          - "1"
+          - "2"
+        default: auto
+      reset_to:
+        description: >-
+          Optional git ref (commit/tag/branch) from before an earlier revision of this patch was applied.
+          Every file the patch touches is restored from it first, so a newer revision applies cleanly.
+          Leave empty to apply on top of the current tree.
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect strip level
+        id: detect
+        env:
+          PATCH_FILE: ${{ inputs.patch_file }}
+          STRIP: ${{ inputs.strip }}
+        run: |
+          if [ ! -f "$PATCH_FILE" ]; then
+            echo "::error::Patch file not found: $PATCH_FILE"
+            exit 1
+          fi
+          if [ "$STRIP" = "auto" ]; then
+            levels="1 2"
+          else
+            levels="$STRIP"
+          fi
+          # Pick the level whose stripped paths exist in the repo. (git apply --check can't be used here:
+          # it also fails when the patch was already applied, which says nothing about the strip level.)
+          for p in $levels; do
+            while IFS= read -r f; do
+              if [ -e "$f" ]; then
+                echo "level=$p" >> "$GITHUB_OUTPUT"
+                echo "Using -p$p"
+                exit 0
+              fi
+            done < <(git apply --numstat -p"$p" "$PATCH_FILE" | cut -f3-)
+          done
+          # Patch only creates new files: fall back to a plain check
+          for p in $levels; do
+            if git apply --check -p"$p" "$PATCH_FILE" 2>/dev/null; then
+              echo "level=$p" >> "$GITHUB_OUTPUT"
+              echo "Using -p$p"
+              exit 0
+            fi
+          done
+          echo "::error::Could not work out the strip level (tried: $levels)"
+          exit 1
+
+      - name: Reset touched files to base ref
+        if: ${{ inputs.reset_to != '' }}
+        env:
+          PATCH_FILE: ${{ inputs.patch_file }}
+          LEVEL: ${{ steps.detect.outputs.level }}
+          REF: ${{ inputs.reset_to }}
+        run: |
+          git rev-parse --verify --quiet "$REF^{commit}" >/dev/null || { echo "::error::Unknown ref: $REF"; exit 1; }
+          git apply --numstat -p"$LEVEL" "$PATCH_FILE" | cut -f3- > /tmp/touched.txt
+          echo "Changes made to these files since $REF (they will be replaced):"
+          xargs -d '\n' git diff --stat "$REF" HEAD -- < /tmp/touched.txt || true
+          while IFS= read -r f; do
+            if git cat-file -e "$REF:$f" 2>/dev/null; then
+              git checkout "$REF" -- "$f"
+            else
+              rm -f -- "$f"   # added by the patch, did not exist at the base
+            fi
+          done < /tmp/touched.txt
+
+      - name: Check patch
+        env:
+          PATCH_FILE: ${{ inputs.patch_file }}
+          LEVEL: ${{ steps.detect.outputs.level }}
+        run: |
+          if git apply --check -p"$LEVEL" "$PATCH_FILE"; then
+            echo "Patch applies cleanly with -p$LEVEL"
+            exit 0
+          fi
+          echo "::group::Per-file status"
+          while IFS= read -r f; do
+            if git apply --check -p"$LEVEL" --include="$f" "$PATCH_FILE" 2>/dev/null; then
+              echo "applies          $f"
+            elif git apply --check -R -p"$LEVEL" --include="$f" "$PATCH_FILE" 2>/dev/null; then
+              echo "already applied  $f"
+            else
+              echo "CONFLICT         $f"
+            fi
+          done < <(git apply --numstat -p"$LEVEL" "$PATCH_FILE" | cut -f3-)
+          echo "::endgroup::"
+          echo "::error::Patch does not apply. 'already applied' / 'CONFLICT' files mean the tree already has this or an older revision of the patch; re-run with reset_to set to a commit from before it was first applied."
+          exit 1
+
+      - name: Apply patch
+        env:
+          PATCH_FILE: ${{ inputs.patch_file }}
+          LEVEL: ${{ steps.detect.outputs.level }}
+        run: |
+          git apply -p"$LEVEL" --whitespace=nowarn "$PATCH_FILE"
+          rm -f "$PATCH_FILE"
+
+      - name: Commit and push to main
+        env:
+          PATCH_FILE: ${{ inputs.patch_file }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Apply $PATCH_FILE"
+          git push origin HEAD:${{ github.ref_name }}
