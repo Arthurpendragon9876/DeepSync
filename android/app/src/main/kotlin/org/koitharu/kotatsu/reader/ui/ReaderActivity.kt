@@ -334,6 +334,7 @@ class ReaderActivity :
         novelChrome.onSearchClick = ::openEpubSearch
         novelChrome.onAutoScrollClick = { onScrollTimerClick(isLongClick = true) }
         novelChrome.onTtsClose = ::closeNovelTts
+        novelChrome.onCustomizeBarsClick = { router.openNovelBarSettings() }
         novelChrome.onTtsChapter = { delta -> (readerManager.currentReader as? EpubReaderFragment)?.ttsSkipChapter(delta) }
         val overlay = ComposeView(this).apply {
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)

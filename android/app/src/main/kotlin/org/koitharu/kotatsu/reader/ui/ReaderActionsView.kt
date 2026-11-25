@@ -28,6 +28,7 @@ import org.koitharu.kotatsu.core.prefs.ReaderBarSlot
 import org.koitharu.kotatsu.core.prefs.ReaderControl
 import org.koitharu.kotatsu.core.ui.util.applyTonalSegmentBackground
 import org.koitharu.kotatsu.core.ui.util.applyTonalSegmentSpacing
+import org.koitharu.kotatsu.core.ui.util.hasTonalSegmentBackground
 import org.koitharu.kotatsu.core.ui.util.tonalIconSize
 import org.koitharu.kotatsu.core.ui.util.tonalSegmentSize
 import org.koitharu.kotatsu.core.util.ext.HapticEffect
@@ -199,11 +200,34 @@ class ReaderActionsView @JvmOverloads constructor(
 
 	override fun onAttachedToWindow() {
 		super.onAttachedToWindow()
+		// Re-inflated or re-attached top-bar groups must not depend on the one-off pass made when the
+		// layout preference last changed.
+		if (area.isTopSide) applyTopSideLook()
 		settings.subscribe(this)
 		context.contentResolver.registerContentObserver(
 			Settings.System.CONTENT_URI, true, rotationObserver,
 		)
 	}
+
+	override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+		super.onLayout(changed, l, t, r, b)
+		// Self-heal: if a top-bar button lost its tonal segment (the buttons are MaterialButtons, which
+		// can replace a custom background), put it back instead of leaving bare icons on the page.
+		if (area.isTopSide && !isLookRefreshPending && !isTopSideLookIntact()) {
+			isLookRefreshPending = true
+			post {
+				isLookRefreshPending = false
+				if (isAttachedToWindow) applyTopSideLook()
+			}
+		}
+	}
+
+	private var isLookRefreshPending = false
+
+	private fun isTopSideLookIntact(): Boolean = children
+		.filterIsInstance<FrameLayout>()
+		.filter { it.isVisible }
+		.all { (it.getChildAt(0) as? MaterialButton)?.hasTonalSegmentBackground() ?: true }
 
 	override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
 		super.onWindowFocusChanged(hasWindowFocus)

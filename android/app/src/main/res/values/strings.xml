@@ -1216,6 +1216,11 @@
     <string name="reader_bar_move_to">Move to</string>
     <string name="reader_bar_slider_note">Sits between the left and right side of the bottom bar</string>
     <string name="customize">Customize</string>
+    <string name="novel_bars_customize">Customise novel reader bars</string>
+    <string name="novel_bars_customize_summary">Choose the buttons of the novel reader\'s top and bottom bar, their order and which bar they sit in</string>
+    <string name="novel_bar_slider">Chapter progress slider</string>
+    <string name="novel_bar_web_note">Only shown for online novels</string>
+    <string name="novel_bar_options_note">Always on, it opens the reader settings</string>
     <string name="chapters_and_pages">Chapters and pages</string>
     <string name="pages_slider">Page switch slider</string>
     <string name="screen_rotation_locked">Screen rotation has been locked</string>

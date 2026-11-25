@@ -563,6 +563,20 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 			putString(KEY_READER_BAR_LAYOUT, ReaderBars.serialize(value))
 		}
 
+	/**
+	 * The novel reader's bars, customised from "Customise novel reader bars". Stored like
+	 * [readerBarLayout] (`NAME@SLOT`, hidden ones prefixed with '-'), under its own key so manga and
+	 * novels can look different.
+	 */
+	var novelBarLayout: NovelBarLayout
+		get() {
+			val stored = prefs.getString(KEY_NOVEL_BAR_LAYOUT, null) ?: return NovelBars.DEFAULT
+			return NovelBars.parse(stored, { name -> NovelControl.entries.find(name) }, { name -> ReaderBarSlot.entries.find(name) })
+		}
+		set(value) = prefs.edit {
+			putString(KEY_NOVEL_BAR_LAYOUT, NovelBars.serialize(value))
+		}
+
 	/** The previous, bottom-bar-only format: controls in order, hidden ones prefixed with '-'. */
 	private fun singleListReaderControls(): List<Pair<ReaderControl, Boolean>>? {
 		val stored = prefs.getString(KEY_READER_CONTROLS, null)
@@ -1742,6 +1756,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_READER_ANIMATION = "reader_animation2"
 		const val KEY_READER_CONTROLS = "reader_controls_order"
 		const val KEY_READER_BAR_LAYOUT = "reader_bar_layout"
+		const val KEY_NOVEL_BAR_LAYOUT = "novel_bar_layout"
 		private const val KEY_READER_CONTROLS_LEGACY = "reader_controls"
 		const val KEY_READER_MODE = "reader_mode"
 		const val KEY_EXPLORE_NOVEL_TAB_FIRST = "explore_novel_tab_first"

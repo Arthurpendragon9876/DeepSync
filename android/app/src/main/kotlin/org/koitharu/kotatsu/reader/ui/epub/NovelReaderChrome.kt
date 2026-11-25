@@ -92,7 +92,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.koitharu.kotatsu.R
+import android.content.SharedPreferences
 import org.koitharu.kotatsu.core.prefs.AppSettings
+import org.koitharu.kotatsu.core.prefs.NovelBarLayout
+import org.koitharu.kotatsu.core.prefs.NovelControl
+import org.koitharu.kotatsu.core.prefs.ReaderBarSlot
+import org.koitharu.kotatsu.core.prefs.isSliderShown
+import org.koitharu.kotatsu.core.prefs.shownIn
 import org.koitharu.kotatsu.reader.ui.tts.ReaderTts
 import kotlin.math.roundToInt
 
@@ -125,6 +131,12 @@ class NovelChromeState {
 
 	/** Bumped to ask the bottom bar to open its settings panel (e.g. from the hidden toolbar menu). */
 	var openSettingsTick by mutableIntStateOf(0)
+
+	/** The settings panel above the bottom bar is open; the Settings button (wherever it sits) reflects and toggles it. */
+	var settingsOpen by mutableStateOf(false)
+
+	/** Opens "Customise novel reader bars". */
+	var onCustomizeBarsClick: () -> Unit = {}
 
 	var onTtsClose: () -> Unit = {}
 	var onTtsChapter: (Int) -> Unit = {}
@@ -233,15 +245,20 @@ internal fun observeSettingsRevision(): Int = LocalSettingsRevision.current
 @Composable
 fun NovelReaderChrome(state: NovelChromeState, settings: AppSettings, tts: ReaderTts) {
 	if (!state.active) return
+	val layout = rememberNovelBarLayout(settings)
 	CompositionLocalProvider(LocalChromeColors provides rememberChromeColors()) {
 		Box(Modifier.fillMaxSize()) {
+			// The panel belongs to the visible bars; hiding them (or opening the Listen player) closes it.
+			LaunchedEffect(state.visible, state.ttsOpen) {
+				if (!state.visible || state.ttsOpen) state.settingsOpen = false
+			}
 			AnimatedVisibility(
 				visible = state.visible,
 				modifier = Modifier.align(Alignment.TopCenter),
 				enter = slideInVertically(tween(220)) { -it } + fadeIn(tween(220)),
 				exit = slideOutVertically(tween(180)) { -it } + fadeOut(tween(180)),
 			) {
-				NovelTopBar(state)
+				NovelTopBar(state, layout)
 			}
 			LaunchedEffect(state.ttsOpen) { if (!state.ttsOpen) state.ttsMinimized = false }
 			if (state.ttsOpen && state.ttsMinimized) {
@@ -255,9 +272,48 @@ fun NovelReaderChrome(state: NovelChromeState, settings: AppSettings, tts: Reade
 					enter = slideInVertically(tween(220)) { it } + fadeIn(tween(220)),
 					exit = slideOutVertically(tween(180)) { it } + fadeOut(tween(180)),
 				) {
-					NovelBottomBar(state, settings)
+					NovelBottomBar(state, settings, layout)
 				}
 			}
+		}
+	}
+}
+
+/** The user's novel bar layout, redrawn as soon as "Customise novel reader bars" saves a change. */
+@Composable
+private fun rememberNovelBarLayout(settings: AppSettings): NovelBarLayout {
+	var layout by remember { mutableStateOf(settings.novelBarLayout) }
+	DisposableEffect(settings) {
+		layout = settings.novelBarLayout
+		val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+			if (key == AppSettings.KEY_NOVEL_BAR_LAYOUT) layout = settings.novelBarLayout
+		}
+		settings.subscribe(listener)
+		onDispose { settings.unsubscribe(listener) }
+	}
+	return layout
+}
+
+/**
+ * Both bars as drawn in the reader, for the "Customise novel reader bars" screen's preview. They
+ * are the real bars fed with a stand-in chapter, so the preview always matches the reader.
+ */
+@Composable
+internal fun NovelBarsPreview(layout: NovelBarLayout, modifier: Modifier = Modifier) {
+	CompositionLocalProvider(LocalChromeColors provides rememberChromeColors()) {
+		val sample = remember {
+			NovelChromeState().apply {
+				chapterTitle = "Chapter 12"
+				chapterNumber = 12
+				totalChapters = 120
+				progressPermille = 400
+				minutesLeft = 7
+				canOpenWeb = { true }
+			}
+		}
+		Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+			Box(Modifier.clip(RoundedCornerShape(Bar.radiusSmall))) { NovelTopBar(sample, layout) }
+			NovelBottomBarSurface(sample, layout)
 		}
 	}
 }
@@ -267,7 +323,7 @@ fun NovelReaderChrome(state: NovelChromeState, settings: AppSettings, tts: Reade
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-private fun NovelTopBar(state: NovelChromeState) {
+private fun NovelTopBar(state: NovelChromeState, layout: NovelBarLayout) {
 	DisposableEffect(Unit) { onDispose { state.setRegion("top", null) } }
 	Surface(
 		modifier = Modifier
@@ -291,6 +347,7 @@ private fun NovelTopBar(state: NovelChromeState) {
 						tint = Bar.textPrimary,
 					)
 				}
+				layout.shownIn(ReaderBarSlot.TOP_START).forEach { NovelControlButton(it, state, inBottomBar = false) }
 				Column(
 					modifier = Modifier.weight(1f),
 					horizontalAlignment = Alignment.CenterHorizontally,
@@ -331,41 +388,7 @@ private fun NovelTopBar(state: NovelChromeState) {
 						}
 					}
 				}
-				if (state.canOpenWeb()) {
-					Box(
-						modifier = Modifier
-							.size(48.dp)
-							.combinedClickable(
-								indication = LocalIndication.current,
-								interactionSource = remember { MutableInteractionSource() },
-								onClick = state.onWebClick,
-								onLongClick = state.onWebLongClick,
-							),
-						contentAlignment = Alignment.Center,
-					) {
-						Icon(
-							painter = painterResource(R.drawable.ic_web),
-							contentDescription = stringResource(R.string.open_in_browser),
-							tint = Bar.textPrimary,
-						)
-					}
-					IconButton(onClick = state.onWebLongClick, modifier = Modifier.size(48.dp)) {
-						Icon(
-							painter = painterResource(R.drawable.ic_open_external),
-							contentDescription = stringResource(R.string.open_in_external_browser),
-							tint = Bar.textPrimary,
-						)
-					}
-				}
-				IconButton(onClick = state.onHighlightClick, modifier = Modifier.size(48.dp)) {
-					Icon(
-						painter = painterResource(
-							if (state.isHighlightArmed) R.drawable.ic_ink_highlighter_filled else R.drawable.ic_ink_highlighter,
-						),
-						contentDescription = null,
-						tint = if (state.isHighlightArmed) Bar.accent else Bar.textPrimary,
-					)
-				}
+				layout.shownIn(ReaderBarSlot.TOP_END).forEach { NovelControlButton(it, state, inBottomBar = false) }
 			}
 			LinearProgressIndicator(
 				progress = { (state.progressPermille / 1000f).coerceIn(0f, 1f) },
@@ -386,12 +409,13 @@ private fun NovelTopBar(state: NovelChromeState) {
 private val BottomBarHeight = 68.dp
 
 @Composable
-private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
-	var showSettings by remember { mutableStateOf(false) }
+private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings, layout: NovelBarLayout) {
+	// The panel's open state lives on [state] because the Settings button may sit in the top bar.
+	val showSettings = state.settingsOpen
 	// Hoisted here (not read from AppSettings each frame) so the floating button reacts to the Options toggle.
 	var ttsEnabled by remember { mutableStateOf(settings.isEpubTtsEnabled) }
 	androidx.compose.runtime.LaunchedEffect(state.openSettingsTick) {
-		if (state.openSettingsTick > 0) showSettings = true
+		if (state.openSettingsTick > 0) state.settingsOpen = true
 	}
 	Box(modifier = Modifier.fillMaxWidth()) {
 		Column(
@@ -411,45 +435,12 @@ private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
 						state = state,
 						settings = settings,
 						onTtsEnabledChange = { ttsEnabled = it },
-						onDismiss = { showSettings = false },
+						onDismiss = { state.settingsOpen = false },
 					)
 					Spacer(Modifier.height(8.dp))
 				}
 			}
-			DisposableEffect(Unit) { onDispose { state.setRegion("bar", null) } }
-			Surface(
-				modifier = Modifier
-					.fillMaxWidth()
-					.height(BottomBarHeight)
-					.onGloballyPositioned { state.setRegion("bar", it.boundsInWindow()) },
-				shape = RoundedCornerShape(Bar.radius),
-				color = Bar.surface,
-				shadowElevation = 0.dp,
-			) {
-				// Chapters | prev chapter | dotted capsule progress | next chapter | settings
-				Row(
-					modifier = Modifier
-						.fillMaxSize()
-						.padding(horizontal = 10.dp),
-					horizontalArrangement = Arrangement.spacedBy(4.dp),
-					verticalAlignment = Alignment.CenterVertically,
-				) {
-					BarIconButton(R.drawable.ic_list, "Chapters", Bar.textPrimary) { state.onChaptersClick() }
-					BarIconButton(R.drawable.ic_novel_chapter_prev, "Previous chapter", Bar.textPrimary, small = true) { state.onPrevChapter() }
-					CapsuleSlider(
-						permille = state.progressPermille,
-						onSeek = { state.onSeekChapter(it) },
-						modifier = Modifier.weight(1f),
-					)
-					BarIconButton(R.drawable.ic_novel_chapter_next, "Next chapter", Bar.textPrimary, small = true) { state.onNextChapter() }
-					BarIconButton(
-						icon = if (showSettings) R.drawable.ic_close else R.drawable.ic_tune,
-						label = "Settings",
-						tint = if (showSettings) Bar.accent else Bar.textPrimary,
-						rotation = if (showSettings) 90f else 0f,
-					) { showSettings = !showSettings }
-				}
-			}
+			NovelBottomBarSurface(state, layout)
 		}
 		// Round white Listen button floating above the bar; hidden while the settings panel is open
 		if (ttsEnabled && !showSettings) {
@@ -478,6 +469,112 @@ private fun NovelBottomBar(state: NovelChromeState, settings: AppSettings) {
 	}
 }
 
+/** The floating bottom bar itself: the user's left buttons, the chapter slider (if on), then the right buttons. */
+@Composable
+private fun NovelBottomBarSurface(state: NovelChromeState, layout: NovelBarLayout) {
+	DisposableEffect(Unit) { onDispose { state.setRegion("bar", null) } }
+	Surface(
+		modifier = Modifier
+			.fillMaxWidth()
+			.height(BottomBarHeight)
+			.onGloballyPositioned { state.setRegion("bar", it.boundsInWindow()) },
+		shape = RoundedCornerShape(Bar.radius),
+		color = Bar.surface,
+		shadowElevation = 0.dp,
+	) {
+		Row(
+			modifier = Modifier
+				.fillMaxSize()
+				.padding(horizontal = 10.dp),
+			horizontalArrangement = Arrangement.spacedBy(4.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			layout.shownIn(ReaderBarSlot.BOTTOM_START).forEach { NovelControlButton(it, state, inBottomBar = true) }
+			if (layout.isSliderShown) {
+				CapsuleSlider(
+					permille = state.progressPermille,
+					onSeek = { state.onSeekChapter(it) },
+					modifier = Modifier.weight(1f),
+				)
+			} else {
+				Spacer(Modifier.weight(1f))
+			}
+			layout.shownIn(ReaderBarSlot.BOTTOM_END).forEach { NovelControlButton(it, state, inBottomBar = true) }
+		}
+	}
+}
+
+/**
+ * One customisable button, drawn for either bar: the bottom bar's halo button or the top bar's plain
+ * 48dp tap target. What each control does is wired through [NovelChromeState] by ReaderActivity.
+ */
+@Composable
+private fun NovelControlButton(control: NovelControl, state: NovelChromeState, inBottomBar: Boolean) {
+	// The web buttons only make sense for an online novel.
+	if ((control == NovelControl.WEB_VIEW || control == NovelControl.EXTERNAL_BROWSER) && !state.canOpenWeb()) return
+	var rotationTick by remember { mutableIntStateOf(0) }
+	val isRotationLocked = control == NovelControl.ROTATE && rotationTick >= 0 && state.isRotationLocked()
+	val isOpen = control == NovelControl.OPTIONS && state.settingsOpen
+	val isArmed = control == NovelControl.HIGHLIGHT && state.isHighlightArmed
+	val icon = when (control) {
+		NovelControl.HIGHLIGHT -> if (isArmed) R.drawable.ic_ink_highlighter_filled else R.drawable.ic_ink_highlighter
+		NovelControl.ROTATE -> if (isRotationLocked) R.drawable.ic_screen_rotation_lock else R.drawable.ic_screen_rotation
+		NovelControl.OPTIONS -> if (isOpen) R.drawable.ic_close else R.drawable.ic_tune
+		else -> control.iconResId
+	}
+	val label = stringResource(control.titleResId)
+	val tint = if (isArmed || isOpen) Bar.accent else Bar.textPrimary
+	val onClick: () -> Unit = {
+		when (control) {
+			NovelControl.CHAPTERS -> state.onChaptersClick()
+			NovelControl.PREV_CHAPTER -> state.onPrevChapter()
+			NovelControl.NEXT_CHAPTER -> state.onNextChapter()
+			NovelControl.WEB_VIEW -> state.onWebClick()
+			NovelControl.EXTERNAL_BROWSER -> state.onWebLongClick()
+			NovelControl.HIGHLIGHT -> state.onHighlightClick()
+			NovelControl.SEARCH -> state.onSearchClick()
+			NovelControl.ROTATE -> {
+				state.onRotateClick()
+				rotationTick++
+			}
+			NovelControl.AUTO_SCROLL -> state.onAutoScrollClick()
+			NovelControl.LISTEN -> state.onListenClick()
+			NovelControl.OPTIONS -> {
+				state.settingsOpen = !state.settingsOpen
+			}
+			NovelControl.SLIDER -> Unit
+		}
+	}
+	val onLongClick: (() -> Unit)? = if (control == NovelControl.WEB_VIEW) ({ state.onWebLongClick() }) else null
+	if (inBottomBar) {
+		BarIconButton(
+			icon = icon,
+			label = label,
+			tint = tint,
+			small = control == NovelControl.PREV_CHAPTER || control == NovelControl.NEXT_CHAPTER,
+			rotation = if (isOpen) 90f else 0f,
+			onLongClick = onLongClick,
+			onClick = onClick,
+		)
+	} else {
+		Box(
+			modifier = Modifier
+				.size(48.dp)
+				.clip(CircleShape)
+				.combinedClickable(
+					indication = LocalIndication.current,
+					interactionSource = remember { MutableInteractionSource() },
+					role = Role.Button,
+					onClick = onClick,
+					onLongClick = onLongClick,
+				),
+			contentAlignment = Alignment.Center,
+		) {
+			Icon(painter = painterResource(icon), contentDescription = label, tint = tint)
+		}
+	}
+}
+
 /**
  * Bottom-bar button: a soft halo fades in behind the icon while the finger is down, and the icon itself
  * dips with the app's pulse press effect (the halo is drawn before the clickable, so only the icon moves).
@@ -489,6 +586,7 @@ private fun BarIconButton(
 	tint: Color,
 	small: Boolean = false,
 	rotation: Float = 0f,
+	onLongClick: (() -> Unit)? = null,
 	onClick: () -> Unit,
 ) {
 	val source = remember { MutableInteractionSource() }
@@ -506,11 +604,12 @@ private fun BarIconButton(
 				}
 			}
 			.clip(CircleShape)
-			.clickable(
+			.combinedClickable(
 				interactionSource = source,
 				indication = LocalIndication.current,
 				role = Role.Button,
 				onClickLabel = label,
+				onLongClick = onLongClick,
 				onClick = onClick,
 			),
 		contentAlignment = Alignment.Center,
@@ -1069,6 +1168,7 @@ private fun ExtraPage(state: NovelChromeState, settings: AppSettings, rev: Int, 
 		}
 	}
 	ActionRow("Search in book", R.drawable.ic_search) { onDismiss(); state.onSearchClick() }
+	ActionRow(stringResource(R.string.novel_bars_customize), R.drawable.ic_tune) { onDismiss(); state.onCustomizeBarsClick() }
 }
 
 // ---- advanced options sub-screen --------------------------------------------------------------

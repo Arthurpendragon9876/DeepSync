@@ -345,10 +345,21 @@ private fun ImageView.forceImageIconTint(metrics: TonalBarMetrics) {
  */
 fun View.applyTonalSegmentBackground(roundLeft: Boolean, roundRight: Boolean) {
 	val shapeKey = (if (roundLeft) 1 else 0) or (if (roundRight) 2 else 0)
-	if (getTag(R.id.tag_tonal_action_shape) != shapeKey) {
+	// The shape key alone is not enough: a MaterialButton can have its background swapped back out
+	// from under us (state/theme changes, re-inflation of its drawable), and the key would then
+	// claim a fill that is no longer there. Compare against the drawable we actually installed.
+	if (getTag(R.id.tag_tonal_action_shape) != shapeKey || !hasTonalSegmentBackground()) {
 		setTag(R.id.tag_tonal_action_shape, shapeKey)
-		background = context.createSegmentBackground(TonalBarMetrics(context), roundLeft, roundRight)
+		val segment = context.createSegmentBackground(TonalBarMetrics(context), roundLeft, roundRight)
+		background = segment
+		setTag(R.id.tag_tonal_segment_background, segment)
 	}
+}
+
+/** True while the segment drawable installed by [applyTonalSegmentBackground] is still the view's background. */
+fun View.hasTonalSegmentBackground(): Boolean {
+	val installed = getTag(R.id.tag_tonal_segment_background) ?: return false
+	return background === installed
 }
 
 /** Width and height of one segment; a lone one is as wide as the navigation button, i.e. a circle. */

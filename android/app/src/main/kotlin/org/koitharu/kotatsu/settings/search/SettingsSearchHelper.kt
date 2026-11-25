@@ -170,6 +170,7 @@ class SettingsSearchHelper @Inject constructor(
 			}
 			group(sectionCrumbs, "Controls") { crumbs ->
 				addItem(AppSettings.KEY_READER_CONTROLS, R.string.reader_controls_in_bottom_bar, R.string.reader_controls_in_bottom_bar_summary, crumbs, ReaderSettingsFragment::class.java, keywordArrayRes = intArrayOf(R.array.reader_controls))
+				addItem(AppSettings.KEY_NOVEL_BAR_LAYOUT, R.string.novel_bars_customize, R.string.novel_bars_customize_summary, crumbs, ReaderSettingsFragment::class.java)
 				addItem("reader_tap_actions", R.string.reader_actions, R.string.reader_actions_summary, crumbs, ReaderSettingsFragment::class.java)
 				addItem(AppSettings.KEY_READER_CONTROL_LTR, R.string.reader_control_ltr, R.string.reader_control_ltr_summary, crumbs, ReaderSettingsFragment::class.java)
 				addItem(AppSettings.KEY_READER_VOLUME_BUTTONS, R.string.switch_pages_volume_buttons, R.string.switch_pages_volume_buttons_summary, crumbs, ReaderSettingsFragment::class.java)
