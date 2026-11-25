@@ -123,8 +123,9 @@ class ExploreMetadataViewModel @Inject constructor(
 	 * otherwise every request goes to a tracker that returns nothing and the page stays blank.
 	 */
 	private fun effectiveProvider(tv: Boolean): HomeMetadata {
-		val chosen = settings.homeMetadata
-		return if (tv && chosen != HomeMetadata.SOURCES) HomeMetadata.SIMKL else chosen
+		// Explore keeps its own tracker (Settings > Override global defaults > Explore, or Quick preferences) and
+		// follows Home's tracker until one is picked, so Home using the source catalogue never leaves Discover empty
+		return if (tv) HomeMetadata.SIMKL else settings.exploreMetadata
 	}
 
 	val onOpen = MutableEventFlow<MetaTarget>()
@@ -153,7 +154,12 @@ class ExploreMetadataViewModel @Inject constructor(
 		val tv = isTvMoviesNow(mode)
 		val provider = effectiveProvider(tv)
 		val current = mutableState.value
-		if (started && provider == current.provider && mode == current.mode && tv == current.tvMovies) return
+		if (started && provider == current.provider && mode == current.mode && tv == current.tvMovies) {
+			// Nothing to reload, but preferences changed elsewhere (Settings) still apply as soon as the tab shows
+			mutableState.update { it.copy(isListView = settings.isExploreListView) }
+			mutableQuickPrefs.value = readQuickPrefs()
+			return
+		}
 		started = true
 		resultsJob?.cancel()
 		forYouJob?.cancel()
@@ -352,7 +358,7 @@ class ExploreMetadataViewModel @Inject constructor(
 	}
 
 	fun setMetadataFromTracker(value: Boolean) {
-		settings.isMetadataFromTracker = value
+		settings.isExploreInfoFromTracker = value
 		mutableQuickPrefs.value = readQuickPrefs()
 	}
 
@@ -360,7 +366,7 @@ class ExploreMetadataViewModel @Inject constructor(
 		if (provider == HomeMetadata.SOURCES) return
 		// TV & Movies has the one provider (Simkl); choosing it must not overwrite the tracker picked for anime / manga
 		if (mutableState.value.tvMovies) return
-		settings.homeMetadata = provider
+		settings.exploreMetadata = provider
 		reload()
 	}
 
@@ -378,8 +384,8 @@ class ExploreMetadataViewModel @Inject constructor(
 			autoUpdateExtensions = settings.isAutoUpdateExtensionsEnabled,
 			hideAdult = settings.isHomeHideNsfw,
 			adultAllowed = !hideAdult(),
-			metadataFromTracker = settings.isMetadataFromTracker,
-			provider = if (isTvMoviesNow(mode)) HomeMetadata.SIMKL else settings.homeMetadataProvider,
+			metadataFromTracker = settings.isExploreInfoFromTracker,
+			provider = if (isTvMoviesNow(mode)) HomeMetadata.SIMKL else settings.exploreMetadata,
 			providers = HomeMetadata.values().filter { it != HomeMetadata.SOURCES && repository.supports(it, mode) },
 		)
 	}
@@ -391,7 +397,7 @@ class ExploreMetadataViewModel @Inject constructor(
 		val provider = effectiveProvider(isTvMoviesNow(mode))
 		val ref = MetaRef(provider, title.id, mode)
 		// Info comes from the tracker: show its page now and let that page find the source.
-		if (settings.isMetadataFromTracker) {
+		if (settings.isExploreInfoFromTracker) {
 			onOpen.call(MetaTarget.Details(ref, title.title, title.coverUrl, title.bannerUrl))
 			return
 		}

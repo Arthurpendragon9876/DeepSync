@@ -1768,8 +1768,13 @@
     <string name="ds_override_explore_discover_desc">Explore opens on the tracker\'s Discover page instead of the sources</string>
     <string name="ds_override_explore_list">Discover as a list</string>
     <string name="ds_override_explore_list_desc">Titles as rows instead of a poster grid</string>
-    <string name="ds_override_explore_novel_first">Novel sources first</string>
-    <string name="ds_override_explore_novel_first_desc">Explore puts novel sources on the left and opens there</string>
+    <string name="ds_override_explore_provider">Discover tracker</string>
+    <string name="ds_override_explore_provider_desc">Which tracker Discover browses. \"As Home\" follows Home\'s tracker. TV &amp; Movies always uses Simkl.</string>
+    <string name="ds_override_explore_as_home">As Home</string>
+    <string name="ds_override_explore_info">Open Discover titles with</string>
+    <string name="ds_override_explore_info_desc">The tracker\'s own page, or straight to your source</string>
+    <string name="ds_override_explore_info_tracker">Tracker</string>
+    <string name="ds_override_explore_info_source">Source</string>
     <string name="ds_override_services">Services</string>
     <string name="ds_override_services_desc">Trackers, statistics and related titles for each mode</string>
     <string name="ds_override_tracking_title">When a title is not tracked yet</string>

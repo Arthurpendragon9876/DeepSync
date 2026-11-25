@@ -954,6 +954,39 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		prefs.edit { putEnumValue(areaWriteKey(ModeOverrideArea.SUGGESTIONS, KEY_SUGGESTIONS_SOURCE, mode), source) }
 	}
 
+	/**
+	 * Which tracker Explore's Discover browses in [mode]. [HomeMetadata.SOURCES] here only means "same as Home":
+	 * Discover always needs a tracker, so it then uses the one Home would use (never the source catalogue).
+	 */
+	fun exploreProviderFor(mode: HomeMode): HomeMetadata =
+		prefs.getEnumValue(areaReadKey(ModeOverrideArea.EXPLORE, KEY_EXPLORE_PROVIDER, mode), HomeMetadata.SOURCES)
+
+	fun setExploreProviderFor(mode: HomeMode, provider: HomeMetadata) {
+		prefs.edit { putEnumValue(areaWriteKey(ModeOverrideArea.EXPLORE, KEY_EXPLORE_PROVIDER, mode), provider) }
+	}
+
+	/** The tracker Discover uses for the mode being shown: its own choice, else Home's tracker. Never the sources. */
+	var exploreMetadata: HomeMetadata
+		get() = exploreProviderFor(homeMode).takeIf { it != HomeMetadata.SOURCES } ?: homeMetadataProvider
+		set(value) = setExploreProviderFor(homeMode, value)
+
+	/**
+	 * Whether a title opened from Discover shows the tracker's page (true) or goes to the source (false) in [mode].
+	 * Until chosen it follows Home's "covers and info" choice.
+	 */
+	fun isExploreInfoFromTrackerFor(mode: HomeMode): Boolean {
+		val key = areaReadKey(ModeOverrideArea.EXPLORE, KEY_EXPLORE_INFO_TRACKER, mode)
+		return if (prefs.contains(key)) prefs.getBoolean(key, true) else if (mode == homeMode) isMetadataFromTracker else true
+	}
+
+	fun setExploreInfoFromTrackerFor(mode: HomeMode, value: Boolean) {
+		prefs.edit { putBoolean(areaWriteKey(ModeOverrideArea.EXPLORE, KEY_EXPLORE_INFO_TRACKER, mode), value) }
+	}
+
+	var isExploreInfoFromTracker: Boolean
+		get() = isExploreInfoFromTrackerFor(homeMode)
+		set(value) = setExploreInfoFromTrackerFor(homeMode, value)
+
 	/** Suggestions for the mode being shown. */
 	var suggestionsSource: SuggestionsSource
 		get() = suggestionsSourceFor(homeMode)
@@ -2058,6 +2091,8 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_FEED_ALL_MODES = "feed_all_modes"
 		const val KEY_HISTORY_ALL_MODES = "history_all_modes"
 		const val KEY_SUGGESTIONS_SOURCE = "suggestions_source"
+		const val KEY_EXPLORE_PROVIDER = "explore_metadata_provider"
+		const val KEY_EXPLORE_INFO_TRACKER = "explore_info_from_tracker"
 
 		/** Separates a per-mode Home setting's key from the mode it belongs to: `home_hidden_carousels__anime`. */
 		private const val PER_MODE_SEPARATOR = "__"
@@ -2069,6 +2104,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 			KEY_HOME_FAV_CATEGORIES, KEY_HOME_HIDDEN_CAROUSELS,
 			// Settings > Override global defaults
 			KEY_EXPLORE_NOVEL_TAB_FIRST, KEY_EXPLORE_DISCOVER_DEFAULT, KEY_EXPLORE_LIST_VIEW,
+			KEY_EXPLORE_PROVIDER, KEY_EXPLORE_INFO_TRACKER,
 			KEY_SHOW_EMPTY_MODE_CATEGORIES,
 			KEY_UPDATES_ALL_MODES, KEY_FEED_ALL_MODES, KEY_HISTORY_ALL_MODES, KEY_SUGGESTIONS_SOURCE,
 			KEY_RELATED_MANGA, KEY_STATS_ENABLED, KEY_WATCH_STATS_ENABLED, KEY_READING_TIME,

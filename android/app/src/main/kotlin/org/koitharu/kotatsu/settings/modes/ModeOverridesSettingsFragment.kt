@@ -22,6 +22,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.home.settings.HomeLayoutSettingsFragment
+import org.koitharu.kotatsu.home.ui.model.HomeMetadata
 import org.koitharu.kotatsu.home.ui.model.HomeMode
 import org.koitharu.kotatsu.home.ui.model.ModeOverrideArea
 import org.koitharu.kotatsu.home.ui.model.SuggestionsSource
@@ -80,8 +81,6 @@ private fun ModeOverridesScreen(
 	var version by remember { mutableIntStateOf(0) }
 	var editMode by remember { mutableStateOf(settings.homeMode) }
 
-	// Read so that a write redraws the screen
-	val redraw = version
 	val modes = HomeMode.entries
 	val modeLabels = listOf(
 		stringResource(R.string.ds_mode_manga),
@@ -90,10 +89,18 @@ private fun ModeOverridesScreen(
 	)
 	val modeName = modeLabels[modes.indexOf(editMode).coerceAtLeast(0)]
 
-	fun overridden(area: ModeOverrideArea) = settings.isModeOverridden(area)
+	// Every value on this screen is read through here. Reading `version` inside the row that shows the value is what
+	// makes that row (and the rows a switch adds or removes) redraw the moment something is written; reading it only
+	// once at the top of the screen left the switches frozen until the screen was reopened.
+	fun <T> live(read: () -> T): T {
+		val seen = version
+		return if (seen >= 0) read() else read()
+	}
+
+	fun overridden(area: ModeOverrideArea) = live { settings.isModeOverridden(area) }
 
 	fun bool(area: ModeOverrideArea, key: String, default: Boolean) =
-		settings.getModeBoolean(area, key, default, editMode)
+		live { settings.getModeBoolean(area, key, default, editMode) }
 
 	fun setBool(area: ModeOverrideArea, key: String, value: Boolean) {
 		settings.setModeBoolean(area, key, editMode, value)
@@ -163,6 +170,46 @@ private fun ModeOverridesScreen(
 				areaSwitch(ModeOverrideArea.EXPLORE, R.drawable.ic_manga_source)
 				if (overridden(ModeOverrideArea.EXPLORE)) {
 					item { pos ->
+						// Discover always browses a tracker. "As Home" uses whichever tracker Home uses, even when
+						// Home shows the source catalogue. Streaming's TV & Movies half always uses Simkl.
+						val providers = if (editMode == HomeMode.ANIME) {
+							listOf(HomeMetadata.ANILIST, HomeMetadata.MAL)
+						} else {
+							listOf(HomeMetadata.ANILIST, HomeMetadata.MAL, HomeMetadata.MANGABAKA)
+						}
+						val choices = listOf(HomeMetadata.SOURCES) + providers
+						SegmentedSettingsItem(
+							title = stringResource(R.string.ds_override_explore_provider),
+							subtitle = stringResource(R.string.ds_override_explore_provider_desc),
+							labels = listOf(stringResource(R.string.ds_override_explore_as_home)) +
+								providers.map { stringResource(it.titleRes) },
+							selectedIndex = choices.indexOf(live { settings.exploreProviderFor(editMode) }).coerceAtLeast(0),
+							onSelected = {
+								settings.setExploreProviderFor(editMode, choices[it])
+								version++
+							},
+							icon = R.drawable.ic_manga_source,
+							shape = pos.shape,
+						)
+					}
+					item { pos ->
+						SegmentedSettingsItem(
+							title = stringResource(R.string.ds_override_explore_info),
+							subtitle = stringResource(R.string.ds_override_explore_info_desc),
+							labels = listOf(
+								stringResource(R.string.ds_override_explore_info_tracker),
+								stringResource(R.string.ds_override_explore_info_source),
+							),
+							selectedIndex = if (live { settings.isExploreInfoFromTrackerFor(editMode) }) 0 else 1,
+							onSelected = {
+								settings.setExploreInfoFromTrackerFor(editMode, it == 0)
+								version++
+							},
+							icon = R.drawable.ic_manga_source,
+							shape = pos.shape,
+						)
+					}
+					item { pos ->
 						SwitchSettingsItem(
 							title = stringResource(R.string.ds_override_explore_discover),
 							subtitle = stringResource(R.string.ds_override_explore_discover_desc),
@@ -181,18 +228,6 @@ private fun ModeOverridesScreen(
 							icon = R.drawable.ic_manga_source,
 							shape = pos.shape,
 						)
-					}
-					if (editMode != HomeMode.ANIME) {
-						item { pos ->
-							SwitchSettingsItem(
-								title = stringResource(R.string.ds_override_explore_novel_first),
-								subtitle = stringResource(R.string.ds_override_explore_novel_first_desc),
-								checked = bool(ModeOverrideArea.EXPLORE, AppSettings.KEY_EXPLORE_NOVEL_TAB_FIRST, false),
-								onCheckedChange = { setBool(ModeOverrideArea.EXPLORE, AppSettings.KEY_EXPLORE_NOVEL_TAB_FIRST, it) },
-								icon = R.drawable.ic_manga_source,
-								shape = pos.shape,
-							)
-						}
 					}
 				}
 			}
@@ -248,7 +283,7 @@ private fun ModeOverridesScreen(
 								stringResource(R.string.ds_override_tracking_closest),
 								stringResource(R.string.ds_override_tracking_exact),
 							),
-							selectedIndex = choices.indexOf(settings.getModeTrackingChoice(editMode)),
+							selectedIndex = choices.indexOf(live { settings.getModeTrackingChoice(editMode) }),
 							onSelected = {
 								settings.setModeTrackingChoice(editMode, choices[it])
 								version++
@@ -363,7 +398,7 @@ private fun ModeOverridesScreen(
 							title = stringResource(R.string.ds_override_suggestions_source),
 							subtitle = stringResource(R.string.ds_override_suggestions_source_desc),
 							labels = sources.map { stringResource(it.titleRes) },
-							selectedIndex = sources.indexOf(settings.suggestionsSourceFor(editMode)),
+							selectedIndex = sources.indexOf(live { settings.suggestionsSourceFor(editMode) }),
 							onSelected = {
 								settings.setSuggestionsSourceFor(editMode, sources[it])
 								version++
