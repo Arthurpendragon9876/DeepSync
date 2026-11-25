@@ -896,10 +896,23 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 	// of that area are kept once per mode; a mode that was never edited keeps following the shared value, so
 	// turning an area on changes nothing until something is edited. Off: one shared value for all modes.
 
-	fun isModeOverridden(area: ModeOverrideArea): Boolean = prefs.getBoolean(area.key, false)
+	/**
+	 * Master switch of Settings > Override global defaults. Off (the default): every area uses its shared value, whatever
+	 * its own switch says. The per-area switches and the per-mode values are kept for when this is turned on again.
+	 */
+	var isModeOverridesEnabled: Boolean
+		get() = prefs.getBoolean(KEY_MODE_OVERRIDES_ENABLED, false)
+		set(value) = prefs.edit { putBoolean(KEY_MODE_OVERRIDES_ENABLED, value) }
+
+	fun isModeOverridden(area: ModeOverrideArea): Boolean =
+		isModeOverridesEnabled && prefs.getBoolean(area.key, false)
 
 	fun setModeOverridden(area: ModeOverrideArea, value: Boolean) {
-		prefs.edit { putBoolean(area.key, value) }
+		prefs.edit {
+			putBoolean(area.key, value)
+			// An area switched on from somewhere else (the Home banner settings) has to take effect
+			if (value) putBoolean(KEY_MODE_OVERRIDES_ENABLED, true)
+		}
 	}
 
 	/** The key a setting of [area] is written to for [mode]: the mode's own key while the area is overridden. */
@@ -2085,6 +2098,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_HOME_HIDE_NSFW = "home_hide_nsfw"
 		const val KEY_METADATA_FROM_TRACKER = "metadata_from_tracker"
 		const val KEY_HOME_FAV_CATEGORIES = "home_fav_categories"
+		const val KEY_MODE_OVERRIDES_ENABLED = "mode_overrides_enabled"
 		const val KEY_HOME_HIDDEN_CAROUSELS = "home_hidden_carousels"
 		const val KEY_HOME_PER_MODE = "home_per_mode"
 		const val KEY_UPDATES_ALL_MODES = "updates_all_modes"

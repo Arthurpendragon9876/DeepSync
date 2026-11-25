@@ -129,6 +129,25 @@ private fun ModeOverridesScreen(
 	}
 
 	SettingsScaffold {
+		// Master switch: off (the default), every mode follows the shared values and nothing below is shown
+		item {
+			SettingsGroup {
+				item {
+					SwitchSettingsItem(
+						title = stringResource(R.string.ds_mode_overrides),
+						checked = live { settings.isModeOverridesEnabled },
+						onCheckedChange = {
+							settings.isModeOverridesEnabled = it
+							version++
+						},
+						main = true,
+					)
+				}
+			}
+		}
+		if (!live { settings.isModeOverridesEnabled }) return@SettingsScaffold
+		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
+
 		// Which mode the switches below edit
 		item {
 			SettingsGroup {
