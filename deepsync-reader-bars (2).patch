@@ -1,0 +1,78 @@
+diff -u a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/ui/util/TopBarNavigationButtonStyler.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/ui/util/TopBarNavigationButtonStyler.kt
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/ui/util/TopBarNavigationButtonStyler.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/ui/util/TopBarNavigationButtonStyler.kt
+@@ -342,21 +342,36 @@
+  * tonal segment as the toolbar's menu actions (see [applyTonalActionMenuStyle]): the translucent
+  * fill, the group's outer corners fully rounded ([roundLeft] / [roundRight], already resolved for
+  * the layout direction) and the abutting ones small, plus a ripple bounded to that shape.
++ *
++ * Call it on the plain [View] that hosts the [button] (the FrameLayout around it), not on the
++ * button: the buttons are MaterialButtons whose icon-button style carries a transparent
++ * backgroundTint, and AppCompat paints that tint over any background set on the button itself, so a
++ * fill put there is drawn fully transparent. The host draws the fill; the button only gets the
++ * shape-bounded ripple as its foreground (the foreground is never tinted) and its own background
++ * stays the transparent one Material gave it.
+  */
+-fun View.applyTonalSegmentBackground(roundLeft: Boolean, roundRight: Boolean) {
++fun View.applyTonalSegmentBackground(button: View, roundLeft: Boolean, roundRight: Boolean) {
+ 	val shapeKey = (if (roundLeft) 1 else 0) or (if (roundRight) 2 else 0)
+-	// The shape key alone is not enough: a MaterialButton can have its background swapped back out
+-	// from under us (state/theme changes, re-inflation of its drawable), and the key would then
+-	// claim a fill that is no longer there. Compare against the drawable we actually installed.
++	// The shape key alone is not enough: if the fill is ever swapped out the key would claim one that
++	// is no longer there. Compare against the drawable we actually installed.
+ 	if (getTag(R.id.tag_tonal_action_shape) != shapeKey || !hasTonalSegmentBackground()) {
+ 		setTag(R.id.tag_tonal_action_shape, shapeKey)
+-		val segment = context.createSegmentBackground(TonalBarMetrics(context), roundLeft, roundRight)
+-		background = segment
+-		setTag(R.id.tag_tonal_segment_background, segment)
++		val metrics = TonalBarMetrics(context)
++		val left = if (roundLeft) metrics.outerCornerRadius else metrics.innerCornerRadius
++		val right = if (roundRight) metrics.outerCornerRadius else metrics.innerCornerRadius
++		val radii = floatArrayOf(left, left, right, right, right, right, left, left)
++		val fill = roundRect(context.tonalSurfaceColor(), radii)
++		background = fill
++		setTag(R.id.tag_tonal_segment_background, fill)
++		button.foreground = RippleDrawable(
++			ColorStateList.valueOf(context.getThemeColor(android.R.attr.colorControlHighlight)),
++			null,
++			roundRect(Color.WHITE, radii),
++		)
+ 	}
+ }
+ 
+-/** True while the segment drawable installed by [applyTonalSegmentBackground] is still the view's background. */
++/** True while the fill installed by [applyTonalSegmentBackground] is still this view's background. */
+ fun View.hasTonalSegmentBackground(): Boolean {
+ 	val installed = getTag(R.id.tag_tonal_segment_background) ?: return false
+ 	return background === installed
+diff -u a/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActionsView.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActionsView.kt
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActionsView.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/reader/ui/ReaderActionsView.kt
+@@ -227,7 +227,7 @@
+ 	private fun isTopSideLookIntact(): Boolean = children
+ 		.filterIsInstance<FrameLayout>()
+ 		.filter { it.isVisible }
+-		.all { (it.getChildAt(0) as? MaterialButton)?.hasTonalSegmentBackground() ?: true }
++		.all { it.hasTonalSegmentBackground() }
+ 
+ 	override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+ 		super.onWindowFocusChanged(hasWindowFocus)
+@@ -504,9 +504,15 @@
+ 			button.minHeight = 0
+ 			button.setPadding(0, 0, 0, 0)
+ 			button.iconPadding = 0
++			// Material's default puts the icon at the button's start edge; with no text, centring the
++			// icon-and-text group centres the icon in the segment.
++			button.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
+ 			button.iconSize = iconSize
+-			// The segment is the button's own background, so its ripple is bounded to the shape.
+-			button.applyTonalSegmentBackground(
++			// The fill lives on the frame around the button (a MaterialButton's transparent background
++			// tint would hide it there); the button keeps only a shape-bounded ripple as its foreground.
++			button.rippleColor = ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
++			frame.applyTonalSegmentBackground(
++				button = button,
+ 				roundLeft = if (isRtl) isLast else isFirst,
+ 				roundRight = if (isRtl) isFirst else isLast,
+ 			)
