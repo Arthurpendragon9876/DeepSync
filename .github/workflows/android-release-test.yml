@@ -1,0 +1,163 @@
+name: Android release test build
+
+# Builds the real Release APK (R8/shrinking and signing exactly like a published release) so it can be
+# tested on a phone BEFORE publishing anything. It does not create a tag or a GitHub release, does not
+# commit anything and does not touch the in-app updater: the version bump only exists inside this run.
+# The APK is attached to the run as a workflow artifact (Actions tab > this run > Artifacts) and its
+# hashes are printed in the run summary.
+#
+# Signing: with the KEYSTORE_BASE64 / RELEASE_* secrets it is signed with your permanent key, so it
+# installs over an installed release. Without them it gets a temporary random key and will NOT install
+# over a release you already have (uninstall first), which the run summary says.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'Optional. Version name shown in the app, e.g. 0.1.4-test. Leave empty to use the current one with "-test.<run number>" added'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build release APK (not published)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      VERSION_INPUT: ${{ inputs.version_name }}
+
+    steps:
+    - name: Validate version_name input
+      # Runs before checkout, when the android/ folder does not exist yet.
+      working-directory: ${{ github.workspace }}
+      run: |
+        if [ -n "$VERSION_INPUT" ] && ! echo "$VERSION_INPUT" | grep -qE '^[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.+-]+)?$'; then
+          echo "::error::version_name '${VERSION_INPUT}' is invalid. Use something like 0.1.4-test (no leading v), or leave it empty."
+          exit 1
+        fi
+
+    - name: Checkout code
+      uses: actions/checkout@v5
+
+    - name: Set up JDK
+      uses: actions/setup-java@v5
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+        cache: 'gradle'
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Decode keystore
+      id: signing
+      env:
+        KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+      run: |
+        if [ -n "$KEYSTORE_BASE64" ]; then
+          echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
+          echo "signed_with=your permanent release key (installs over a release)" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::No KEYSTORE_BASE64 secret: signing with a temporary random key. This APK will not install over an installed release; uninstall that first."
+          keytool -genkey -v -keystore release.keystore -alias release \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass password -keypass password \
+            -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, S=Debug, C=US"
+          echo "signed_with=a temporary random key (will NOT install over a release)" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Set the test version (this run only, never committed)
+      id: ver
+      run: |
+        BUILD_GRADLE="app/build.gradle"
+        CURRENT_NAME=$(grep -E "versionName = '" "$BUILD_GRADLE" | head -n1 | sed -E "s/.*versionName = '([^']*)'.*/\1/")
+        if [ -n "$VERSION_INPUT" ]; then
+          VERSION_NAME="$VERSION_INPUT"
+        else
+          VERSION_NAME="${CURRENT_NAME}-test.${GITHUB_RUN_NUMBER}"
+        fi
+        CURRENT_CODE=$(grep -E "versionCode = [0-9]+" "$BUILD_GRADLE" | head -n1 | sed -E "s/.*= ([0-9]+)/\1/")
+        NEXT_CODE=$((CURRENT_CODE + 1))
+
+        sed -i -E "s/(versionName = ')[^']*(')/\1${VERSION_NAME}\2/" "$BUILD_GRADLE"
+        sed -i -E "s/versionCode = [0-9]+/versionCode = ${NEXT_CODE}/" "$BUILD_GRADLE"
+        echo "versionName ${VERSION_NAME}, versionCode ${NEXT_CODE}"
+        echo "version=${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+        echo "code=${NEXT_CODE}" >> "$GITHUB_OUTPUT"
+
+    - name: Build Release APK
+      env:
+        RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD || 'password' }}
+        RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || 'release' }}
+        RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || 'password' }}
+      run: |
+        ./gradlew assembleRelease --no-daemon --stacktrace \
+          -PRELEASE_STORE_FILE=../release.keystore \
+          -PRELEASE_STORE_PASSWORD="$RELEASE_STORE_PASSWORD" \
+          -PRELEASE_KEY_ALIAS="$RELEASE_KEY_ALIAS" \
+          -PRELEASE_KEY_PASSWORD="$RELEASE_KEY_PASSWORD"
+
+    - name: Collect APK and compute checksums
+      id: apk
+      env:
+        VERSION_NAME: ${{ steps.ver.outputs.version }}
+        VERSION_CODE: ${{ steps.ver.outputs.code }}
+        SIGNED_WITH: ${{ steps.signing.outputs.signed_with }}
+      run: |
+        set -euo pipefail
+        shopt -s nullglob
+        APK_FILES=(app/build/outputs/apk/release/*.apk)
+        if [ ${#APK_FILES[@]} -eq 0 ]; then
+          echo "::error::No release APK found under app/build/outputs/apk/release"
+          exit 1
+        fi
+
+        mkdir -p test-release
+        SHORT_SHA=$(git rev-parse --short HEAD)
+        {
+          echo "**Release test build of \`${GITHUB_REF_NAME}\`** — built like a real release, but nothing was tagged, committed or published."
+          echo ""
+          echo "| File | Size | SHA-256 |"
+          echo "| --- | --- | --- |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        for apk in "${APK_FILES[@]}"; do
+          if [ ${#APK_FILES[@]} -eq 1 ]; then
+            target="test-release/Yugen-v${VERSION_NAME}.apk"
+          else
+            target="test-release/Yugen-v${VERSION_NAME}-$(basename "$apk" .apk).apk"
+          fi
+          cp "$apk" "$target"
+          echo "| \`$(basename "$target")\` | $(du -h "$target" | cut -f1) | \`$(sha256sum "$target" | awk '{print $1}')\` |" >> "$GITHUB_STEP_SUMMARY"
+        done
+
+        {
+          echo ""
+          echo "| Field | Value |"
+          echo "| --- | --- |"
+          echo "| Branch | \`${GITHUB_REF_NAME}\` |"
+          echo "| Commit | \`${SHORT_SHA}\` |"
+          echo "| versionName | \`${VERSION_NAME}\` |"
+          echo "| versionCode | \`${VERSION_CODE}\` |"
+          echo "| Signed with | ${SIGNED_WITH} |"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        echo "artifact_name=Yugen-v${VERSION_NAME}-release-test" >> "$GITHUB_OUTPUT"
+
+    - name: Upload APK as a workflow artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.apk.outputs.artifact_name }}
+        path: android/test-release/*.apk
+        if-no-files-found: error
+        retention-days: 14
