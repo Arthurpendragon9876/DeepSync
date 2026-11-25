@@ -105,6 +105,12 @@ data class MetadataTitle(
 	val year: Int? = null,
 	/** A watchable trailer (YouTube / Dailymotion) when the tracker has one; used by Explore's samples. */
 	val trailerUrl: String? = null,
+	/** Publication status in AniList's vocabulary (RELEASING, FINISHED, HIATUS, CANCELLED, NOT_YET_RELEASED) when known. */
+	val status: String? = null,
+	val chapters: Int? = null,
+	val volumes: Int? = null,
+	/** Authors and artists as the tracker credits them. */
+	val authors: List<String> = emptyList(),
 ) {
 
 	/** Normalised kind: MANHWA, MANHUA, MANGA, NOVEL, ONE_SHOT or null when unknown. */

@@ -9,9 +9,11 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.db.MangaDatabase
+import org.koitharu.kotatsu.metadata.MetaList
 import org.koitharu.kotatsu.parsers.util.await
 import org.koitharu.kotatsu.parsers.util.json.getStringOrNull
 import org.koitharu.kotatsu.parsers.util.json.mapJSONNotNull
@@ -41,6 +43,13 @@ private const val OAUTH_URL = "$BASE_WEB_URL/auth/oauth2"
 private const val SCOPES = "library.read library.write offline_access openid"
 private const val MANGA_PAGE_SIZE = 20
 private const val RATING_MAX = 100
+private const val MAX_PAGE_LIMIT = 50
+private const val TRENDING_POOL = 50
+
+// MangaBaka's popularity is a rank (1 = best): ascending is "most popular first".
+private const val SORT_POPULAR = "popularity_asc"
+private const val SORT_NEWEST = "created_at_desc"
+private val SMALL_WORDS = setOf("of", "the", "and")
 
 @Singleton
 class MangaBakaRepository @Inject constructor(
@@ -357,21 +366,57 @@ class MangaBakaRepository @Inject constructor(
 	}
 
 	/**
-	 * MangaBaka's catalogue as [MetadataTitle]s: a search when [search] is given, otherwise its most popular
-	 * series. MangaBaka covers comics and novels only, so there is nothing for anime.
+	 * MangaBaka's catalogue as [MetadataTitle]s: a search when [search] is given, otherwise the chart [kind].
+	 * MangaBaka covers comics and novels only, so there is nothing for anime.
+	 *
+	 * `popularity` on MangaBaka is a RANK (1 = most popular), so "most popular" is `popularity_asc`; the old
+	 * `popularity_desc` returned the least popular series first, which is where the "unknown title" rows came from.
 	 */
-	suspend fun metaList(novel: Boolean, limit: Int, hideAdult: Boolean, search: String? = null, page: Int = 1): List<MetadataTitle> {
+	suspend fun metaList(
+		novel: Boolean,
+		limit: Int,
+		hideAdult: Boolean,
+		search: String? = null,
+		page: Int = 1,
+		kind: MetaList = MetaList.POPULAR,
+	): List<MetadataTitle> {
+		// Trending is derived from the rank movement over 7 days, so it needs a pool to re-order.
+		val fetch = if (search == null && kind == MetaList.TRENDING) maxOf(limit * 3, TRENDING_POOL) else limit
 		val url = "$BASE_API_URL/series/search".toHttpUrl().newBuilder().apply {
-			if (search != null) addQueryParameter("q", search) else addQueryParameter("sort_by", "popularity_desc")
+			if (search != null) {
+				addQueryParameter("q", search)
+			} else {
+				addQueryParameter(
+					"sort_by",
+					when (kind) {
+						MetaList.POPULAR, MetaList.TRENDING -> SORT_POPULAR
+						MetaList.RECENT -> SORT_NEWEST
+					},
+				)
+			}
 			addQueryParameter(if (novel) "type" else "type_not", "novel")
-			addQueryParameter("limit", limit.toString())
+			addQueryParameter("limit", fetch.coerceAtMost(MAX_PAGE_LIMIT).toString())
 			if (page > 1) addQueryParameter("page", page.toString())
 		}.build()
 		val response = okHttp.newCall(Request.Builder().url(url).get().build()).await().parseJson()
 		check(response.has("data")) { "Invalid response: \"$response\"" }
-		return response.getJSONArray("data").mapJSONNotNull { json ->
-			metadataOf(json).takeUnless { hideAdult && it.isAdult }
+		val data = response.getJSONArray("data")
+		val items = ArrayList<Pair<MetadataTitle, Int>>()
+		for (i in 0 until data.length()) {
+			val json = data.optJSONObject(i) ?: continue
+			val title = runCatching { metadataOf(json) }.getOrNull() ?: continue
+			// a row with no real title or no cover is a stub; it would show as "unknown title" with a blank card
+			if (search == null && (title.title.isPlaceholderTitle() || title.coverUrl == null)) continue
+			if (hideAdult && title.isAdult) continue
+			items += title to json.rankGain()
 		}
+		val ordered = if (search == null && kind == MetaList.TRENDING) {
+			// biggest climb in the last 7 days first; stable, so rows without history keep the popularity order
+			items.sortedByDescending { it.second }
+		} else {
+			items
+		}
+		return ordered.map { it.first }.take(limit)
 	}
 
 	/** One exact MangaBaka series by id, for titles already tracked there. */
@@ -387,38 +432,83 @@ class MangaBakaRepository @Inject constructor(
 		val title = json.title()
 		val rating = json.getStringOrNull("content_rating").orEmpty()
 		val adult = rating == "pornographic" || rating == "erotica"
-		fun labels(key: String) = json.optJSONArray(key)?.let { g ->
-			(0 until g.length()).mapNotNull { i ->
-				g.optString(i).takeIf { it.isNotBlank() && !it.startsWith("{") } ?: g.optJSONObject(i)?.getStringOrNull("name")
-			}
-		}.orEmpty()
-		val secondary = json.optJSONArray("secondary_titles")?.let { arr ->
-			(0 until arr.length()).mapNotNull { i ->
-				val item = arr.opt(i)
-				when (item) {
-					is String -> item
-					is JSONObject -> item.getStringOrNull("title")
-					else -> null
-				}
-			}
-		}.orEmpty()
+		// tags_v2 carries is_genre / is_spoiler; the flat genres / tags arrays are deprecated and snake_case
+		val tagsV2 = json.optJSONArray("tags_v2").objects()
+		val genres = tagsV2.filter { it.optBoolean("is_genre") }.mapNotNull { it.getStringOrNull("name") }
+			.ifEmpty { json.optJSONArray("genres").strings().map { it.prettyGenre() } }
+		val tags = tagsV2.filter { !it.optBoolean("is_genre") && !it.optBoolean("is_spoiler") }
+			.mapNotNull { it.getStringOrNull("name") }
+			.ifEmpty { json.optJSONArray("tags").strings() }
+		val allTitles = json.titleList()
+		val start = json.optJSONObject("published")?.getStringOrNull("start_date")
 		return MetadataTitle(
 			id = id,
 			title = title,
-			names = (listOfNotNull(title, json.getStringOrNull("romanized_title"), json.getStringOrNull("native_title")) + secondary)
-				.filter { it.isNotBlank() }.distinct(),
+			names = (listOf(title) + allTitles).filter { it.isNotBlank() && !it.isPlaceholderTitle() }.distinct(),
 			coverUrl = json.coverUrl(),
 			bannerUrl = null,
-			genres = labels("genres"),
+			genres = genres.distinct(),
 			isAdult = adult,
+			// MangaBaka rates 0-100
 			score = json.optDouble("rating").takeIf { !it.isNaN() && it > 0 }?.let { (it / 10.0).toFloat() },
 			url = "$BASE_WEB_URL/$id",
 			description = json.getStringOrNull("description"),
 			// MangaBaka types: manga, manhwa, manhua, novel, oel, other
 			format = json.getStringOrNull("type"),
-			tags = labels("tags"),
-			year = json.optInt("year").takeIf { it > 0 },
+			country = json.getStringOrNull("original_language")?.toCountry(),
+			tags = tags.distinct(),
+			year = start?.take(4)?.toIntOrNull() ?: json.optInt("year").takeIf { it > 0 },
+			status = json.getStringOrNull("status")?.takeIf { it != "unknown" }?.uppercase()?.let {
+				if (it == "UPCOMING") "NOT_YET_RELEASED" else it
+			},
+			// total_chapters / final_volume are strings on the API
+			chapters = json.optString("total_chapters").toFloatOrNull()?.toInt()?.takeIf { it > 0 },
+			volumes = json.optString("final_volume").toFloatOrNull()?.toInt()?.takeIf { it > 0 },
+			authors = (json.optJSONArray("authors").strings() + json.optJSONArray("artists").strings()).distinct(),
 		)
+	}
+
+	/** How far up the rank list the series moved in 7 days (rank 1 is best, so a bigger old rank means a climb). */
+	private fun JSONObject.rankGain(): Int {
+		val global = optJSONObject("popularity")?.optJSONObject("global") ?: return 0
+		val now = global.optInt("current", 0).takeIf { it > 0 } ?: return 0
+		val before = global.optJSONObject("history")?.optInt("1w", 0)?.takeIf { it > 0 } ?: return 0
+		return before - now
+	}
+
+	private fun JSONArray?.objects(): List<JSONObject> =
+		this?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty()
+
+	private fun JSONArray?.strings(): List<String> =
+		this?.let { a -> (0 until a.length()).mapNotNull { a.optString(it).takeIf { s -> s.isNotBlank() } } }.orEmpty()
+
+	/** "slice_of_life" -> "Slice of Life", "sci-fi" -> "Sci-Fi". */
+	private fun String.prettyGenre(): String = split('_', ' ').joinToString(" ") { w ->
+		w.split('-').joinToString("-") { p -> if (p in SMALL_WORDS) p else p.replaceFirstChar(Char::uppercase) }
+	}.replaceFirstChar(Char::uppercase)
+
+	private fun String.toCountry(): String? = when {
+		this == "ja" -> "JP"
+		this == "ko" -> "KR"
+		this.startsWith("zh") && (endsWith("TW") || endsWith("HK")) -> "TW"
+		this.startsWith("zh") || this.startsWith("yue") -> "CN"
+		else -> null
+	}
+
+	private fun String.isPlaceholderTitle() = startsWith("unknown title", ignoreCase = true)
+
+	/** Every real title in the new `titles` array (it replaces title / native_title / romanized_title). */
+	private fun JSONObject.titleList(): List<String> {
+		val fromArray = optJSONArray("titles").objects().mapNotNull { it.getStringOrNull("title") }
+		val legacy = listOfNotNull(
+			getStringOrNull("title"),
+			getStringOrNull("romanized_title"),
+			getStringOrNull("native_title"),
+		)
+		val secondary = optJSONObject("secondary_titles")?.let { o ->
+			o.keys().asSequence().flatMap { k -> o.optJSONArray(k).objects().mapNotNull { it.getStringOrNull("title") } }.toList()
+		}.orEmpty()
+		return (fromArray + legacy + secondary).filter { it.isNotBlank() && !it.isPlaceholderTitle() }.distinct()
 	}
 
 	private fun jsonToManga(json: JSONObject, sourceTitle: String): ScrobblerManga {
@@ -436,14 +526,36 @@ class MangaBakaRepository @Inject constructor(
 		)
 	}
 
-	private fun JSONObject.title(): String = getStringOrNull("title")
-		?: getStringOrNull("romanized_title")
-		?: getStringOrNull("native_title")
-		?: "#${getLong("id")}"
+	/**
+	 * The best display title: the English primary title, then any English one, then a romanization, then whatever
+	 * exists. The API's own placeholder ("unknown title (please report)") is never shown while a real name exists.
+	 */
+	private fun JSONObject.title(): String {
+		val list = optJSONArray("titles").objects().filter { o ->
+			o.getStringOrNull("title")?.let { it.isNotBlank() && !it.isPlaceholderTitle() } == true
+		}
+		fun JSONObject.isEn() = getStringOrNull("language") == "en"
+		fun JSONObject.primary() = optBoolean("is_primary")
+		fun JSONObject.official() = optJSONArray("traits").strings().contains("official")
+		fun JSONObject.latin() = getStringOrNull("language")?.endsWith("Latn") == true
+		val picked = list.firstOrNull { it.isEn() && it.primary() }
+			?: list.firstOrNull { it.isEn() && it.official() }
+			?: list.firstOrNull { it.isEn() }
+			?: list.firstOrNull { it.latin() && it.primary() }
+			?: list.firstOrNull { it.latin() }
+			?: list.firstOrNull { it.primary() }
+			?: list.firstOrNull()
+		return picked?.getStringOrNull("title")
+			?: titleList().firstOrNull()
+			?: getStringOrNull("title")
+			?: "#${getLong("id")}"
+	}
 
-	private fun JSONObject.coverUrl(): String? = optJSONObject("cover")
-		?.optJSONObject("x250")
-		?.getStringOrNull("x1")
+	private fun JSONObject.coverUrl(): String? = optJSONObject("cover")?.let { c ->
+		c.optJSONObject("x250")?.getStringOrNull("x1")
+			?: c.optJSONObject("x350")?.getStringOrNull("x1")
+			?: c.optJSONObject("raw")?.getStringOrNull("url")
+	}
 
 	private fun String.toJsonBody() = toRequestBody("application/json".toMediaType())
 

@@ -173,7 +173,7 @@ class MetadataRepository @Inject constructor(
 			)
 
 			HomeMetadata.MAL -> mal.metaList(kind.name, novel, anime, limit, hideAdult)
-			HomeMetadata.MANGABAKA -> if (anime) emptyList() else mangaBaka.metaList(novel, limit, hideAdult)
+			HomeMetadata.MANGABAKA -> if (anime) emptyList() else mangaBaka.metaList(novel, limit, hideAdult, kind = kind)
 		}
 		return raw.filter { t ->
 			include.all { g -> t.genres.any { it.equals(g, ignoreCase = true) } } &&
@@ -271,7 +271,7 @@ class MetadataRepository @Inject constructor(
 			HomeMetadata.MANGABAKA -> {
 				if (anime) return MetadataPage(emptyList(), false)
 				pagedLocally(page, perPage, filters) { raw ->
-					mangaBaka.metaList(novel, perPage, filters.hideAdult, search = query, page = raw)
+					mangaBaka.metaList(novel, perPage, filters.hideAdult, search = query, page = raw, kind = filters.sort.list)
 				}
 			}
 		}
