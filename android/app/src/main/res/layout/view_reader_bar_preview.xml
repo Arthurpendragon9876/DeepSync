@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Live preview of the reader's bottom bar for the "Reader controls in bottom bar" settings
+<!-- Live preview of the reader's bottom bar for the "Customise reader bottom bar and top bar" settings
      screen. It hosts the real ReaderActionsView (so it always matches the reader exactly) with a
      transparent overlay on top that swallows every touch — the preview is look-only. -->
 <FrameLayout

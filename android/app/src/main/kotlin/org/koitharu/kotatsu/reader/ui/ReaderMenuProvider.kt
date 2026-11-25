@@ -21,19 +21,14 @@ class ReaderMenuProvider(
 
 	override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
 		menuInflater.inflate(R.menu.opt_reader, menu)
-		menu.findItem(R.id.action_bookmark)?.isVisible = !isLandscape && !isEpub()
+		// The bookmark button is one of the user's bar buttons now ("Customise reader bottom bar and
+		// top bar"), drawn by the bars themselves, so the menu no longer carries one.
+		menu.findItem(R.id.action_bookmark)?.isVisible = false
 	}
 
 	override fun onPrepareMenu(menu: Menu) {
 		menu.findItem(R.id.action_epub_search)?.isVisible = isEpub()
-		// The old three-dot button is gone (quick settings live in the bottom bar): the top bar now
-		// carries a bookmark toggle instead.
-		menu.findItem(R.id.action_bookmark)?.let { item ->
-			val added = isBookmarkAdded()
-			item.isVisible = !isLandscape && !isEpub()
-			item.setIcon(if (added) R.drawable.ic_bookmark_added else R.drawable.ic_bookmark)
-			item.setTitle(if (added) R.string.bookmark_remove else R.string.bookmark_add)
-		}
+		menu.findItem(R.id.action_bookmark)?.isVisible = false
 		menu.findItem(R.id.action_upscale_preview)?.isVisible = isUpscaleActive()
 		// Novels have their own web button in the reader bar, beside the highlighter
 		menu.findItem(R.id.action_webview)?.isVisible = !isEpub() && canOpenWeb()

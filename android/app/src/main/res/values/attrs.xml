@@ -28,6 +28,17 @@
 		<attr name="crossfadeEnabled" format="boolean" />
 	</declare-styleable>
 
+	<!-- Which part of the reader bars layout a ReaderActionsView draws: the bottom bar (with the
+	     slider), one side of the top bar, or everything in one row (wide screens). -->
+	<declare-styleable name="ReaderActionsView">
+		<attr name="readerBarArea" format="enum">
+			<enum name="bottom" value="0" />
+			<enum name="topStart" value="1" />
+			<enum name="topEnd" value="2" />
+			<enum name="all" value="3" />
+		</attr>
+	</declare-styleable>
+
 	<declare-styleable name="CoverImageView">
 		<attr name="aspectRationHeight" format="integer" />
 		<attr name="aspectRationWidth" format="integer" />

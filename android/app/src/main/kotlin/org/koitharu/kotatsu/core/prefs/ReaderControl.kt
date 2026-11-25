@@ -5,10 +5,12 @@ import androidx.annotation.StringRes
 import org.koitharu.kotatsu.R
 
 /**
- * A single button (or the slider) of the reader's bottom bar. The user picks which ones are shown
- * and in which order — see the "Reader controls in bottom bar" settings screen. Storage is an
- * ordered list, so the declaration order here only matters as the fallback for controls that are
- * turned on later.
+ * A single button (or the slider) of the reader's bars. The user picks which ones are shown, in
+ * which bar slot ([ReaderBarSlot]) and in which order — see the "Customise reader bottom bar and
+ * top bar" settings screen. Every control, Chapters and Settings included, can be moved to any
+ * slot; only [SLIDER] is tied to the bottom bar, between its two sides. Storage is an ordered
+ * list, so the declaration order here only matters as the fallback for controls that are turned on
+ * later.
  */
 enum class ReaderControl(
 	@StringRes val titleResId: Int,
@@ -23,10 +25,6 @@ enum class ReaderControl(
 	SCREEN_ROTATION(R.string.screen_orientation, R.drawable.ic_screen_rotation),
 	SAVE_PAGE(R.string.save_page, R.drawable.ic_save),
 	TIMER(R.string.automatic_scroll, R.drawable.ic_timer),
-	BOOKMARK(R.string.bookmark_add, R.drawable.ic_bookmark, R.string.highlight_in_novels);
-
-	companion object {
-
-		val DEFAULT: List<ReaderControl> = listOf(PREV_CHAPTER, SLIDER, NEXT_CHAPTER, PAGES_SHEET)
-	}
+	BOOKMARK(R.string.bookmark_add, R.drawable.ic_bookmark, R.string.highlight_in_novels),
+	OPTIONS(R.string.reader_bar_settings_button, R.drawable.ic_tune);
 }

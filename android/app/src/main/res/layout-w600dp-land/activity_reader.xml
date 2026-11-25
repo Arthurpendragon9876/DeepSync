@@ -79,7 +79,8 @@
 				android:id="@+id/actionsView"
 				android:layout_width="400dp"
 				android:layout_height="wrap_content"
-				android:layout_gravity="center_vertical|end" />
+				android:layout_gravity="center_vertical|end"
+				app:readerBarArea="all" />
 
 		</com.google.android.material.appbar.MaterialToolbar>
 

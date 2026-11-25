@@ -190,19 +190,19 @@ class ReaderActivity :
         pageSaveHelper = pageSaveHelperFactory.create(this)
         controlDelegate = ReaderControlDelegate(resources, settings, tapGridSettings, this)
         viewBinding.zoomControl.listener = this
-        viewBinding.actionsView.listener = this
+        actionViews.forEach { it.listener = this }
         viewBinding.buttonTimerFab?.setOnClickListener(this)
         idlingDetector.bindToLifecycle(this)
         screenOrientationHelper.applySettings()
-        viewModel.isBookmarkAdded.observe(this) { viewBinding.actionsView.isBookmarkAdded = it }
-        viewModel.isHighlightPicking.observe(this) {
-            novelChrome.isHighlightArmed = it
-            viewBinding.actionsView.isHighlightPicking = it
-            if (it) viewBinding.toastView.show(R.string.tap_sentence_to_highlight) else viewBinding.toastView.hide()
+        viewModel.isBookmarkAdded.observe(this) { added -> actionViews.forEach { it.isBookmarkAdded = added } }
+        viewModel.isHighlightPicking.observe(this) { picking ->
+            novelChrome.isHighlightArmed = picking
+            actionViews.forEach { it.isHighlightPicking = picking }
+            if (picking) viewBinding.toastView.show(R.string.tap_sentence_to_highlight) else viewBinding.toastView.hide()
         }
         scrollTimer.isActive.observe(this) {
             updateScrollTimerButton()
-            viewBinding.actionsView.setTimerActive(it)
+            actionViews.forEach { view -> view.setTimerActive(it) }
         }
         viewBinding.timerControl.onVisibilityChangeListener = this
         viewBinding.timerControl.attach(scrollTimer, this)
@@ -398,7 +398,7 @@ class ReaderActivity :
         }
         quickSettingsVisible = visible
         quickSettingsBackCallback.isEnabled = visible
-        viewBinding.actionsView.isSettingsOpen = visible
+        actionViews.forEach { it.isSettingsOpen = visible }
     }
 
     /** Puts the panel just above the bottom bar, with the same side margins as the bar. */
@@ -432,6 +432,14 @@ class ReaderActivity :
         (readerManager.currentReader as? EpubReaderFragment)?.setTtsPickMode(false)
         updateScrollTimerButton()
     }
+
+    /**
+     * Every bar view that can hold the user's buttons: the bottom bar and the two sides of the top
+     * bar (the latter are absent from the wide layouts, which keep a single combined bar). Button
+     * state (bookmarked, timer running, ...) goes to all of them, since any button can sit in any.
+     */
+    private val actionViews: List<ReaderActionsView>
+        get() = listOfNotNull(viewBinding.actionsView, viewBinding.actionsTopStart, viewBinding.actionsTopEnd)
 
     private fun applyNovelChrome(isEpub: Boolean) {
         novelChrome.active = isEpub
@@ -1024,7 +1032,7 @@ class ReaderActivity :
             return
         }
         viewBinding.actionsView.isSliderSmooth = uiState.isEpub && !uiState.isEpubPaged
-        viewBinding.actionsView.isHighlightMode = uiState.isEpub
+        actionViews.forEach { it.isHighlightMode = uiState.isEpub }
         // Only trade Material's value label for the thumbnail when the pages are really resolvable;
         // otherwise the scrub would show neither.
         viewBinding.actionsView.isScrubPreviewEnabled = uiState.isSliderAvailable() &&
@@ -1053,8 +1061,8 @@ class ReaderActivity :
             viewBinding.actionsView.setSliderValue(0, 1)
         }
         viewBinding.actionsView.isSliderEnabled = uiState.isSliderAvailable()
-        viewBinding.actionsView.isNextEnabled = uiState.hasNextChapter()
-        viewBinding.actionsView.isPrevEnabled = uiState.hasPreviousChapter()
+        actionViews.forEach { it.isNextEnabled = uiState.hasNextChapter() }
+        actionViews.forEach { it.isPrevEnabled = uiState.hasPreviousChapter() }
     }
 
     /**

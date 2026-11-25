@@ -146,6 +146,7 @@
 		<item>@string/save_page</item>
 		<item>@string/automatic_scroll</item>
 		<item>@string/bookmark_add</item>
+		<item>@string/reader_bar_settings_button</item>
 	</string-array>
 	<string-array name="list_badges" translatable="false">
 		<item>@string/favourites</item>

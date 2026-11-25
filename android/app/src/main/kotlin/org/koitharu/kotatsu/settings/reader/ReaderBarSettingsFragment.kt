@@ -18,7 +18,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -53,6 +56,10 @@ import androidx.compose.ui.zIndex
 import dagger.hilt.android.AndroidEntryPoint
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.prefs.AppSettings
+import org.koitharu.kotatsu.core.prefs.ReaderBarItem
+import org.koitharu.kotatsu.core.prefs.ReaderBarLayout
+import org.koitharu.kotatsu.core.prefs.ReaderBarSlot
+import org.koitharu.kotatsu.core.prefs.ReaderBars
 import org.koitharu.kotatsu.core.prefs.ReaderControl
 import org.koitharu.kotatsu.core.util.ext.HapticEffect
 import org.koitharu.kotatsu.core.util.ext.rememberHapticEffect
@@ -68,9 +75,11 @@ import javax.inject.Inject
 import kotlin.math.roundToInt
 
 /**
- * Customises the reader's bottom bar: one list holding every control, toggled with a switch and
- * reordered by dragging its handle. The preview on top is the real [ReaderActionsView] reading the
- * same preference, so it always matches the reader.
+ * Customises the reader's bars. Every control lives in one of four slots (left or right side of
+ * the top bar, left or right side of the bottom bar); the page slider sits between the bottom
+ * bar's two sides. A control is toggled with its switch, reordered by dragging its handle within
+ * its slot, and sent to another slot with its move menu. The previews on top are the real
+ * [ReaderActionsView]s reading the same preference, so they always match the reader.
  */
 @AndroidEntryPoint
 class ReaderBarSettingsFragment :
@@ -88,15 +97,15 @@ class ReaderBarSettingsFragment :
 		setContent {
 			DropSauceTheme {
 				ReaderBarScreen(
-					initial = settings.readerControlsLayout,
-					onChanged = { settings.readerControlsLayout = it },
+					initial = settings.readerBarLayout,
+					onChanged = { settings.readerBarLayout = it },
 				)
 			}
 		}
 	}
 }
 
-private typealias BarLayout = List<Pair<ReaderControl, Boolean>>
+private typealias BarLayout = ReaderBarLayout
 
 @Composable
 private fun ReaderBarScreen(
@@ -109,10 +118,20 @@ private fun ReaderBarScreen(
 		onChanged(value)
 	}
 	SettingsScaffold {
+		item { TopBarPreview() }
+		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
 		item { BottomBarPreview() }
 		item { Spacer(Modifier.height(16.dp).fillMaxWidth()) }
 		item { ControlList(layout = layout, onChange = apply) }
 	}
+}
+
+@Composable
+private fun TopBarPreview() {
+	AndroidView(
+		modifier = Modifier.fillMaxWidth(),
+		factory = { ctx -> LayoutInflater.from(ctx).inflate(R.layout.view_reader_top_bar_preview, null) },
+	)
 }
 
 @Composable
@@ -130,9 +149,32 @@ private fun BottomBarPreview() {
 	)
 }
 
+/** The controls of one slot, in the order they are drawn. The slider is not part of any slot. */
+private fun BarLayout.inSlot(slot: ReaderBarSlot): List<ReaderBarItem> =
+	filter { it.slot == slot && it.control != ReaderControl.SLIDER }
+
+/** What the bars look like, ignoring how the slots are interleaved in the list. */
+private fun BarLayout.appearance(): List<List<Pair<ReaderControl, Boolean>>> =
+	ReaderBarSlot.entries.map { slot -> inSlot(slot).map { it.control to it.isShown } } +
+		listOf(filter { it.control == ReaderControl.SLIDER }.map { it.control to it.isShown })
+
+/** [newOrder] fills the places the slot's controls already had, so other slots stay untouched. */
+private fun BarLayout.withSlotOrder(slot: ReaderBarSlot, newOrder: List<ReaderBarItem>): BarLayout {
+	val replacements = newOrder.iterator()
+	return map { item -> if (item.slot == slot && item.control != ReaderControl.SLIDER) replacements.next() else item }
+}
+
+/** Sends a control to the end of [target]. */
+private fun BarLayout.moved(control: ReaderControl, target: ReaderBarSlot): BarLayout {
+	val item = firstOrNull { it.control == control } ?: return this
+	val rest = filterNot { it.control == control }
+	return rest.toMutableList().apply { add(rest.indexOfLast { it.slot == target } + 1, item.copy(slot = target)) }
+}
+
 /**
- * The whole bar as one reorderable settings group. Rows are uniform height, so a drag is turned
- * into an index shift by dividing the accumulated offset by the row pitch.
+ * Every control of the bars, grouped by slot, each group a reorderable settings group. Rows are
+ * uniform height, so a drag is turned into an index shift by dividing the accumulated offset by
+ * the row pitch.
  */
 @Composable
 private fun ControlList(
@@ -140,30 +182,11 @@ private fun ControlList(
 	onChange: (BarLayout) -> Unit,
 ) {
 	val haptic = rememberHapticEffect()
-	val gap = with(LocalDensity.current) { GROUP_GAP.toPx() }
-	var rowPitch by remember { mutableFloatStateOf(0f) }
-	var dragIndex by remember { mutableIntStateOf(-1) }
-	var dragOffset by remember { mutableFloatStateOf(0f) }
-
-	val onDrag: (Float) -> Unit = { dy ->
-		dragOffset += dy
-		if (rowPitch > 0f && dragIndex >= 0) {
-			val target = (dragIndex + (dragOffset / rowPitch).roundToInt())
-				.coerceIn(0, layout.lastIndex)
-			if (target != dragIndex) {
-				onChange(layout.toMutableList().apply { add(target, removeAt(dragIndex)) })
-				dragOffset -= (target - dragIndex) * rowPitch
-				dragIndex = target
-				haptic(HapticEffect.LIGHT_TICK)
-			}
-		}
-	}
-
 	Column {
 		var isConfirmingReset by remember { mutableStateOf(false) }
 		SettingsGroupTitle(
 			title = stringResource(R.string.customize),
-			isResetEnabled = layout != DEFAULT_LAYOUT,
+			isResetEnabled = layout.appearance() != ReaderBars.DEFAULT.appearance(),
 			onResetClick = { isConfirmingReset = true },
 		)
 		if (isConfirmingReset) {
@@ -172,48 +195,132 @@ private fun ControlList(
 				message = stringResource(R.string.config_reset_confirm),
 				confirmLabel = stringResource(R.string.reset),
 				onConfirm = {
-					onChange(DEFAULT_LAYOUT)
+					onChange(ReaderBars.DEFAULT)
 					haptic(HapticEffect.CONFIRM)
 				},
 				onDismiss = { isConfirmingReset = false },
 			)
 		}
-		layout.forEachIndexed { index, (control, isShown) ->
-			// Keyed by control so each row's state — and its slide animation — follows the item as
-			// the list reorders instead of staying with the slot.
-			key(control) {
-				val isDragging = index == dragIndex
-				val slide = rememberReorderSlide(index, rowPitch, isDragging)
-				ControlRow(
-					control = control,
-					isShown = isShown,
-					shape = groupItemShape(index, layout.size),
-					modifier = Modifier
-						.zIndex(if (isDragging) 1f else 0f)
-						.graphicsLayer {
-							translationY = if (isDragging) dragOffset else slide.floatValue
-							shadowElevation = if (isDragging) DRAG_ELEVATION.toPx() else 0f
-						}
-						.onSizeChanged { rowPitch = it.height + gap },
-					onToggle = {
-						onChange(layout.toMutableList().apply { this[index] = control to !isShown })
-					},
-					onDragStart = {
-						dragIndex = index
-						dragOffset = 0f
-						haptic(HapticEffect.GESTURE_START)
-					},
-					onDrag = onDrag,
-					onDragEnd = {
-						dragIndex = -1
-						dragOffset = 0f
-						haptic(HapticEffect.GESTURE_END)
-					},
-				)
+		SlotSection(ReaderBarSlot.TOP_START, layout, onChange)
+		SlotSection(ReaderBarSlot.TOP_END, layout, onChange)
+		SlotSection(ReaderBarSlot.BOTTOM_START, layout, onChange)
+		SliderSection(layout, onChange)
+		SlotSection(ReaderBarSlot.BOTTOM_END, layout, onChange)
+	}
+}
+
+@Composable
+private fun SlotTitle(title: String) {
+	Text(
+		text = title,
+		style = MaterialTheme.typography.labelLarge,
+		color = MaterialTheme.colorScheme.onSurfaceVariant,
+		modifier = Modifier
+			.fillMaxWidth()
+			.padding(start = 12.dp, top = 16.dp, bottom = 6.dp),
+	)
+}
+
+/** The page slider: on or off, always between the bottom bar's left and right side. */
+@Composable
+private fun SliderSection(
+	layout: BarLayout,
+	onChange: (BarLayout) -> Unit,
+) {
+	val item = layout.firstOrNull { it.control == ReaderControl.SLIDER } ?: return
+	SettingsItem(
+		title = stringResource(item.control.titleResId),
+		subtitle = stringResource(R.string.reader_bar_slider_note),
+		icon = item.control.iconResId,
+		shape = groupItemShape(0, 1),
+		modifier = Modifier.padding(top = 14.dp),
+		onClick = { onChange(layout.map { if (it.control == item.control) it.copy(isShown = !it.isShown) else it }) },
+		trailing = {
+			Switch(
+				checked = item.isShown,
+				onCheckedChange = { shown -> onChange(layout.map { if (it.control == item.control) it.copy(isShown = shown) else it }) },
+			)
+		},
+	)
+}
+
+@Composable
+private fun SlotSection(
+	slot: ReaderBarSlot,
+	layout: BarLayout,
+	onChange: (BarLayout) -> Unit,
+) {
+	val haptic = rememberHapticEffect()
+	val gap = with(LocalDensity.current) { GROUP_GAP.toPx() }
+	val rows = layout.inSlot(slot)
+	var rowPitch by remember { mutableFloatStateOf(0f) }
+	var dragIndex by remember { mutableIntStateOf(-1) }
+	var dragOffset by remember { mutableFloatStateOf(0f) }
+
+	val onDrag: (Float) -> Unit = { dy ->
+		dragOffset += dy
+		if (rowPitch > 0f && dragIndex >= 0) {
+			val target = (dragIndex + (dragOffset / rowPitch).roundToInt())
+				.coerceIn(0, rows.lastIndex)
+			if (target != dragIndex) {
+				onChange(layout.withSlotOrder(slot, rows.toMutableList().apply { add(target, removeAt(dragIndex)) }))
+				dragOffset -= (target - dragIndex) * rowPitch
+				dragIndex = target
+				haptic(HapticEffect.LIGHT_TICK)
 			}
-			if (index < layout.lastIndex) {
-				Spacer(Modifier.height(GROUP_GAP))
-			}
+		}
+	}
+
+	SlotTitle(stringResource(slot.titleResId))
+	if (rows.isEmpty()) {
+		Text(
+			text = stringResource(R.string.reader_bar_slot_empty),
+			style = MaterialTheme.typography.bodySmall,
+			color = MaterialTheme.colorScheme.onSurfaceVariant,
+			modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+		)
+		return
+	}
+	rows.forEachIndexed { index, item ->
+		// Keyed by control so each row's state — and its slide animation — follows the item as
+		// the list reorders instead of staying with the slot.
+		key(item.control) {
+			val isDragging = index == dragIndex
+			val slide = rememberReorderSlide(index, rowPitch, isDragging)
+			ControlRow(
+				control = item.control,
+				isShown = item.isShown,
+				slot = slot,
+				shape = groupItemShape(index, rows.size),
+				modifier = Modifier
+					.zIndex(if (isDragging) 1f else 0f)
+					.graphicsLayer {
+						translationY = if (isDragging) dragOffset else slide.floatValue
+						shadowElevation = if (isDragging) DRAG_ELEVATION.toPx() else 0f
+					}
+					.onSizeChanged { rowPitch = it.height + gap },
+				onToggle = {
+					onChange(layout.map { if (it.control == item.control) it.copy(isShown = !it.isShown) else it })
+				},
+				onMove = { target ->
+					onChange(layout.moved(item.control, target))
+					haptic(HapticEffect.CONFIRM)
+				},
+				onDragStart = {
+					dragIndex = index
+					dragOffset = 0f
+					haptic(HapticEffect.GESTURE_START)
+				},
+				onDrag = onDrag,
+				onDragEnd = {
+					dragIndex = -1
+					dragOffset = 0f
+					haptic(HapticEffect.GESTURE_END)
+				},
+			)
+		}
+		if (index < rows.lastIndex) {
+			Spacer(Modifier.height(GROUP_GAP))
 		}
 	}
 }
@@ -292,9 +399,11 @@ private fun SettingsGroupTitle(
 private fun ControlRow(
 	control: ReaderControl,
 	isShown: Boolean,
+	slot: ReaderBarSlot,
 	shape: Shape,
 	modifier: Modifier,
 	onToggle: () -> Unit,
+	onMove: (ReaderBarSlot) -> Unit,
 	onDragStart: () -> Unit,
 	onDrag: (Float) -> Unit,
 	onDragEnd: () -> Unit,
@@ -309,10 +418,41 @@ private fun ControlRow(
 		trailing = {
 			Row(verticalAlignment = Alignment.CenterVertically) {
 				Switch(checked = isShown, onCheckedChange = { onToggle() })
+				MoveButton(current = slot, onMove = onMove)
 				DragHandle(onDragStart = onDragStart, onDrag = onDrag, onDragEnd = onDragEnd)
 			}
 		},
 	)
+}
+
+/** Opens a menu of the other three slots; picking one sends the control to the end of it. */
+@Composable
+private fun MoveButton(
+	current: ReaderBarSlot,
+	onMove: (ReaderBarSlot) -> Unit,
+) {
+	var isExpanded by remember { mutableStateOf(false) }
+	Box {
+		IconButton(onClick = { isExpanded = true }, modifier = Modifier.size(40.dp)) {
+			Icon(
+				painter = painterResource(R.drawable.ic_swap),
+				contentDescription = stringResource(R.string.reader_bar_move_to),
+				modifier = Modifier.size(22.dp),
+				tint = MaterialTheme.colorScheme.onSurfaceVariant,
+			)
+		}
+		DropdownMenu(expanded = isExpanded, onDismissRequest = { isExpanded = false }) {
+			ReaderBarSlot.entries.filterNot { it == current }.forEach { slot ->
+				DropdownMenuItem(
+					text = { Text(stringResource(slot.titleResId)) },
+					onClick = {
+						isExpanded = false
+						onMove(slot)
+					},
+				)
+			}
+		}
+	}
 }
 
 @Composable
@@ -350,10 +490,6 @@ private fun DragHandle(
 		)
 	}
 }
-
-/** The bar as it ships: the default controls in their default order, everything else hidden. */
-private val DEFAULT_LAYOUT: BarLayout = ReaderControl.DEFAULT.map { it to true } +
-	ReaderControl.entries.filterNot { it in ReaderControl.DEFAULT }.map { it to false }
 
 private val GROUP_GAP = 2.dp
 private val DRAG_ELEVATION = 8.dp

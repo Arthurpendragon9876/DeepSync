@@ -82,7 +82,25 @@
 			app:contentInsetEndWithActions="@dimen/reader_toolbar_actions_end_inset"
 			app:elevation="4dp"
 			app:popupTheme="@style/ThemeOverlay.Kotatsu"
-			tools:menu="@menu/opt_reader" />
+			tools:menu="@menu/opt_reader">
+
+			<!-- The user's top-bar buttons ("Customise reader bottom bar and top bar"): the left group
+			     sits after the back arrow, the right one before the menu actions. -->
+			<org.koitharu.kotatsu.reader.ui.ReaderActionsView
+				android:id="@+id/actions_top_start"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:layout_gravity="center_vertical|start"
+				app:readerBarArea="topStart" />
+
+			<org.koitharu.kotatsu.reader.ui.ReaderActionsView
+				android:id="@+id/actions_top_end"
+				android:layout_width="wrap_content"
+				android:layout_height="wrap_content"
+				android:layout_gravity="center_vertical|end"
+				app:readerBarArea="topEnd" />
+
+		</com.google.android.material.appbar.MaterialToolbar>
 
 	</com.google.android.material.appbar.AppBarLayout>
 

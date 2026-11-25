@@ -14,6 +14,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.annotation.AttrRes
+import androidx.core.content.res.use
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import kotlin.math.roundToInt
@@ -21,6 +22,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.nav.AppRouter
 import org.koitharu.kotatsu.core.prefs.AppSettings
+import org.koitharu.kotatsu.core.prefs.ReaderBarSlot
 import org.koitharu.kotatsu.core.prefs.ReaderControl
 import org.koitharu.kotatsu.core.util.ext.HapticEffect
 import org.koitharu.kotatsu.core.util.ext.hapticFeedback
@@ -53,6 +55,15 @@ class ReaderActionsView @JvmOverloads constructor(
 	lateinit var settings: AppSettings
 
 	private val binding = LayoutReaderActionsBinding.inflate(LayoutInflater.from(context), this)
+
+	/**
+	 * Which part of the bars' layout this view draws. Every instance inflates all the buttons and
+	 * shows only the controls of its own slots, so one layout preference drives the bottom bar and
+	 * both sides of the top bar.
+	 */
+	private val area: Area = context.obtainStyledAttributes(attrs, R.styleable.ReaderActionsView).use {
+		Area.entries.getOrElse(it.getInt(R.styleable.ReaderActionsView_readerBarArea, 0)) { Area.BOTTOM }
+	}
 	private val rotationObserver = object : ContentObserver(handler) {
 		override fun onChange(selfChange: Boolean) {
 			post {
@@ -258,7 +269,7 @@ class ReaderActionsView @JvmOverloads constructor(
 
 	override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
 		when (key) {
-			AppSettings.KEY_READER_CONTROLS -> updateControlsVisibility()
+			AppSettings.KEY_READER_BAR_LAYOUT -> updateControlsVisibility()
 			AppSettings.KEY_PAGES_TAB,
 			AppSettings.KEY_DETAILS_TAB,
 			AppSettings.KEY_DETAILS_LAST_TAB -> updatePagesSheetButton()
@@ -286,27 +297,45 @@ class ReaderActionsView @JvmOverloads constructor(
 	}
 
 	private fun updateControlsVisibility() {
-		val controls = settings.readerControls
-		binding.buttonPrev.isVisible = ReaderControl.PREV_CHAPTER in controls
-		binding.buttonNext.isVisible = ReaderControl.NEXT_CHAPTER in controls
-		binding.buttonPagesThumbs.isVisible = ReaderControl.PAGES_SHEET in controls
-		binding.buttonScreenRotation.isVisible = ReaderControl.SCREEN_ROTATION in controls
-		binding.buttonSave.isVisible = ReaderControl.SAVE_PAGE in controls
-		binding.buttonTimer.isVisible = ReaderControl.TIMER in controls
-		binding.buttonBookmark.isVisible = ReaderControl.BOOKMARK in controls
-		binding.buttonOptions.isVisible = true
-		binding.slider.isVisible = ReaderControl.SLIDER in controls
-		// bringChildToFront moves a child to the end of the child list, so walking the ordered
-		// list left to right leaves the children in exactly that order. Like the novel bar, Chapters
-		// stays pinned first and Settings pinned last, with the other controls in between.
-		bringChildToFront(binding.buttonPagesThumbs.slot())
-		for (control in controls) {
-			if (control != ReaderControl.PAGES_SHEET) {
-				bringChildToFront(control.view())
+		val layout = settings.readerBarLayout
+		val shown = layout.filter { it.isShown && it.control != ReaderControl.SLIDER }
+		// The controls of this view's own slots, left to right. A null slot is the page slider,
+		// which sits between the two sides of the bottom bar.
+		val ordered = ArrayList<ReaderControl>()
+		var hasSlider = false
+		for (slot in area.slots) {
+			if (slot == null) {
+				hasSlider = layout.any { it.control == ReaderControl.SLIDER && it.isShown }
+			} else {
+				shown.filter { it.slot == slot }.mapTo(ordered) { it.control }
 			}
 		}
-		bringChildToFront(binding.buttonOptions.slot())
+		binding.buttonPrev.isVisible = ReaderControl.PREV_CHAPTER in ordered
+		binding.buttonNext.isVisible = ReaderControl.NEXT_CHAPTER in ordered
+		binding.buttonPagesThumbs.isVisible = ReaderControl.PAGES_SHEET in ordered
+		binding.buttonScreenRotation.isVisible = ReaderControl.SCREEN_ROTATION in ordered
+		binding.buttonSave.isVisible = ReaderControl.SAVE_PAGE in ordered
+		binding.buttonTimer.isVisible = ReaderControl.TIMER in ordered
+		binding.buttonBookmark.isVisible = ReaderControl.BOOKMARK in ordered
+		binding.buttonOptions.isVisible = ReaderControl.OPTIONS in ordered
+		binding.slider.isVisible = hasSlider
+		// bringChildToFront moves a child to the end of the child list, so walking the ordered
+		// list left to right leaves the children in exactly that order. Nothing is pinned: every
+		// control sits wherever the user put it.
+		for (slot in area.slots) {
+			if (slot == null) {
+				if (hasSlider) bringChildToFront(binding.slider)
+			} else {
+				shown.filter { it.slot == slot }.forEach { bringChildToFront(it.control.view()) }
+			}
+		}
 		adjustLayoutParams()
+		// The rotation icon is only set while its button is visible, and it may just have become so.
+		updateRotationButton()
+		// A top-bar side with nothing on it must not leave its padding in the toolbar.
+		if (area.isTopSide) {
+			visibility = if (ordered.isEmpty()) GONE else VISIBLE
+		}
 	}
 
 	/** The direct child of this LinearLayout that hosts the given control. */
@@ -319,6 +348,7 @@ class ReaderActionsView @JvmOverloads constructor(
 		ReaderControl.SAVE_PAGE -> binding.buttonSave.slot()
 		ReaderControl.TIMER -> binding.buttonTimer.slot()
 		ReaderControl.BOOKMARK -> binding.buttonBookmark.slot()
+		ReaderControl.OPTIONS -> binding.buttonOptions.slot()
 	}
 
 	private fun View.slot(): View = parent as View
@@ -384,13 +414,17 @@ class ReaderActionsView @JvmOverloads constructor(
 
 	private fun adjustLayoutParams() {
 		val isSliderVisible = binding.slider.isVisible
+		// With no slider the buttons share the row's width, except on a top-bar side, which only
+		// takes the room its buttons need so the title keeps the rest of the toolbar.
+		val spread = !isSliderVisible && !area.isTopSide
 		repeat(childCount) { i ->
 			val child = getChildAt(i)
 			if (child is FrameLayout) {
 				child.isVisible = child.hasVisibleChildren
 				child.updateLayoutParams<LayoutParams> {
-					width = if (isSliderVisible) LayoutParams.WRAP_CONTENT else 0
-					weight = if (isSliderVisible) 0f else 1f
+					width = if (spread) 0 else LayoutParams.WRAP_CONTENT
+					weight = if (spread) 1f else 0f
+					if (area.isTopSide) marginEnd = 0
 				}
 			}
 		}
@@ -423,4 +457,16 @@ class ReaderActionsView @JvmOverloads constructor(
 		Settings.System.ACCELEROMETER_ROTATION,
 		0,
 	) == 1
+
+	/** What a [ReaderActionsView] draws; null in [slots] stands for the page slider. */
+	private enum class Area(val slots: List<ReaderBarSlot?>) {
+
+		BOTTOM(listOf(ReaderBarSlot.BOTTOM_START, null, ReaderBarSlot.BOTTOM_END)),
+		TOP_START(listOf(ReaderBarSlot.TOP_START)),
+		TOP_END(listOf(ReaderBarSlot.TOP_END)),
+		ALL(listOf(ReaderBarSlot.TOP_START, ReaderBarSlot.BOTTOM_START, null, ReaderBarSlot.BOTTOM_END, ReaderBarSlot.TOP_END));
+
+		val isTopSide: Boolean
+			get() = this == TOP_START || this == TOP_END
+	}
 }

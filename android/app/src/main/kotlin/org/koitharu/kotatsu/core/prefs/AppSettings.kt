@@ -541,46 +541,49 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		set(value) = prefs.edit { putBoolean(KEY_CHAPTER_JUMP_DIALOG, value) }
 
 	/**
-	 * The reader bottom bar layout: every control in the user's order, paired with whether it is
-	 * shown. Hidden controls keep their slot so re-enabling one puts it back where it was.
-	 * Serialized as a comma-separated list of names, hidden ones prefixed with '-'.
+	 * The reader bars' layout: every control in the user's order, with the slot it sits in (left or
+	 * right side of the top or bottom bar) and whether it is shown. Hidden controls keep their place
+	 * so re-enabling one puts it back where it was.
+	 * Serialized as a comma-separated list of `NAME@SLOT`, hidden ones prefixed with '-'.
+	 * Builds that only had a bottom bar stored a plain ordered list of names under
+	 * [KEY_READER_CONTROLS] (and before that an unordered set under [KEY_READER_CONTROLS_LEGACY]);
+	 * they are read until the layout is first saved, so an update keeps a customised bar.
 	 */
-	var readerControlsLayout: List<Pair<ReaderControl, Boolean>>
+	var readerBarLayout: ReaderBarLayout
 		get() {
-			val stored = prefs.getString(KEY_READER_CONTROLS, null)
-				?.split(',')
-				?.mapNotNull { token ->
-					val name = token.trim()
-					val control = ReaderControl.entries.find(name.removePrefix("-")) ?: return@mapNotNull null
-					control to !name.startsWith('-')
-				}
-				?.distinctBy { it.first }
-				.orEmpty()
-			val base = stored.ifEmpty { legacyReaderControlsLayout() }
-			// Controls introduced by a later version are appended, hidden.
-			val known = base.mapToSet { it.first }
-			return base + ReaderControl.entries.filterNot { it in known }.map { it to false }
+			val stored = prefs.getString(KEY_READER_BAR_LAYOUT, null)
+			if (stored != null) {
+				return ReaderBars.parse(stored, { name -> ReaderControl.entries.find(name) }, { name -> ReaderBarSlot.entries.find(name) })
+			}
+			// Nothing stored under either older format: a fresh install.
+			val old = singleListReaderControls() ?: return ReaderBars.DEFAULT
+			return ReaderBars.fromSingleList(old)
 		}
 		set(value) = prefs.edit {
-			putString(KEY_READER_CONTROLS, value.joinToString(",") { (c, isShown) -> if (isShown) c.name else "-${c.name}" })
+			putString(KEY_READER_BAR_LAYOUT, ReaderBars.serialize(value))
 		}
 
-	/** Just the controls the bar renders, left to right. */
-	val readerControls: List<ReaderControl>
-		get() = readerControlsLayout.mapNotNull { (control, isShown) -> control.takeIf { isShown } }
+	/** The previous, bottom-bar-only format: controls in order, hidden ones prefixed with '-'. */
+	private fun singleListReaderControls(): List<Pair<ReaderControl, Boolean>>? {
+		val stored = prefs.getString(KEY_READER_CONTROLS, null)
+			?.split(',')
+			?.mapNotNull { token ->
+				val name = token.trim()
+				val control = ReaderControl.entries.find(name.removePrefix("-")) ?: return@mapNotNull null
+				control to !name.startsWith('-')
+			}
+			?.distinctBy { it.first }
+			.orEmpty()
+		return stored.ifEmpty { legacyReaderControlsLayout() }
+	}
 
 	// Pre-ordering builds stored an unordered string set under a different key; read it once so an
 	// update does not silently reset a customised bar.
-	private fun legacyReaderControlsLayout(): List<Pair<ReaderControl, Boolean>> {
+	private fun legacyReaderControlsLayout(): List<Pair<ReaderControl, Boolean>>? {
 		val legacy = runCatching {
 			prefs.getStringSet(KEY_READER_CONTROLS_LEGACY, null)
-		}.getOrNull()
-		val shown = if (legacy != null) {
-			ReaderControl.entries.filter { it.name in legacy }
-		} else {
-			ReaderControl.DEFAULT
-		}
-		return shown.map { it to true }
+		}.getOrNull() ?: return null
+		return ReaderControl.entries.filter { it.name in legacy }.map { it to true }
 	}
 
 	val isOfflineCheckDisabled: Boolean
@@ -1738,6 +1741,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_TRACKER_DOWNLOAD = "tracker_download"
 		const val KEY_READER_ANIMATION = "reader_animation2"
 		const val KEY_READER_CONTROLS = "reader_controls_order"
+		const val KEY_READER_BAR_LAYOUT = "reader_bar_layout"
 		private const val KEY_READER_CONTROLS_LEGACY = "reader_controls"
 		const val KEY_READER_MODE = "reader_mode"
 		const val KEY_EXPLORE_NOVEL_TAB_FIRST = "explore_novel_tab_first"
