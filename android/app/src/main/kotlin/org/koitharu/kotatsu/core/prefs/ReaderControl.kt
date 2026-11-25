@@ -25,6 +25,8 @@ enum class ReaderControl(
 	SCREEN_ROTATION(R.string.screen_orientation, R.drawable.ic_screen_rotation),
 	SAVE_PAGE(R.string.save_page, R.drawable.ic_save),
 	TIMER(R.string.automatic_scroll, R.drawable.ic_timer),
+	WEB_VIEW(R.string.open_in_browser, R.drawable.ic_web),
+	EXTERNAL_BROWSER(R.string.open_in_external_browser, R.drawable.ic_open_external),
 	BOOKMARK(R.string.bookmark_add, R.drawable.ic_bookmark, R.string.highlight_in_novels),
 	OPTIONS(R.string.reader_bar_settings_button, R.drawable.ic_tune);
 }

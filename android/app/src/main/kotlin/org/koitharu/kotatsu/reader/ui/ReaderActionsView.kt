@@ -11,10 +11,12 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
+import com.google.android.material.button.MaterialButton
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.annotation.AttrRes
 import androidx.core.content.res.use
+import androidx.core.view.children
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import kotlin.math.roundToInt
@@ -24,6 +26,10 @@ import org.koitharu.kotatsu.core.nav.AppRouter
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.ReaderBarSlot
 import org.koitharu.kotatsu.core.prefs.ReaderControl
+import org.koitharu.kotatsu.core.ui.util.applyTonalSegmentBackground
+import org.koitharu.kotatsu.core.ui.util.applyTonalSegmentSpacing
+import org.koitharu.kotatsu.core.ui.util.tonalIconSize
+import org.koitharu.kotatsu.core.ui.util.tonalSegmentSize
 import org.koitharu.kotatsu.core.util.ext.HapticEffect
 import org.koitharu.kotatsu.core.util.ext.hapticFeedback
 import org.koitharu.kotatsu.core.util.ext.getThemeColor
@@ -128,6 +134,20 @@ class ReaderActionsView @JvmOverloads constructor(
 			}
 		}
 
+	private var isTimerActive = false
+
+	/**
+	 * Whether the chapter can be opened on its source's website (an online manga, not a local one
+	 * or a novel). The customise screen's previews have no reader behind them, so it defaults on.
+	 */
+	var isWebAvailable: Boolean = true
+		set(value) {
+			if (field != value) {
+				field = value
+				updateControlsVisibility()
+			}
+		}
+
 	var listener: OnInteractionListener? = null
 
 	// EPUB: the slider is a smooth in-chapter scrollbar - no tick stops, no label, live seeking
@@ -168,6 +188,8 @@ class ReaderActionsView @JvmOverloads constructor(
 		binding.buttonPagesThumbs.initAction()
 		binding.buttonTimer.initAction()
 		binding.buttonBookmark.initAction()
+		binding.buttonWebView.initAction()
+		binding.buttonExternalBrowser.initAction()
 		binding.slider.addOnChangeListener(this)
 		binding.slider.addOnSliderTouchListener(this)
 		updateControlsVisibility()
@@ -210,6 +232,8 @@ class ReaderActionsView @JvmOverloads constructor(
 			R.id.button_screen_rotation -> listener?.toggleScreenOrientation()
 			R.id.button_options -> listener?.openMenu()
 			R.id.button_bookmark -> listener?.onBookmarkClick()
+			R.id.button_web_view -> listener?.onOpenWebClick(external = false)
+			R.id.button_external_browser -> listener?.onOpenWebClick(external = true)
 		}
 	}
 
@@ -218,6 +242,7 @@ class ReaderActionsView @JvmOverloads constructor(
 			?.showChapterPagesSheet(ChaptersPagesSheet.TAB_BOOKMARKS)
 
 		R.id.button_timer -> listener?.onScrollTimerClick(isLongClick = false)
+		R.id.button_web_view -> listener?.onOpenWebClick(external = true)
 		R.id.button_options -> AppRouter.from(this)?.openReaderSettings()
 		else -> null
 	} != null
@@ -289,12 +314,18 @@ class ReaderActionsView @JvmOverloads constructor(
 	}
 
 	fun setTimerActive(isActive: Boolean) {
-		binding.buttonTimer.iconTint = ColorStateList.valueOf(
-			context.getThemeColor(
-				if (isActive) appcompatR.attr.colorPrimary else materialR.attr.colorOnSurfaceVariant,
-			),
-		)
+		isTimerActive = isActive
+		binding.buttonTimer.iconTint = if (isActive) {
+			ColorStateList.valueOf(context.getThemeColor(appcompatR.attr.colorPrimary))
+		} else {
+			idleIconTint()
+		}
 	}
+
+	/** The resting icon colour: what the toolbar's menu actions use on the top bar. */
+	private fun idleIconTint(): ColorStateList = ColorStateList.valueOf(
+		context.getThemeColor(if (area.isTopSide) R.attr.colorTopBarIcon else materialR.attr.colorOnSurfaceVariant),
+	)
 
 	private fun updateControlsVisibility() {
 		val layout = settings.readerBarLayout
@@ -317,6 +348,8 @@ class ReaderActionsView @JvmOverloads constructor(
 		binding.buttonSave.isVisible = ReaderControl.SAVE_PAGE in ordered
 		binding.buttonTimer.isVisible = ReaderControl.TIMER in ordered
 		binding.buttonBookmark.isVisible = ReaderControl.BOOKMARK in ordered
+		binding.buttonWebView.isVisible = ReaderControl.WEB_VIEW in ordered && isWebAvailable
+		binding.buttonExternalBrowser.isVisible = ReaderControl.EXTERNAL_BROWSER in ordered && isWebAvailable
 		binding.buttonOptions.isVisible = ReaderControl.OPTIONS in ordered
 		binding.slider.isVisible = hasSlider
 		// bringChildToFront moves a child to the end of the child list, so walking the ordered
@@ -330,6 +363,7 @@ class ReaderActionsView @JvmOverloads constructor(
 			}
 		}
 		adjustLayoutParams()
+		if (area.isTopSide) applyTopSideLook()
 		// The rotation icon is only set while its button is visible, and it may just have become so.
 		updateRotationButton()
 		// A top-bar side with nothing on it must not leave its padding in the toolbar.
@@ -347,6 +381,8 @@ class ReaderActionsView @JvmOverloads constructor(
 		ReaderControl.SCREEN_ROTATION -> binding.buttonScreenRotation.slot()
 		ReaderControl.SAVE_PAGE -> binding.buttonSave.slot()
 		ReaderControl.TIMER -> binding.buttonTimer.slot()
+		ReaderControl.WEB_VIEW -> binding.buttonWebView.slot()
+		ReaderControl.EXTERNAL_BROWSER -> binding.buttonExternalBrowser.slot()
 		ReaderControl.BOOKMARK -> binding.buttonBookmark.slot()
 		ReaderControl.OPTIONS -> binding.buttonOptions.slot()
 	}
@@ -358,9 +394,11 @@ class ReaderActionsView @JvmOverloads constructor(
 		val open = isSettingsOpen
 		val render = {
 			button.setIconResource(if (open) R.drawable.ic_close else R.drawable.ic_tune)
-			button.iconTint = ColorStateList.valueOf(
-				context.getThemeColor(if (open) appcompatR.attr.colorPrimary else materialR.attr.colorOnSurfaceVariant),
-			)
+			button.iconTint = if (open) {
+				ColorStateList.valueOf(context.getThemeColor(appcompatR.attr.colorPrimary))
+			} else {
+				idleIconTint()
+			}
 			button.setContentDescriptionAndTooltip(if (open) R.string.close else R.string.options)
 		}
 		button.animate().cancel()
@@ -410,6 +448,52 @@ class ReaderActionsView @JvmOverloads constructor(
 		button.setContentDescriptionAndTooltip(
 			if (isBookmarkAdded) R.string.bookmark_remove else R.string.bookmark_add,
 		)
+	}
+
+	/**
+	 * On the top bar the visible buttons form one connected group that looks like the toolbar's menu
+	 * actions did: a tonal segment each (outer corners round, inner ones small), as tall as the back
+	 * button, with the same gap and icon colour. Bottom-bar buttons keep the floating toolbar look.
+	 */
+	private fun applyTopSideLook() {
+		val segments = children.filterIsInstance<FrameLayout>().filter { it.isVisible }.toList()
+		val isRtl = layoutDirection == LAYOUT_DIRECTION_RTL
+		applyTonalSegmentSpacing()
+		val tint = idleIconTint()
+		val iconSize = context.tonalIconSize()
+		segments.forEachIndexed { index, frame ->
+			val isFirst = index == 0
+			val isLast = index == segments.lastIndex
+			val (width, height) = context.tonalSegmentSize(isOnlySegment = isFirst && isLast)
+			frame.updateLayoutParams<LayoutParams> {
+				this.width = width
+				this.height = height
+				weight = 0f
+				marginEnd = 0
+			}
+			val button = frame.getChildAt(0) as? MaterialButton ?: return@forEachIndexed
+			button.updateLayoutParams<FrameLayout.LayoutParams> {
+				this.width = width
+				this.height = height
+			}
+			button.minWidth = 0
+			button.minHeight = 0
+			button.setPadding(0, 0, 0, 0)
+			button.iconPadding = 0
+			button.iconSize = iconSize
+			// The segment is the button's own background, so its ripple is bounded to the shape.
+			button.applyTonalSegmentBackground(
+				roundLeft = if (isRtl) isLast else isFirst,
+				roundRight = if (isRtl) isFirst else isLast,
+			)
+		}
+		// Resting colour for every button; the timer and settings buttons keep their active state.
+		listOf(
+			binding.buttonPrev, binding.buttonNext, binding.buttonSave, binding.buttonScreenRotation,
+			binding.buttonPagesThumbs, binding.buttonBookmark, binding.buttonWebView, binding.buttonExternalBrowser,
+		).forEach { it.iconTint = tint }
+		setTimerActive(isTimerActive)
+		updateOptionsButton(animate = false)
 	}
 
 	private fun adjustLayoutParams() {

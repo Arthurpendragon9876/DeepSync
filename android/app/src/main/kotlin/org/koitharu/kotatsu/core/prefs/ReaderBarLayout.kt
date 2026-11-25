@@ -43,6 +43,8 @@ object ReaderBars {
 		ReaderBarItem(ReaderControl.SLIDER, BOTTOM_START, true),
 		ReaderBarItem(ReaderControl.NEXT_CHAPTER, BOTTOM_END, true),
 		ReaderBarItem(ReaderControl.OPTIONS, BOTTOM_END, true),
+		ReaderBarItem(ReaderControl.WEB_VIEW, TOP_END, true),
+		ReaderBarItem(ReaderControl.EXTERNAL_BROWSER, TOP_END, true),
 		ReaderBarItem(ReaderControl.BOOKMARK, TOP_END, true),
 		ReaderBarItem(ReaderControl.SCREEN_ROTATION, BOTTOM_END, false),
 		ReaderBarItem(ReaderControl.SAVE_PAGE, BOTTOM_END, false),
@@ -72,9 +74,25 @@ object ReaderBars {
 		return withMissingControls(items)
 	}
 
+	/**
+	 * The web buttons used to be fixed top-bar menu items, always on. A layout saved before they
+	 * became controls keeps them there, shown, right before Bookmark (when that is in the top bar's
+	 * right side); every other control a layout does not know yet is appended hidden.
+	 */
+	private val WEB_CONTROLS = listOf(ReaderControl.WEB_VIEW, ReaderControl.EXTERNAL_BROWSER)
+
 	fun withMissingControls(items: ReaderBarLayout): ReaderBarLayout {
 		val known = items.map { it.control }.toSet()
-		return items + ReaderControl.entries.filterNot { it in known }.map { ReaderBarItem(it, DEFAULT_SLOT, false) }
+		val missing = ReaderControl.entries.filterNot { it in known }
+		val web = missing.filter { it in WEB_CONTROLS }.map { ReaderBarItem(it, TOP_END, true) }
+		val hidden = missing.filterNot { it in WEB_CONTROLS }.map { ReaderBarItem(it, DEFAULT_SLOT, false) }
+		val bookmarkIndex = items.indexOfFirst { it.control == ReaderControl.BOOKMARK && it.slot == TOP_END }
+		val withWeb = if (web.isNotEmpty() && bookmarkIndex >= 0) {
+			items.take(bookmarkIndex) + web + items.drop(bookmarkIndex)
+		} else {
+			items + web
+		}
+		return withWeb + hidden
 	}
 
 	/**

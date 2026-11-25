@@ -13,13 +13,14 @@
 		android:layout_width="match_parent"
 		android:layout_height="wrap_content"
 		android:background="@drawable/bg_card"
-		android:backgroundTint="?colorSurfaceContainer"
+		android:backgroundTint="?colorSurfaceContainerLowest"
 		android:gravity="center_vertical"
 		android:minHeight="?actionBarSize"
 		android:orientation="horizontal"
 		android:paddingHorizontal="@dimen/margin_small">
 
 		<ImageView
+			android:id="@+id/preview_back"
 			android:layout_width="48dp"
 			android:layout_height="48dp"
 			android:importantForAccessibility="no"

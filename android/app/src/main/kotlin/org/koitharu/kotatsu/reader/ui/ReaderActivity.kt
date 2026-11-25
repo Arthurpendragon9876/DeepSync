@@ -190,7 +190,11 @@ class ReaderActivity :
         pageSaveHelper = pageSaveHelperFactory.create(this)
         controlDelegate = ReaderControlDelegate(resources, settings, tapGridSettings, this)
         viewBinding.zoomControl.listener = this
-        actionViews.forEach { it.listener = this }
+        actionViews.forEach {
+            it.listener = this
+            // Shown again once the reader knows the source is a web one (see updateWebButtons)
+            it.isWebAvailable = false
+        }
         viewBinding.buttonTimerFab?.setOnClickListener(this)
         idlingDetector.bindToLifecycle(this)
         screenOrientationHelper.applySettings()
@@ -282,9 +286,6 @@ class ReaderActivity :
                 isEpub = { readerManager.isEpub },
                 isUpscaleActive = { UpscaleEffect.activePages.value.isNotEmpty() },
                 isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE,
-                canOpenWeb = { viewModel.getSourceMangaOrNull()?.isLocal == false },
-                onOpenWeb = { viewModel.getCurrentState()?.chapterId?.let { viewModel.openChapterInBrowser(it) } },
-                onOpenExternal = { viewModel.getCurrentState()?.chapterId?.let { viewModel.openChapterInBrowser(it, external = true) } },
             ),
         )
         UpscaleEffect.activePages.map { it.isNotEmpty() }.distinctUntilChanged()
@@ -582,6 +583,7 @@ class ReaderActivity :
         }
         readerManager.isEpub = viewModel.getMangaOrNull()?.isEpub == true
         applyNovelChrome(readerManager.isEpub)
+        updateWebButtons()
         viewBinding.timerControl.setEpubReader(readerManager.isEpub)
         updateScrollTimerButton()
         if (readerManager.currentMode != mode) {
@@ -940,6 +942,16 @@ class ReaderActivity :
             viewBinding.actionsView.hapticFeedback(HapticEffect.CONFIRM)
         }
         viewModel.toggleBookmark()
+    }
+
+    override fun onOpenWebClick(external: Boolean) {
+        viewModel.getCurrentState()?.chapterId?.let { viewModel.openChapterInBrowser(it, external = external) }
+    }
+
+    /** The web buttons only make sense for manga of an online source; novels have their own. */
+    private fun updateWebButtons() {
+        val available = !readerManager.isEpub && viewModel.getSourceMangaOrNull()?.isLocal == false
+        actionViews.forEach { it.isWebAvailable = available }
     }
 
     override fun onSavePageClick() {

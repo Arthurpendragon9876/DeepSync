@@ -94,6 +94,34 @@
 		android:layout_height="wrap_content">
 
 		<com.google.android.material.button.MaterialButton
+			android:id="@+id/button_web_view"
+			style="@style/Widget.Kotatsu.ReaderFloatingToolbar.IconButton"
+			android:layout_width="48dp"
+			android:layout_height="48dp"
+			android:layout_gravity="center"
+			android:contentDescription="@string/open_in_browser"
+			app:icon="@drawable/ic_web" />
+	</FrameLayout>
+
+	<FrameLayout
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content">
+
+		<com.google.android.material.button.MaterialButton
+			android:id="@+id/button_external_browser"
+			style="@style/Widget.Kotatsu.ReaderFloatingToolbar.IconButton"
+			android:layout_width="48dp"
+			android:layout_height="48dp"
+			android:layout_gravity="center"
+			android:contentDescription="@string/open_in_external_browser"
+			app:icon="@drawable/ic_open_external" />
+	</FrameLayout>
+
+	<FrameLayout
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content">
+
+		<com.google.android.material.button.MaterialButton
 			android:id="@+id/button_bookmark"
 			style="@style/Widget.Kotatsu.ReaderFloatingToolbar.IconButton"
 			android:layout_width="48dp"

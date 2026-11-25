@@ -150,6 +150,9 @@ class ReaderControlDelegate(
 
 		fun onSavePageClick()
 
+		/** Opens the chapter on its source's website: in the built-in WebView, or in the phone's browser. */
+		fun onOpenWebClick(external: Boolean)
+
 		fun onScrollTimerClick(isLongClick: Boolean)
 
 		fun toggleScreenOrientation()

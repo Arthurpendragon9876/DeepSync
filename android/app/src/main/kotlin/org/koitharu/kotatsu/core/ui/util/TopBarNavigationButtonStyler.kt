@@ -12,6 +12,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.view.menu.MenuBuilder
 import androidx.appcompat.widget.ActionMenuView
@@ -334,6 +335,37 @@ private fun ImageView.forceImageIconTint(metrics: TonalBarMetrics) {
 	icon?.mutate()?.setTintList(metrics.iconTint)
 	setTag(R.id.tag_tonal_action_icon, icon)
 	setTag(R.id.tag_tonal_action_tint_color, metrics.iconTintColor)
+}
+
+/**
+ * Gives a button of a [org.koitharu.kotatsu.reader.ui.ReaderActionsView] on the top bar the same
+ * tonal segment as the toolbar's menu actions (see [applyTonalActionMenuStyle]): the translucent
+ * fill, the group's outer corners fully rounded ([roundLeft] / [roundRight], already resolved for
+ * the layout direction) and the abutting ones small, plus a ripple bounded to that shape.
+ */
+fun View.applyTonalSegmentBackground(roundLeft: Boolean, roundRight: Boolean) {
+	val shapeKey = (if (roundLeft) 1 else 0) or (if (roundRight) 2 else 0)
+	if (getTag(R.id.tag_tonal_action_shape) != shapeKey) {
+		setTag(R.id.tag_tonal_action_shape, shapeKey)
+		background = context.createSegmentBackground(TonalBarMetrics(context), roundLeft, roundRight)
+	}
+}
+
+/** Width and height of one segment; a lone one is as wide as the navigation button, i.e. a circle. */
+fun Context.tonalSegmentSize(isOnlySegment: Boolean): Pair<Int, Int> {
+	val metrics = TonalBarMetrics(this)
+	return (if (isOnlySegment) metrics.cellSize else metrics.segmentWidth) to metrics.cellSize
+}
+
+/** The tonal icon size, so an icon button can be scaled to match the menu actions. */
+fun Context.tonalIconSize(): Int = dimen(R.dimen.top_bar_action_icon_size)
+
+/** The same gap between the visible children as between the menu actions. */
+fun LinearLayout.applyTonalSegmentSpacing() {
+	if (dividerDrawable == null) {
+		dividerDrawable = spacerDrawable(context.dimen(R.dimen.top_bar_action_segment_spacing))
+		showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
+	}
 }
 
 // region small idempotent view helpers

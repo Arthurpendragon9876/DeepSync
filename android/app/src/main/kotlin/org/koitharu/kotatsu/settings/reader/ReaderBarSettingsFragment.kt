@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.spring
@@ -61,6 +62,7 @@ import org.koitharu.kotatsu.core.prefs.ReaderBarLayout
 import org.koitharu.kotatsu.core.prefs.ReaderBarSlot
 import org.koitharu.kotatsu.core.prefs.ReaderBars
 import org.koitharu.kotatsu.core.prefs.ReaderControl
+import org.koitharu.kotatsu.core.ui.util.applyTonalIconButtonStyle
 import org.koitharu.kotatsu.core.util.ext.HapticEffect
 import org.koitharu.kotatsu.core.util.ext.rememberHapticEffect
 import org.koitharu.kotatsu.main.ui.nav.rememberAnyDrawablePainter
@@ -130,7 +132,12 @@ private fun ReaderBarScreen(
 private fun TopBarPreview() {
 	AndroidView(
 		modifier = Modifier.fillMaxWidth(),
-		factory = { ctx -> LayoutInflater.from(ctx).inflate(R.layout.view_reader_top_bar_preview, null) },
+		factory = { ctx ->
+			LayoutInflater.from(ctx).inflate(R.layout.view_reader_top_bar_preview, null).also { root ->
+				// The reader's back button is a tonal circle; the preview matches it.
+				root.findViewById<ImageView>(R.id.preview_back).applyTonalIconButtonStyle()
+			}
+		},
 	)
 }
 
