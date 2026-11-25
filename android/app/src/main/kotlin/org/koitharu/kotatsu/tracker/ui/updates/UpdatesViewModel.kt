@@ -13,6 +13,7 @@ import kotlinx.coroutines.plus
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.parser.MangaDataRepository
 import org.koitharu.kotatsu.core.prefs.AppSettings
+import org.koitharu.kotatsu.core.model.isInMode
 import org.koitharu.kotatsu.core.prefs.ListMode
 import org.koitharu.kotatsu.core.prefs.observeAsFlow
 import org.koitharu.kotatsu.core.ui.model.DateTimeAgo
@@ -54,7 +55,19 @@ class UpdatesViewModel @Inject constructor(
 		},
 		settings.observeAsFlow(AppSettings.KEY_UPDATED_GROUPING) { isUpdatedGroupingEnabled },
 		observeListModeWithTriggers(),
-	) { mangaList, grouping, mode ->
+		// Settings > Override global defaults > Updates & Feed: every mode's updates, or only the mode being shown
+		combine(
+			settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
+			settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
+			settings.observeAsFlow(AppSettings.KEY_UPDATES_ALL_MODES) { isUpdatesAllModes },
+		) { m, k, all -> Triple(m, k, all) },
+	) { allUpdates, grouping, mode, scope ->
+		val (homeMode, streamingKind, showAllModes) = scope
+		val mangaList = if (showAllModes) {
+			allUpdates
+		} else {
+			allUpdates.filter { it.manga.source.isInMode(homeMode, streamingKind) }
+		}
 		// Read here rather than combined in: the query above already re-runs on every filter change, and
 		// a second input would render the chips one frame ahead of their results.
 		val filters = quickFilter.appliedOptions.value

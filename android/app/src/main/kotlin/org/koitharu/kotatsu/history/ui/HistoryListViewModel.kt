@@ -187,14 +187,16 @@ class HistoryListViewModel @Inject constructor(
 		combine(
 			settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
 			settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
-		) { m, k -> m to k },
+			// Settings > Override global defaults > History: every mode's entries, or only the mode being shown
+			settings.observeAsFlow(AppSettings.KEY_HISTORY_ALL_MODES) { isHistoryAllModes },
+		) { m, k, _ -> m to k },
 	) { order, filters, limit, _, modeKind ->
 		val (mode, kind) = modeKind
 		isPaginationReady.set(false)
 		// The mode filter has to run before the page limit, or a page could end up (nearly) empty.
 		repository.observeAllWithHistory(order, filters, Int.MAX_VALUE).map { list ->
 			// The "On device" filter returns downloaded copies, already filtered by their original source's mode
-			if (ListFilterOption.Downloaded in filters) list.take(limit) else list.filter { it.manga.source.isInMode(mode, kind) }.take(limit)
+			if (ListFilterOption.Downloaded in filters || settings.isHistoryAllModes) list.take(limit) else list.filter { it.manga.source.isInMode(mode, kind) }.take(limit)
 		}
 	}.flattenLatest()
 

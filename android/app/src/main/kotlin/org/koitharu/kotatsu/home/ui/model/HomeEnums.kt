@@ -80,3 +80,30 @@ enum class HomeCarousel(val key: String, @StringRes val titleRes: Int, @StringRe
 		}
 	}
 }
+
+/**
+ * The parts of Settings that can be overridden for each mode (Manga, Novel, Streaming) in
+ * Settings > Override global defaults. While an area is overridden, each mode keeps its own copy of that area's
+ * settings; a mode that has not been edited yet keeps following the shared value.
+ * [key] is the switch's preference key ([HOME] keeps the key "Custom homepage for each mode" always used).
+ */
+@Keep
+enum class ModeOverrideArea(val key: String, @StringRes val titleRes: Int, @StringRes val descRes: Int) {
+	HOME("home_per_mode", R.string.ds_override_home, R.string.ds_override_home_desc),
+	EXPLORE("override_explore", R.string.ds_override_explore, R.string.ds_override_explore_desc),
+	SERVICES("override_services", R.string.ds_override_services, R.string.ds_override_services_desc),
+	FAVOURITES("override_favourites", R.string.ds_override_favourites, R.string.ds_override_favourites_desc),
+	UPDATES("override_updates", R.string.ds_override_updates, R.string.ds_override_updates_desc),
+	HISTORY("override_history", R.string.ds_override_history, R.string.ds_override_history_desc),
+	SUGGESTIONS("override_suggestions", R.string.ds_override_suggestions, R.string.ds_override_suggestions_desc),
+}
+
+/** Where the Suggestions page gets its titles from. */
+@Keep
+enum class SuggestionsSource(@StringRes val titleRes: Int) {
+	/** The installed sources' own catalogues, ranked by the tags of what was read or watched. */
+	SOURCES(R.string.ds_suggestions_source_sources),
+
+	/** AniList's recommendations for what was read or watched, found again in the installed sources. */
+	ANILIST(R.string.ds_suggestions_source_anilist),
+}

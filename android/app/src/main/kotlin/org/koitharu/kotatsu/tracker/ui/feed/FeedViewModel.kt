@@ -97,7 +97,9 @@ class FeedViewModel @Inject constructor(
 		combine(
 			settings.observeAsFlow(AppSettings.KEY_HOME_MODE) { homeMode },
 			settings.observeAsFlow(AppSettings.KEY_STREAMING_KIND) { streamingKind },
-		) { m, k -> m to k },
+			// Settings > Override global defaults > Updates & Feed: all modes or only the one being shown
+			settings.observeAsFlow(AppSettings.KEY_FEED_ALL_MODES) { isFeedAllModes },
+		) { m, k, _ -> m to k },
 		limit,
 	) { list, isTipVisible, _, modeKind, pageLimit ->
 		val (mode, kind) = modeKind
@@ -236,7 +238,7 @@ class FeedViewModel @Inject constructor(
 		// The query keeps unread rows; an entry whose chapters were all read since still shows as read
 		// The feed is kept apart per mode: manga, novels and anime each show only their own updates.
 		// The mode is chosen before the page is cut, so the page is filled with this mode's entries.
-		val feedItems = filter { it.manga.source.isInMode(mode, kind) }
+		val feedItems = (if (settings.isFeedAllModes) this else filter { it.manga.source.isInMode(mode, kind) })
 			.take(pageLimit)
 			.map { it to mangaListMapper.toFeedItem(it) }
 			.filter { !isUnreadOnly || it.second.isNew }

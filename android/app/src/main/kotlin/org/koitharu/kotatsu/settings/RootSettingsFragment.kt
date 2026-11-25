@@ -163,6 +163,11 @@ private enum class SettingsSection(
 		intArrayOf(R.string.ds_layout_banner_section, R.string.ds_manage_carousels, R.string.ds_custom_carousel),
 		org.koitharu.kotatsu.home.settings.HomeLayoutSettingsFragment::class.java,
 	),
+	MODE_OVERRIDES(
+		R.string.ds_mode_overrides, R.drawable.ic_services, "services",
+		intArrayOf(R.string.ds_override_home, R.string.ds_override_updates, R.string.ds_override_suggestions),
+		org.koitharu.kotatsu.settings.modes.ModeOverridesSettingsFragment::class.java,
+	),
 	EXTENSIONS(
 		R.string.extensions, R.drawable.ic_manga_source, "extensions",
 		intArrayOf(R.string.manage_extensions, R.string.nsfw_filter, R.string.sort_order),

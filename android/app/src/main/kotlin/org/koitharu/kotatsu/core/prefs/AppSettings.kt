@@ -37,6 +37,8 @@ import org.koitharu.kotatsu.core.util.ext.getEnumValue
 import org.koitharu.kotatsu.home.ui.model.HomeBannerStyle
 import org.koitharu.kotatsu.home.ui.model.HomeMetadata
 import org.koitharu.kotatsu.home.ui.model.HomeMode
+import org.koitharu.kotatsu.home.ui.model.ModeOverrideArea
+import org.koitharu.kotatsu.home.ui.model.SuggestionsSource
 import org.koitharu.kotatsu.core.util.ext.observeChanges
 import org.koitharu.kotatsu.core.util.ext.putAll
 import org.koitharu.kotatsu.core.util.ext.putEnumValue
@@ -442,8 +444,8 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 
 	/** Explore puts the novel sources on the left (and opens there) instead of manga. */
 	var isNovelTabFirst: Boolean
-		get() = prefs.getBoolean(KEY_EXPLORE_NOVEL_TAB_FIRST, false)
-		set(value) = prefs.edit { putBoolean(KEY_EXPLORE_NOVEL_TAB_FIRST, value) }
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.EXPLORE, KEY_EXPLORE_NOVEL_TAB_FIRST), false)
+		set(value) = prefs.edit { putBoolean(areaWriteKey(ModeOverrideArea.EXPLORE, KEY_EXPLORE_NOVEL_TAB_FIRST), value) }
 
 	var isEpubBionicReadingEnabled: Boolean
 		get() = prefs.getBoolean(KEY_EPUB_BIONIC_READING, false)
@@ -609,8 +611,8 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 
 	/** When true, favourite categories stay visible in every mode (Manga/Anime/Novel) even if empty there. */
 	var isShowEmptyModeCategories: Boolean
-		get() = prefs.getBoolean(KEY_SHOW_EMPTY_MODE_CATEGORIES, false)
-		set(value) = prefs.edit { putBoolean(KEY_SHOW_EMPTY_MODE_CATEGORIES, value) }
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.FAVOURITES, KEY_SHOW_EMPTY_MODE_CATEGORIES), false)
+		set(value) = prefs.edit { putBoolean(areaWriteKey(ModeOverrideArea.FAVOURITES, KEY_SHOW_EMPTY_MODE_CATEGORIES), value) }
 
 	val isTrackerEnabled: Boolean
 		get() = prefs.getBoolean(KEY_TRACKER_ENABLED, true)
@@ -886,19 +888,92 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 	 * shared value, so turning this on changes nothing until something is edited. Off: one set for all.
 	 */
 	var isHomePerMode: Boolean
-		get() = prefs.getBoolean(KEY_HOME_PER_MODE, false)
-		set(value) = prefs.edit { putBoolean(KEY_HOME_PER_MODE, value) }
+		get() = isModeOverridden(ModeOverrideArea.HOME)
+		set(value) = setModeOverridden(ModeOverrideArea.HOME, value)
 
-	/** The key a per-mode Home setting is written to: the current mode's own key while per-mode is on. */
-	private fun homeWriteKey(base: String): String =
-		if (isHomePerMode) perModeKey(base, homeMode) else base
+	// ---- Override global defaults ---------------------------------------------------------------
+	// Settings > Override global defaults: every [ModeOverrideArea] has a switch. While it is on, the settings
+	// of that area are kept once per mode; a mode that was never edited keeps following the shared value, so
+	// turning an area on changes nothing until something is edited. Off: one shared value for all modes.
 
-	/** The key it is read from: the current mode's own key once set, otherwise the shared one. */
-	private fun homeReadKey(base: String): String {
-		if (!isHomePerMode) return base
-		val own = perModeKey(base, homeMode)
+	fun isModeOverridden(area: ModeOverrideArea): Boolean = prefs.getBoolean(area.key, false)
+
+	fun setModeOverridden(area: ModeOverrideArea, value: Boolean) {
+		prefs.edit { putBoolean(area.key, value) }
+	}
+
+	/** The key a setting of [area] is written to for [mode]: the mode's own key while the area is overridden. */
+	private fun areaWriteKey(area: ModeOverrideArea, base: String, mode: HomeMode = homeMode): String =
+		if (isModeOverridden(area)) perModeKey(base, mode) else base
+
+	/** The key it is read from: the mode's own key once set, otherwise the shared one. */
+	private fun areaReadKey(area: ModeOverrideArea, base: String, mode: HomeMode = homeMode): String {
+		if (!isModeOverridden(area)) return base
+		val own = perModeKey(base, mode)
 		return if (prefs.contains(own)) own else base
 	}
+
+	/** A switch of [area] as it reads in [mode]. Used by Settings > Override global defaults to edit any mode. */
+	fun getModeBoolean(area: ModeOverrideArea, base: String, default: Boolean, mode: HomeMode): Boolean =
+		prefs.getBoolean(areaReadKey(area, base, mode), default)
+
+	fun setModeBoolean(area: ModeOverrideArea, base: String, mode: HomeMode, value: Boolean) {
+		prefs.edit { putBoolean(areaWriteKey(area, base, mode), value) }
+	}
+
+	/** One value for the three tracking-prompt switches, so a mode never ends up with a mixed combination. */
+	fun getModeTrackingChoice(mode: HomeMode): TrackingChoice {
+		val ask = getModeBoolean(ModeOverrideArea.SERVICES, KEY_SCROBBLING_ASK, true, mode)
+		val best = getModeBoolean(ModeOverrideArea.SERVICES, KEY_SCROBBLING_AUTO_TRACK_BEST, false, mode)
+		val exact = getModeBoolean(ModeOverrideArea.SERVICES, KEY_SCROBBLING_AUTO_LINK, true, mode)
+		return when {
+			best -> TrackingChoice.CLOSEST
+			ask -> TrackingChoice.ASK
+			exact -> TrackingChoice.EXACT
+			else -> TrackingChoice.ASK
+		}
+	}
+
+	fun setModeTrackingChoice(mode: HomeMode, choice: TrackingChoice) {
+		val area = ModeOverrideArea.SERVICES
+		prefs.edit {
+			putBoolean(areaWriteKey(area, KEY_SCROBBLING_ASK, mode), choice == TrackingChoice.ASK)
+			putBoolean(areaWriteKey(area, KEY_SCROBBLING_AUTO_TRACK_BEST, mode), choice == TrackingChoice.CLOSEST)
+			putBoolean(areaWriteKey(area, KEY_SCROBBLING_AUTO_LINK, mode), choice == TrackingChoice.EXACT)
+		}
+	}
+
+	/** What happens when a title that is not tracked yet is opened. */
+	enum class TrackingChoice { ASK, CLOSEST, EXACT }
+
+	/** Where Suggestions gets its titles in [mode]. */
+	fun suggestionsSourceFor(mode: HomeMode): SuggestionsSource =
+		prefs.getEnumValue(areaReadKey(ModeOverrideArea.SUGGESTIONS, KEY_SUGGESTIONS_SOURCE, mode), SuggestionsSource.SOURCES)
+
+	fun setSuggestionsSourceFor(mode: HomeMode, source: SuggestionsSource) {
+		prefs.edit { putEnumValue(areaWriteKey(ModeOverrideArea.SUGGESTIONS, KEY_SUGGESTIONS_SOURCE, mode), source) }
+	}
+
+	/** Suggestions for the mode being shown. */
+	var suggestionsSource: SuggestionsSource
+		get() = suggestionsSourceFor(homeMode)
+		set(value) = setSuggestionsSourceFor(homeMode, value)
+
+	/** Updates page: titles of every mode (true, how it always was) or only the mode being shown. */
+	val isUpdatesAllModes: Boolean
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.UPDATES, KEY_UPDATES_ALL_MODES), true)
+
+	/** Feed page: updates of every mode (true) or only the mode being shown (false, how it always was). */
+	val isFeedAllModes: Boolean
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.UPDATES, KEY_FEED_ALL_MODES), false)
+
+	/** History page: entries of every mode (true) or only the mode being shown (false, how it always was). */
+	val isHistoryAllModes: Boolean
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.HISTORY, KEY_HISTORY_ALL_MODES), false)
+
+	private fun homeWriteKey(base: String): String = areaWriteKey(ModeOverrideArea.HOME, base)
+
+	private fun homeReadKey(base: String): String = areaReadKey(ModeOverrideArea.HOME, base)
 
 	var homeBannerStyle: HomeBannerStyle
 		get() = prefs.getEnumValue(homeReadKey(KEY_HOME_BANNER_STYLE), HomeBannerStyle.PANELS)
@@ -1010,14 +1085,15 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 	 * Ask "track this title?" when a chapter of an untracked title is opened.
 	 */
 	val isScrobblingAskEnabled: Boolean
-		get() = prefs.getBoolean(KEY_SCROBBLING_ASK, true) && !prefs.getBoolean(KEY_SCROBBLING_AUTO_TRACK_BEST, false)
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_SCROBBLING_ASK), true) &&
+			!prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_SCROBBLING_AUTO_TRACK_BEST), false)
 
 	/**
 	 * Link every new title to the closest match on the tracker without asking. While on, the "Save progress?"
 	 * sheet never appears.
 	 */
 	val isScrobblingAutoTrackBestEnabled: Boolean
-		get() = prefs.getBoolean(KEY_SCROBBLING_AUTO_TRACK_BEST, false)
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_SCROBBLING_AUTO_TRACK_BEST), false)
 
 	/** Manga the user chose "Never for this title" for. */
 	var scrobblingNeverAsk: Set<Long>
@@ -1038,17 +1114,17 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 	/** Explore opens on its Discover (tracker) page rather than the Sources page. */
 	var isExploreDiscoverDefault: Boolean
 		// Until chosen, follow Home: Discover is only useful once a tracker (not the source catalogue) is in use
-		get() = if (prefs.contains(KEY_EXPLORE_DISCOVER_DEFAULT)) {
-			prefs.getBoolean(KEY_EXPLORE_DISCOVER_DEFAULT, true)
+		get() = if (prefs.contains(areaReadKey(ModeOverrideArea.EXPLORE, KEY_EXPLORE_DISCOVER_DEFAULT))) {
+			prefs.getBoolean(areaReadKey(ModeOverrideArea.EXPLORE, KEY_EXPLORE_DISCOVER_DEFAULT), true)
 		} else {
 			!isHomeSourceCatalogue
 		}
-		set(value) = prefs.edit { putBoolean(KEY_EXPLORE_DISCOVER_DEFAULT, value) }
+		set(value) = prefs.edit { putBoolean(areaWriteKey(ModeOverrideArea.EXPLORE, KEY_EXPLORE_DISCOVER_DEFAULT), value) }
 
 	/** Explore's Discover page lists titles as rows instead of a poster grid. */
 	var isExploreListView: Boolean
-		get() = prefs.getBoolean(KEY_EXPLORE_LIST_VIEW, false)
-		set(value) = prefs.edit { putBoolean(KEY_EXPLORE_LIST_VIEW, value) }
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.EXPLORE, KEY_EXPLORE_LIST_VIEW), false)
+		set(value) = prefs.edit { putBoolean(areaWriteKey(ModeOverrideArea.EXPLORE, KEY_EXPLORE_LIST_VIEW), value) }
 
 	var isGlobalSearchNovelScope: Boolean
 		get() = prefs.getBoolean(KEY_GLOBAL_SEARCH_NOVEL_SCOPE, false)
@@ -1441,20 +1517,20 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 	}
 
 	val isRelatedMangaEnabled: Boolean
-		get() = prefs.getBoolean(KEY_RELATED_MANGA, true)
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_RELATED_MANGA), true)
 
 	/** Link every manga that is read to each signed-in tracker automatically (exact title matches only). */
 	val isScrobblingAutoLinkEnabled: Boolean
-		get() = prefs.getBoolean(KEY_SCROBBLING_AUTO_LINK, true) &&
-			!prefs.getBoolean(KEY_SCROBBLING_AUTO_TRACK_BEST, false) &&
-			!prefs.getBoolean(KEY_SCROBBLING_ASK, true)
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_SCROBBLING_AUTO_LINK), true) &&
+			!prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_SCROBBLING_AUTO_TRACK_BEST), false) &&
+			!prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_SCROBBLING_ASK), true)
 
 	val isScrobblingProgressSyncEnabled: Boolean
-		get() = prefs.getBoolean(KEY_SCROBBLING_PROGRESS_SYNC, true)
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_SCROBBLING_PROGRESS_SYNC), true)
 
 	/** Keep progress in step between the signed-in trackers on a schedule (the furthest one wins). */
 	val isTrackerAutoSyncEnabled: Boolean
-		get() = prefs.getBoolean(KEY_TRACKER_AUTO_SYNC, true)
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_TRACKER_AUTO_SYNC), true)
 
 	/** Epoch millis of the last finished tracker synchronisation, 0 if there has not been one. */
 	var trackerLastSync: Long
@@ -1531,7 +1607,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		set(value) = prefs.edit { putBoolean(KEY_VERBOSE_LOGGING, value) }
 
 	val isReadingTimeEstimationEnabled: Boolean
-		get() = prefs.getBoolean(KEY_READING_TIME, true)
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_READING_TIME), true)
 
 	val isEyeReminderEnabled: Boolean
 		get() = prefs.getBoolean(KEY_EYE_REMINDER, false)
@@ -1543,11 +1619,11 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		get() = prefs.getBoolean(KEY_PAGES_SAVE_ASK, true)
 
 	val isStatsEnabled: Boolean
-		get() = prefs.getBoolean(KEY_STATS_ENABLED, true)
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_STATS_ENABLED), true)
 
 	/** Records anime watch time for the watching statistics; separate from the reading statistics switch. */
 	val isWatchStatsEnabled: Boolean
-		get() = prefs.getBoolean(KEY_WATCH_STATS_ENABLED, true)
+		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_WATCH_STATS_ENABLED), true)
 
 	/** Reader Next / Previous passes over a chapter number that was already read from another scanlator or source. */
 	val isSkipDuplicateChaptersEnabled: Boolean
@@ -1978,6 +2054,10 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_HOME_FAV_CATEGORIES = "home_fav_categories"
 		const val KEY_HOME_HIDDEN_CAROUSELS = "home_hidden_carousels"
 		const val KEY_HOME_PER_MODE = "home_per_mode"
+		const val KEY_UPDATES_ALL_MODES = "updates_all_modes"
+		const val KEY_FEED_ALL_MODES = "feed_all_modes"
+		const val KEY_HISTORY_ALL_MODES = "history_all_modes"
+		const val KEY_SUGGESTIONS_SOURCE = "suggestions_source"
 
 		/** Separates a per-mode Home setting's key from the mode it belongs to: `home_hidden_carousels__anime`. */
 		private const val PER_MODE_SEPARATOR = "__"
@@ -1987,7 +2067,17 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 			KEY_HOME_BANNER_STYLE, KEY_HOME_BANNER_ROTATE, KEY_HOME_PROVIDER, KEY_HOME_CATALOGUE,
 			KEY_METADATA_FROM_TRACKER, KEY_HOME_GENRES_INCLUDE, KEY_HOME_GENRES_EXCLUDE, KEY_HOME_HIDE_NSFW,
 			KEY_HOME_FAV_CATEGORIES, KEY_HOME_HIDDEN_CAROUSELS,
+			// Settings > Override global defaults
+			KEY_EXPLORE_NOVEL_TAB_FIRST, KEY_EXPLORE_DISCOVER_DEFAULT, KEY_EXPLORE_LIST_VIEW,
+			KEY_SHOW_EMPTY_MODE_CATEGORIES,
+			KEY_UPDATES_ALL_MODES, KEY_FEED_ALL_MODES, KEY_HISTORY_ALL_MODES, KEY_SUGGESTIONS_SOURCE,
+			KEY_RELATED_MANGA, KEY_STATS_ENABLED, KEY_WATCH_STATS_ENABLED, KEY_READING_TIME,
+			KEY_SCROBBLING_PROGRESS_SYNC, KEY_SCROBBLING_AUTO_LINK, KEY_SCROBBLING_ASK,
+			KEY_SCROBBLING_AUTO_TRACK_BEST, KEY_TRACKER_AUTO_SYNC,
 		)
+
+		/** The switches of [ModeOverrideArea]: flipping one, or changing the mode, changes what every per-mode setting reads as. */
+		private val OVERRIDE_SWITCH_KEYS: Set<String> = ModeOverrideArea.entries.mapTo(HashSet()) { it.key }
 
 		fun perModeKey(base: String, mode: HomeMode): String = base + PER_MODE_SEPARATOR + mode.name.lowercase()
 
@@ -1998,7 +2088,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		 */
 		fun isChangeOf(changed: String?, key: String): Boolean = changed == key ||
 			(changed != null && changed.startsWith(key + PER_MODE_SEPARATOR)) ||
-			((changed == KEY_HOME_PER_MODE || changed == KEY_HOME_MODE) && key in PER_MODE_KEYS)
+			((changed == KEY_HOME_MODE || (changed != null && changed in OVERRIDE_SWITCH_KEYS)) && key in PER_MODE_KEYS)
 		const val KEY_SCROBBLING_ASK = "scrobbling_ask"
 		const val KEY_TRACKER_AUTO_SYNC = "tracker_auto_sync"
 		const val KEY_TRACKER_LAST_SYNC = "tracker_last_sync"

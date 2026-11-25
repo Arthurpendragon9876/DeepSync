@@ -37,6 +37,8 @@ import dagger.Reusable
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.map
@@ -55,6 +57,14 @@ import org.koitharu.kotatsu.core.nav.AppRouter
 import org.koitharu.kotatsu.core.nav.ReaderIntent
 import org.koitharu.kotatsu.core.parser.MangaRepository
 import org.koitharu.kotatsu.core.prefs.AppSettings
+import org.koitharu.kotatsu.explore.domain.ExploreRepository
+import org.koitharu.kotatsu.home.ui.model.HomeMode
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
+import org.koitharu.kotatsu.home.ui.model.SuggestionsSource
+import org.koitharu.kotatsu.parsers.model.Manga
+import org.koitharu.kotatsu.scrobbling.anilist.data.AniListRepository
+import org.koitharu.kotatsu.scrobbling.anilist.data.InfoMedia
+import org.koitharu.kotatsu.scrobbling.anilist.data.MetadataInfo
 import org.koitharu.kotatsu.core.util.ext.asArrayList
 import org.koitharu.kotatsu.core.util.ext.awaitUniqueWorkInfoByName
 import kotlinx.coroutines.flow.first
@@ -74,7 +84,6 @@ import org.koitharu.kotatsu.core.util.ext.trySetForeground
 import org.koitharu.kotatsu.explore.data.MangaSourcesRepository
 import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
 import org.koitharu.kotatsu.history.data.HistoryRepository
-import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaListFilter
 import org.koitharu.kotatsu.parsers.model.MangaSource
 import org.koitharu.kotatsu.parsers.model.MangaTag
@@ -105,6 +114,8 @@ class SuggestionsWorker @AssistedInject constructor(
 	private val workManager: WorkManager,
 	private val mangaRepositoryFactory: MangaRepository.Factory,
 	private val sourcesRepository: MangaSourcesRepository,
+	private val aniListRepository: AniListRepository,
+	private val exploreRepository: ExploreRepository,
 ) : CoroutineWorker(appContext, params) {
 
 	private val notificationManager by lazy { NotificationManagerCompat.from(appContext) }
@@ -197,8 +208,17 @@ class SuggestionsWorker @AssistedInject constructor(
 		val suggestions = org.koitharu.kotatsu.home.ui.model.HomeMode.entries.flatMap { mode ->
 			val modeSources = sources.filter { it.contentMode == mode }
 			if (modeSources.isEmpty()) return@flatMap emptyList()
-			val tags = seed.filter { it.source.contentMode == mode }.ifEmpty { seed }
-				.flatMap { it.tags.map { x -> x.title } }.takeMostFrequent(10)
+			val modeSeed = seed.filter { it.source.contentMode == mode }.ifEmpty { seed }
+			// Settings > Override global defaults > Suggestions: this mode may take its titles from AniList's
+			// recommendations instead of the sources' own catalogues. AniList knows no TV shows or movies, and a
+			// run that finds nothing (offline, nothing matched) falls back to the sources.
+			val aniListWanted = appSettings.suggestionsSourceFor(mode) == SuggestionsSource.ANILIST &&
+				!(mode == HomeMode.ANIME && appSettings.streamingKind == StreamingKind.TV_MOVIES)
+			if (aniListWanted) {
+				val fromAniList = suggestFromAniList(mode, modeSeed, tagsBlacklist)
+				if (fromAniList.isNotEmpty()) return@flatMap fromAniList
+			}
+			val tags = modeSeed.flatMap { it.tags.map { x -> x.title } }.takeMostFrequent(10)
 			suggestFor(modeSources, tags, tagsBlacklist)
 		}
 		suggestionRepository.replace(suggestions)
@@ -283,6 +303,82 @@ class SuggestionsWorker @AssistedInject constructor(
 			}.toList()
 			.sortedByDescending { it.relevance }
 			.take(MAX_RESULTS)
+	}
+
+	/**
+	 * AniList's recommendations for the latest titles of [mode]: each title is found on AniList, its
+	 * recommendations are tallied (one that several titles share ranks first, AniList's rating breaks ties) and
+	 * the best ones are looked up in the installed sources, so every suggestion is a real, openable title.
+	 */
+	private suspend fun suggestFromAniList(
+		mode: HomeMode,
+		seed: List<Manga>,
+		tagsBlacklist: TagsBlacklist,
+	): List<MangaSuggestion> {
+		val hideAdult = appSettings.isNsfwContentDisabled || appSettings.isSuggestionsExcludeNsfw
+		val knownTitles = seed.mapTo(HashSet()) { it.title.lowercase().trim() }
+		val knownIds = seed.mapTo(HashSet()) { it.id }
+		val tally = LinkedHashMap<Long, Pair<InfoMedia, Int>>()
+		for (item in seed.take(ANILIST_SEEDS)) {
+			val info = aniListInfoFor(item.title, mode) ?: continue
+			for (rec in info.recommendations) {
+				if (!rec.isOfMode(mode) || rec.title.lowercase().trim() in knownTitles) continue
+				val previous = tally[rec.id]
+				tally[rec.id] = (previous?.first ?: rec) to ((previous?.second ?: 0) + 1)
+			}
+		}
+		val ranked = tally.values
+			.sortedWith(compareByDescending<Pair<InfoMedia, Int>> { it.second }.thenByDescending { it.first.score ?: 0f })
+			.map { it.first }
+			.take(ANILIST_CANDIDATES)
+		if (ranked.isEmpty()) return emptyList()
+		val semaphore = Semaphore(MAX_PARALLELISM)
+		val resolved: List<Manga?> = coroutineScope {
+			ranked.map { rec ->
+				async {
+					semaphore.withPermit {
+						try {
+							exploreRepository.findBestSourceMatch(listOf(rec.title), mode)
+						} catch (e: CancellationException) {
+							throw e
+						} catch (e: Exception) {
+							e.printStackTraceDebug()
+							null
+						}
+					}
+				}
+			}.awaitAll()
+		}
+		return resolved.withIndex().mapNotNull { (index, manga) ->
+			when {
+				manga == null -> null
+				manga.id in knownIds -> null
+				manga.isNsfw() && hideAdult -> null
+				manga in tagsBlacklist -> null
+				else -> MangaSuggestion(
+					manga = manga,
+					relevance = (1f - index.toFloat() / resolved.size).coerceIn(0.05f, 1f),
+				)
+			}
+		}.distinctBy { it.manga.id }.take(MAX_RESULTS)
+	}
+
+	private suspend fun aniListInfoFor(title: String, mode: HomeMode): MetadataInfo? = try {
+		aniListRepository.search(title, mode == HomeMode.NOVEL, mode == HomeMode.ANIME, 1, false)
+			.firstOrNull()
+			?.let { aniListRepository.infoById(it.id) }
+	} catch (e: CancellationException) {
+		throw e
+	} catch (e: Exception) {
+		e.printStackTraceDebug()
+		null
+	}
+
+	/** AniList types ANIME and MANGA; light novels are MANGA entries whose format is NOVEL. */
+	private fun InfoMedia.isOfMode(mode: HomeMode): Boolean = when (mode) {
+		HomeMode.ANIME -> type == "ANIME"
+		HomeMode.NOVEL -> type == "MANGA" && format == "NOVEL"
+		HomeMode.MANGA -> type == "MANGA" && format != "NOVEL"
 	}
 
 	private suspend fun getSources(): List<MangaSource> =
@@ -510,6 +606,8 @@ class SuggestionsWorker @AssistedInject constructor(
 		const val GROUP_SUGGESTION = "org.koitharu.kotatsu.SUGGESTIONS"
 		const val WORKER_NOTIFICATION_ID = 36
 		const val MAX_RESULTS = 250
+		const val ANILIST_SEEDS = 6
+		const val ANILIST_CANDIDATES = 40
 		const val MAX_PARALLELISM = 3
 		const val MAX_SOURCE_RESULTS = 30
 		const val MAX_RAW_RESULTS = 440
