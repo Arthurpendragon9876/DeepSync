@@ -504,6 +504,9 @@ class ReaderActionsView @JvmOverloads constructor(
 			button.minHeight = 0
 			button.setPadding(0, 0, 0, 0)
 			button.iconPadding = 0
+			// Material's default puts the icon at the button's start edge; with no text, centring the
+			// icon-and-text group centres the icon in the segment.
+			button.iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
 			button.iconSize = iconSize
 			// The fill lives on the frame around the button (a MaterialButton's transparent background
 			// tint would hide it there); the button keeps only a shape-bounded ripple as its foreground.
