@@ -209,6 +209,12 @@ class HomeViewModel @Inject constructor(
 		settings.homeHiddenCarousels = if (enabled) hidden - carousel.key else hidden + carousel.key
 	}
 
+	fun streamingDefault(): StreamingKind? = settings.streamingDefault
+
+	fun setStreamingDefault(kind: StreamingKind?) {
+		settings.streamingDefault = kind
+	}
+
 	fun isIncognito(): Boolean = settings.isIncognitoModeEnabled
 
 	fun setIncognito(enabled: Boolean) {

@@ -1515,6 +1515,7 @@
     <string name="ds_prefs_metadata_active">Active: %1$s</string>
     <string name="ds_prefs_configure">Configure</string>
     <string name="ds_prefs_layout">Home layout</string>
+    <string name="ds_prefs_streaming_split">Off · mode fan splits Anime and TV &amp; Movies</string>
     <string name="ds_prefs_layout_summary">%1$s · %2$d carousels on</string>
     <string name="ds_layout_banner_section">Banner</string>
     <string name="ds_manage_carousels">Manage carousels</string>

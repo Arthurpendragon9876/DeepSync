@@ -6,6 +6,7 @@ import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.annotation.DrawableRes
 import androidx.core.graphics.ColorUtils
 import com.google.android.material.R as materialR
@@ -14,6 +15,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.materialswitch.MaterialSwitch
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.core.util.ext.getThemeColor
+import org.koitharu.kotatsu.home.ui.model.StreamingKind
 
 /**
  * Yugen preferences: opened by tapping the YUGEN wordmark on Home. Holds what used to sit in Home's
@@ -28,12 +30,15 @@ object YugenPreferencesSheet {
 		val metadataName: String,
 		/** "Panels · 9 carousels on". */
 		val layoutSummary: String,
+		/** What Streaming opens on, or null when the mode fan splits it into Anime and TV & Movies. */
+		val streamingDefault: StreamingKind?,
 	)
 
 	fun show(
 		context: Context,
 		state: State,
 		onIncognito: (Boolean) -> Unit,
+		onStreamingDefault: (StreamingKind?) -> Unit,
 		onFilters: () -> Unit,
 		onMetadata: () -> Unit,
 		onLayout: () -> Unit,
@@ -129,6 +134,91 @@ object YugenPreferencesSheet {
 			subtitleColor = 0xFF34D399.toInt(),
 			trailing = ui.text(context.getString(R.string.ds_prefs_configure) + "  \u203A", 13f, ui.onSurfaceVariant),
 			onClick = { dialog.dismiss(); onMetadata() },
+		)
+
+		// Streaming default: picked right here (Off / Anime / TV & Movies), the sheet stays open
+		val streamingAccent = 0xFFF472B6.toInt()
+		var streamingPicked = state.streamingDefault
+		fun streamingSummary(kind: StreamingKind?): String = if (kind == null) {
+			context.getString(R.string.ds_prefs_streaming_split)
+		} else {
+			context.getString(kind.titleRes)
+		}
+		val streamingTitle = ui.titleBlock(
+			context.getString(R.string.ds_streaming_default),
+			streamingSummary(streamingPicked),
+			streamingAccent,
+		)
+		val streamingSubtitle = streamingTitle.getChildAt(1) as TextView
+		val streamingOptions: List<StreamingKind?> = listOf(null) + StreamingKind.entries
+		val streamingSegments = ArrayList<TextView>()
+		fun paintStreamingSegments() {
+			streamingSegments.forEachIndexed { index, view ->
+				val selected = streamingOptions[index] == streamingPicked
+				view.background = GradientDrawable().apply {
+					cornerRadius = ui.dp(14).toFloat()
+					setColor(if (selected) streamingAccent else ColorUtils.setAlphaComponent(ui.onSurface, 24))
+				}
+				view.setTextColor(if (selected) 0xFF000000.toInt() else ui.onSurface)
+			}
+		}
+		val streamingRow = LinearLayout(context).apply {
+			orientation = LinearLayout.HORIZONTAL
+			streamingOptions.forEachIndexed { index, kind ->
+				val label = if (kind == null) {
+					context.getString(R.string.ds_streaming_default_off)
+				} else {
+					context.getString(kind.titleRes)
+				}
+				val view = ui.text(label, 14f, ui.onSurface, bold = true).apply {
+					gravity = Gravity.CENTER
+					setPadding(ui.dp(8), ui.dp(10), ui.dp(8), ui.dp(10))
+					isClickable = true
+					isFocusable = true
+					setOnClickListener {
+						if (streamingPicked != kind) {
+							streamingPicked = kind
+							paintStreamingSegments()
+							streamingSubtitle.text = streamingSummary(kind)
+							onStreamingDefault(kind)
+						}
+					}
+				}
+				streamingSegments += view
+				addView(view, LinearLayout.LayoutParams(0, -2, 1f).apply { if (index > 0) marginStart = ui.dp(6) })
+			}
+		}
+		paintStreamingSegments()
+		val streamingTile = ImageView(context).apply {
+			setImageResource(R.drawable.ic_streaming)
+			setColorFilter(streamingAccent)
+			setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(10))
+			background = GradientDrawable().apply {
+				cornerRadius = ui.dp(12).toFloat()
+				setColor(ColorUtils.setAlphaComponent(streamingAccent, 38))
+			}
+			layoutParams = LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)).apply { marginEnd = ui.dp(14) }
+		}
+		column.addView(
+			LinearLayout(context).apply {
+				orientation = LinearLayout.VERTICAL
+				setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(14))
+				background = GradientDrawable().apply {
+					cornerRadius = ui.dp(18).toFloat()
+					setColor(context.getThemeColor(materialR.attr.colorSurfaceContainerHigh))
+				}
+				addView(
+					LinearLayout(context).apply {
+						orientation = LinearLayout.HORIZONTAL
+						gravity = Gravity.CENTER_VERTICAL
+						addView(streamingTile)
+						addView(streamingTitle)
+					},
+					LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = ui.dp(12) },
+				)
+				addView(streamingRow, LinearLayout.LayoutParams(-1, -2))
+			},
+			LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = ui.dp(10) },
 		)
 
 		card(

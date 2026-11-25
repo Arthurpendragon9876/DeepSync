@@ -616,8 +616,10 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(), TrackerLibraryDialog.H
 				filterCount = config.filterCount,
 				metadataName = getString(config.metadata.titleRes),
 				layoutSummary = layoutSummary,
+				streamingDefault = viewModel.streamingDefault(),
 			),
 			onIncognito = viewModel::setIncognito,
+			onStreamingDefault = viewModel::setStreamingDefault,
 			onFilters = ::showFiltersDialog,
 			onMetadata = ::showMetadataDialog,
 			// Home layout lives in Settings now, with its own preview
