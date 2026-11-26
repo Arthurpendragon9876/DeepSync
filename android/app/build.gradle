@@ -328,6 +328,12 @@ dependencies {
 		exclude group: 'org.json', module: 'json'
 	}
 	implementation libs.rhino
+	// Classes the Cloudstream library itself needs at start-up (ExtractorApi: hashing/AES, URL and date handling).
+	implementation libs.cryptography.core
+	implementation libs.cryptography.provider.optimal
+	implementation libs.ktor.http
+	implementation libs.kotlinx.datetime
+	implementation libs.kotlinx.io.core
 	implementation(libs.newpipe.extractor) {
 		// The javax.script adapter: Android has no javax.script, and NewPipe calls Rhino directly.
 		exclude group: 'org.mozilla', module: 'rhino-engine'

@@ -118,7 +118,12 @@ private fun CloudstreamScreen(runtime: CloudstreamRuntime, animeExtensions: Anim
 			} catch (e: CancellationException) {
 				throw e
 			} catch (e: Throwable) {
-				toast(context.getString(R.string.cloudstream_failed_toast, e.message ?: e.javaClass.simpleName))
+				// The outermost message is often just a class name; the causes say what actually went wrong.
+				val reason = generateSequence<Throwable>(e) { it.cause }.take(3)
+					.joinToString(" <- ") { "${it.javaClass.simpleName}: ${it.message}" }
+					.take(300)
+				android.util.Log.e("CloudstreamSettings", "Cloudstream action failed", e)
+				toast(context.getString(R.string.cloudstream_failed_toast, reason))
 				runCatching { animeExtensions.reload() }
 			} finally {
 				busy = null
