@@ -339,3 +339,7 @@
 -keep class org.mozilla.classfile.** { *; }
 -dontwarn org.mozilla.javascript.**
 -dontwarn org.mozilla.classfile.**
+
+# Cloudstream's bundled jar references Ksoup (HTML parser), which Yugen doesn't ship.
+# Only used by extractors like SBPlay; safe to ignore at shrink time.
+-dontwarn com.fleeksoft.ksoup.**
