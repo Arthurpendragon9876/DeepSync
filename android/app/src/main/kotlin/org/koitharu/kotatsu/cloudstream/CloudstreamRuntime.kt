@@ -62,6 +62,7 @@ data class CloudstreamRepoPlugin(
 	val language: String?,
 	val description: String?,
 	val types: List<String>,
+	val iconUrl: String?,
 	/** Cloudstream's own status: 0 means the repository marks the plugin as down. */
 	val status: Int,
 	val repoUrl: String,
@@ -460,6 +461,8 @@ class CloudstreamRuntime @Inject constructor(
 				language = json.optString("language").takeIf { it.isNotBlank() && it != "null" },
 				description = json.optString("description").takeIf { it.isNotBlank() && it != "null" },
 				types = types,
+				iconUrl = json.optString("iconUrl").takeIf { it.isNotBlank() && it != "null" }
+					?.replace("%size%", "128"),
 				status = json.optInt("status", 1),
 				repoUrl = repoUrl,
 			)

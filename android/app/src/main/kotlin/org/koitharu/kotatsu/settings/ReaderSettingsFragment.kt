@@ -29,7 +29,6 @@ import org.koitharu.kotatsu.core.prefs.ReaderMode
 import org.koitharu.kotatsu.core.ui.util.ActivityRecreationHandle
 import javax.inject.Inject
 import org.koitharu.kotatsu.parsers.util.names
-import org.koitharu.kotatsu.settings.reader.NovelBarSettingsFragment
 import org.koitharu.kotatsu.settings.reader.ReaderBarSettingsFragment
 import org.koitharu.kotatsu.settings.compose.ActionSettingsItem
 import org.koitharu.kotatsu.settings.compose.CategoryPalette
@@ -72,13 +71,6 @@ class ReaderSettingsFragment : BaseComposeSettingsFragment(R.string.reader_setti
 							isFromRoot = false,
 						)
 					},
-					onNovelBar = {
-						(activity as? SettingsActivity)?.openFragment(
-							NovelBarSettingsFragment::class.java,
-							null,
-							isFromRoot = false,
-						)
-					},
 				)
 			}
 		}
@@ -94,7 +86,6 @@ class ReaderSettingsFragment : BaseComposeSettingsFragment(R.string.reader_setti
 private fun ReaderScreen(
 	onTapActions: () -> Unit,
 	onReaderBar: () -> Unit,
-	onNovelBar: () -> Unit,
 ) {
 	val ctx = LocalContext.current
 	val colors = CategoryPalette.forKey("reader")
@@ -320,15 +311,6 @@ private fun ReaderScreen(
 						icon = R.drawable.ic_tap,
 						shape = pos.shape,
 						onClick = onReaderBar,
-					)
-				}
-				item { pos ->
-					NavigationSettingsItem(
-						title = stringResource(R.string.novel_bars_customize),
-						subtitle = stringResource(R.string.novel_bars_customize_summary),
-						icon = R.drawable.ic_novel_menu_book,
-						shape = pos.shape,
-						onClick = onNovelBar,
 					)
 				}
 				item { pos ->

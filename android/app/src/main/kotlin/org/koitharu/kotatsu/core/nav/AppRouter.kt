@@ -412,6 +412,10 @@ class AppRouter private constructor(
         startActivity(readerSettingsIntent(contextOrNull() ?: return))
     }
 
+    fun openReaderBarSettings() {
+        startActivity(readerBarSettingsIntent(contextOrNull() ?: return))
+    }
+
     fun openNovelBarSettings() {
         startActivity(novelBarSettingsIntent(contextOrNull() ?: return))
     }
@@ -968,6 +972,10 @@ class AppRouter private constructor(
             Intent(context, SettingsActivity::class.java)
                 .setAction(ACTION_READER)
 
+        fun readerBarSettingsIntent(context: Context) =
+            Intent(context, SettingsActivity::class.java)
+                .setAction(ACTION_READER_BARS)
+
         fun novelBarSettingsIntent(context: Context) =
             Intent(context, SettingsActivity::class.java)
                 .setAction(ACTION_NOVEL_BARS)
@@ -1063,6 +1071,7 @@ class AppRouter private constructor(
         const val ACTION_MANGA_EXPLORE = "${BuildConfig.APPLICATION_ID}.action.EXPLORE_MANGA"
         const val ACTION_PROXY = "${BuildConfig.APPLICATION_ID}.action.MANAGE_PROXY"
         const val ACTION_READER = "${BuildConfig.APPLICATION_ID}.action.MANAGE_READER_SETTINGS"
+        const val ACTION_READER_BARS = "${BuildConfig.APPLICATION_ID}.action.MANAGE_READER_BARS"
         const val ACTION_NOVEL_BARS = "${BuildConfig.APPLICATION_ID}.action.MANAGE_NOVEL_BARS"
         const val ACTION_SOURCE = "${BuildConfig.APPLICATION_ID}.action.MANAGE_SOURCE_SETTINGS"
         const val ACTION_SOURCES = "${BuildConfig.APPLICATION_ID}.action.MANAGE_SOURCES"

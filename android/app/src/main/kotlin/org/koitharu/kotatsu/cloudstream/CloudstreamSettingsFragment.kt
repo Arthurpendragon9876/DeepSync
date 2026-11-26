@@ -8,7 +8,28 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
+import coil3.compose.AsyncImage
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
@@ -83,6 +104,7 @@ private fun CloudstreamScreen(runtime: CloudstreamRuntime, animeExtensions: Anim
 	var loadingRepos by remember { mutableStateOf(false) }
 	var busy by remember { mutableStateOf<String?>(null) }
 	var dialog by remember { mutableStateOf<Dialog?>(null) }
+	var query by remember { mutableStateOf("") }
 
 	fun toast(text: String) = Toast.makeText(context, text, Toast.LENGTH_LONG).show()
 
@@ -148,7 +170,37 @@ private fun CloudstreamScreen(runtime: CloudstreamRuntime, animeExtensions: Anim
 		}
 	}.sortedWith(compareByDescending<Pair<CloudstreamRepoPlugin, Boolean>> { it.second }.thenBy { it.first.name.lowercase() })
 
+	val needle = query.trim().lowercase()
+	fun matches(vararg parts: String?) = needle.isEmpty() || parts.any { it?.lowercase()?.contains(needle) == true }
+	val shownInstalled = installed.filter { matches(it.displayName, it.internalName, it.providers.joinToString(" ")) }
+	val shownPending = pending.filter { (plugin, _) ->
+		matches(plugin.name, plugin.internalName, plugin.description, plugin.language, plugin.types.joinToString(" "))
+	}
+	// Installed plugins have no icon of their own; the repository entry of the same plugin does.
+	val iconByName = available.mapNotNull { plugin -> plugin.iconUrl?.let { plugin.internalName to it } }.toMap()
+
 	SettingsScaffold {
+		item {
+			OutlinedTextField(
+				value = query,
+				onValueChange = { query = it },
+				singleLine = true,
+				placeholder = { Text(stringResource(R.string.cloudstream_search)) },
+				leadingIcon = { Icon(painterResource(R.drawable.ic_search), contentDescription = null) },
+				trailingIcon = if (query.isNotEmpty()) {
+					{
+						IconButton(onClick = { query = "" }) {
+							Icon(painterResource(R.drawable.ic_close), contentDescription = null)
+						}
+					}
+				} else {
+					null
+				},
+				shape = RoundedCornerShape(28.dp),
+				modifier = Modifier.fillMaxWidth(),
+			)
+		}
+		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
 		item {
 			SettingsGroup(title = stringResource(R.string.cloudstream_installed)) {
 				if (installed.isEmpty()) {
@@ -159,13 +211,23 @@ private fun CloudstreamScreen(runtime: CloudstreamRuntime, animeExtensions: Anim
 						)
 					}
 				}
-				installed.forEach { plugin ->
+				if (installed.isNotEmpty() && shownInstalled.isEmpty()) {
+					item {
+						PlainInfoSettingsItem(
+							text = stringResource(R.string.cloudstream_no_matches),
+							icon = R.drawable.ic_search,
+						)
+					}
+				}
+				shownInstalled.forEach { plugin ->
 					item { pos ->
-						ActionSettingsItem(
+						PluginRow(
 							title = if (plugin.version > 0) "${plugin.displayName}  (v${plugin.version})" else plugin.displayName,
 							subtitle = plugin.error ?: plugin.providers.joinToString(", "),
-							icon = if (plugin.error == null) R.drawable.ic_extension_settings else R.drawable.ic_alert_outline,
+							iconUrl = iconByName[plugin.internalName],
+							fallbackIcon = if (plugin.error == null) R.drawable.ic_extension_settings else R.drawable.ic_alert_outline,
 							shape = pos.shape,
+							enabled = true,
 							onClick = { dialog = Dialog.RemovePlugin(plugin) },
 						)
 					}
@@ -240,15 +302,17 @@ private fun CloudstreamScreen(runtime: CloudstreamRuntime, animeExtensions: Anim
 								icon = R.drawable.ic_download,
 							)
 						}
-					} else if (pending.isEmpty()) {
+					} else if (pending.isEmpty() || shownPending.isEmpty()) {
 						item {
 							PlainInfoSettingsItem(
-								text = stringResource(R.string.cloudstream_no_available),
-								icon = R.drawable.ic_download,
+								text = stringResource(
+									if (pending.isEmpty()) R.string.cloudstream_no_available else R.string.cloudstream_no_matches,
+								),
+								icon = if (pending.isEmpty()) R.drawable.ic_download else R.drawable.ic_search,
 							)
 						}
 					}
-					pending.forEach { (plugin, isUpdate) ->
+					shownPending.forEach { (plugin, isUpdate) ->
 						item { pos ->
 							val details = listOfNotNull(
 								if (isUpdate) stringResource(R.string.cloudstream_update_to, plugin.version) else null,
@@ -257,10 +321,11 @@ private fun CloudstreamScreen(runtime: CloudstreamRuntime, animeExtensions: Anim
 								if (plugin.status == 0) stringResource(R.string.cloudstream_repo_down) else null,
 								plugin.description,
 							).joinToString(" · ")
-							ActionSettingsItem(
+							PluginRow(
 								title = plugin.name,
 								subtitle = details.ifBlank { null },
-								icon = if (isUpdate) R.drawable.ic_extension_update else R.drawable.ic_download,
+								iconUrl = plugin.iconUrl,
+								fallbackIcon = if (isUpdate) R.drawable.ic_extension_update else R.drawable.ic_download,
 								shape = pos.shape,
 								enabled = busy == null,
 								onClick = { install(plugin.name) { runtime.installFromUrl(plugin.url, plugin.internalName) } },
@@ -358,4 +423,79 @@ private fun TextInputDialog(title: String, onDismiss: () -> Unit, onConfirm: (St
 			TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
 		},
 	)
+}
+
+/** A plugin row with the plugin's own icon (the repository's `iconUrl`), or a stock one when there is none. */
+@Composable
+private fun PluginRow(
+	title: String,
+	subtitle: String?,
+	iconUrl: String?,
+	@DrawableRes fallbackIcon: Int,
+	shape: Shape,
+	enabled: Boolean,
+	onClick: () -> Unit,
+) {
+	Surface(
+		onClick = onClick,
+		enabled = enabled,
+		shape = shape,
+		color = MaterialTheme.colorScheme.surfaceContainer,
+		contentColor = MaterialTheme.colorScheme.onSurface,
+		modifier = Modifier.fillMaxWidth(),
+	) {
+		Row(
+			modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			PluginIcon(iconUrl, fallbackIcon)
+			Spacer(Modifier.width(16.dp))
+			Column(modifier = Modifier.weight(1f)) {
+				Text(
+					text = title,
+					style = MaterialTheme.typography.titleMedium,
+					maxLines = 2,
+					overflow = TextOverflow.Ellipsis,
+				)
+				if (subtitle != null) {
+					Text(
+						text = subtitle,
+						style = MaterialTheme.typography.bodyMedium,
+						color = MaterialTheme.colorScheme.onSurfaceVariant,
+						maxLines = 3,
+						overflow = TextOverflow.Ellipsis,
+					)
+				}
+			}
+		}
+	}
+}
+
+@Composable
+private fun PluginIcon(url: String?, @DrawableRes fallback: Int) {
+	var failed by remember(url) { mutableStateOf(false) }
+	Box(
+		modifier = Modifier
+			.size(40.dp)
+			.clip(RoundedCornerShape(10.dp))
+			.background(MaterialTheme.colorScheme.surfaceContainerHighest),
+		contentAlignment = Alignment.Center,
+	) {
+		if (url.isNullOrBlank() || failed) {
+			Icon(
+				painter = painterResource(fallback),
+				contentDescription = null,
+				tint = MaterialTheme.colorScheme.onSurfaceVariant,
+				modifier = Modifier.size(24.dp),
+			)
+		} else {
+			AsyncImage(
+				model = url,
+				contentDescription = null,
+				contentScale = ContentScale.Crop,
+				onError = { failed = true },
+				modifier = Modifier.fillMaxSize(),
+			)
+		}
+	}
 }

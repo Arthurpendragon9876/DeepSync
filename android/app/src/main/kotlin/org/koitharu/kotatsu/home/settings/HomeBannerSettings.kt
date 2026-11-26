@@ -55,6 +55,7 @@ import org.koitharu.kotatsu.home.ui.model.HomeCarousel
 import org.koitharu.kotatsu.home.ui.model.StreamingKind
 import org.koitharu.kotatsu.settings.compose.BaseComposeSettingsFragment
 import org.koitharu.kotatsu.settings.compose.DropSauceTheme
+import org.koitharu.kotatsu.settings.compose.PlainInfoSettingsItem
 import org.koitharu.kotatsu.settings.compose.SettingsGroup
 import org.koitharu.kotatsu.settings.compose.SettingsItem
 import org.koitharu.kotatsu.settings.compose.SegmentedSettingsItem
@@ -96,7 +97,7 @@ internal fun HomeLayoutSettingsContent() {
 	val settings = remember { entryPoint.settings() }
 	// "Custom homepage for each mode": every value below belongs to the current mode while it is on, so
 	// they are re-read whenever the switch flips.
-	var perMode by remember { mutableStateOf(settings.isHomePerMode) }
+	val perMode = remember { settings.isHomePerMode }
 	var style by remember(perMode) { mutableStateOf(settings.homeBannerStyle) }
 	var rotate by remember(perMode) { mutableStateOf(settings.isHomeBannerAutoRotate) }
 	var hidden by remember(perMode) { mutableStateOf(settings.homeHiddenCarousels) }
@@ -122,29 +123,21 @@ internal fun HomeLayoutSettingsContent() {
 	val customOn = HomeCarousel.CUSTOM.key !in hidden
 
 	SettingsScaffold {
-		// One Home for all modes, or one per mode
-		item {
-			SettingsGroup {
-				item { pos ->
-					SwitchSettingsItem(
-						title = stringResource(R.string.ds_home_per_mode),
-						subtitle = if (perMode) {
-							stringResource(R.string.ds_home_per_mode_editing, modeName)
-						} else {
-							stringResource(R.string.ds_home_per_mode_desc)
-						},
-						checked = perMode,
-						onCheckedChange = {
-							settings.isHomePerMode = it
-							perMode = it
-						},
-						icon = R.drawable.ic_appearance,
-						shape = pos.shape,
-					)
+		// Whether each mode has its own Home is decided in Settings > Override global defaults, the one place
+		// that switch lives; this page only says which Home is being edited.
+		if (perMode) {
+			item {
+				SettingsGroup {
+					item {
+						PlainInfoSettingsItem(
+							text = stringResource(R.string.ds_home_per_mode_managed, modeName),
+							icon = R.drawable.ic_appearance,
+						)
+					}
 				}
 			}
+			item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
 		}
-		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
 
 		// Banner: the preview is always visible, the chips under it change it
 		item {

@@ -382,6 +382,14 @@ private fun MangaQuickSettingsContent(
                                     },
                                 )
                                 QsActionRow(
+                                    icon = R.drawable.ic_tune,
+                                    title = stringResource(R.string.reader_bars_customize),
+                                    onClick = {
+                                        router.openReaderBarSettings()
+                                        onDismiss()
+                                    },
+                                )
+                                QsActionRow(
                                     icon = R.drawable.ic_settings,
                                     title = stringResource(R.string.qs_all_settings),
                                     onClick = {

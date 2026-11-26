@@ -71,6 +71,7 @@ import org.koitharu.kotatsu.settings.compose.ActionSettingsItem
 import org.koitharu.kotatsu.settings.compose.BaseComposeSettingsFragment
 import org.koitharu.kotatsu.settings.compose.DropSauceTheme
 import org.koitharu.kotatsu.settings.compose.ListSettingsItem
+import org.koitharu.kotatsu.settings.compose.NavigationSettingsItem
 import org.koitharu.kotatsu.settings.compose.SegmentedSettingsItem
 import org.koitharu.kotatsu.settings.compose.SettingsGroup
 import org.koitharu.kotatsu.settings.compose.SettingsItem
@@ -78,6 +79,7 @@ import org.koitharu.kotatsu.settings.compose.SettingsScaffold
 import org.koitharu.kotatsu.settings.compose.SliderSettingsItem
 import org.koitharu.kotatsu.settings.compose.SwitchSettingsItem
 import org.koitharu.kotatsu.settings.compose.TextInputDialog
+import org.koitharu.kotatsu.settings.reader.NovelBarSettingsFragment
 import org.koitharu.kotatsu.settings.compose.rememberBooleanPref
 import org.koitharu.kotatsu.settings.compose.rememberIntPref
 import org.koitharu.kotatsu.settings.compose.rememberStringPref
@@ -111,6 +113,13 @@ class NovelReaderSettingsFragment : BaseComposeSettingsFragment(R.string.novel_r
 					settings = settings,
 					onPickBackground = { backgroundPicker.launch(arrayOf("image/*")) },
 					onClearBackground = ::clearBackground,
+					onCustomizeBars = {
+						(activity as? SettingsActivity)?.openFragment(
+							NovelBarSettingsFragment::class.java,
+							null,
+							isFromRoot = false,
+						)
+					},
 				)
 			}
 		}
@@ -167,6 +176,7 @@ private fun NovelReaderScreen(
 	settings: AppSettings,
 	onPickBackground: () -> Unit,
 	onClearBackground: () -> Unit,
+	onCustomizeBars: () -> Unit,
 ) {
 	val localContext = LocalContext.current
 	val fontValues = remember {
@@ -521,6 +531,20 @@ private fun NovelReaderScreen(
 									},
 								)
 							}
+						}
+					}
+				}
+				item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
+				item {
+					SettingsGroup(title = "Controls") {
+						item { pos ->
+							NavigationSettingsItem(
+								title = stringResource(R.string.novel_bars_customize),
+								subtitle = stringResource(R.string.novel_bars_customize_summary),
+								icon = R.drawable.ic_novel_menu_book,
+								shape = pos.shape,
+								onClick = onCustomizeBars,
+							)
 						}
 					}
 				}
