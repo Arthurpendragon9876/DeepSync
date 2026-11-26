@@ -104,7 +104,11 @@ val MangaSource.homeUrl: String?
 	get() = when (val source = unwrap()) {
 		is MihonMangaSource -> (source.catalogueSource as? HttpSource)?.baseUrl
 		is LnMangaSource -> source.plugin.site
-		is AnimeMangaSource -> (source.catalogueSource as? eu.kanade.tachiyomi.animesource.online.AnimeHttpSource)?.baseUrl
+		is AnimeMangaSource -> when (val catalogue = source.catalogueSource) {
+			is org.koitharu.kotatsu.cloudstream.CloudstreamAnimeSource -> catalogue.baseUrl
+			is eu.kanade.tachiyomi.animesource.online.AnimeHttpSource -> catalogue.baseUrl
+			else -> null
+		}
 		else -> null
 	}?.takeIf { it.isHttpUrl() }
 

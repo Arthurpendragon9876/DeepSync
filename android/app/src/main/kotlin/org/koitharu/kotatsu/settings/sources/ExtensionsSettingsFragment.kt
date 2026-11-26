@@ -31,6 +31,7 @@ import org.koitharu.kotatsu.explore.data.MangaSourcesRepository
 import org.koitharu.kotatsu.explore.data.SourcesSortOrder
 import org.koitharu.kotatsu.extensions.install.ShizukuExtensionInstaller
 import org.koitharu.kotatsu.parsers.util.names
+import org.koitharu.kotatsu.cloudstream.CloudstreamSettingsFragment
 import org.koitharu.kotatsu.settings.SettingsActivity
 import org.koitharu.kotatsu.settings.compose.ActionSettingsItem
 import org.koitharu.kotatsu.settings.compose.CategoryPalette
@@ -90,6 +91,13 @@ class ExtensionsSettingsFragment : BaseComposeSettingsFragment(R.string.extensio
 					onOpenBrokenSourcesMigration = {
 						(requireActivity() as SettingsActivity).openFragment(
 							BrokenSourcesMigrationFragment::class.java,
+							args = null,
+							isFromRoot = false,
+						)
+					},
+					onOpenCloudstream = {
+						(requireActivity() as SettingsActivity).openFragment(
+							CloudstreamSettingsFragment::class.java,
 							args = null,
 							isFromRoot = false,
 						)
@@ -175,6 +183,7 @@ private fun ExtensionsScreen(
 	onOpenCatalog: () -> Unit,
 	onOpenStores: () -> Unit,
 	onOpenBrokenSourcesMigration: () -> Unit,
+	onOpenCloudstream: () -> Unit,
 	onShizukuChanged: (Boolean) -> Unit,
 	onSandboxEnabled: () -> Unit,
 	browseSortOrder: SortOrder,
@@ -242,6 +251,15 @@ private fun ExtensionsScreen(
 						icon = R.drawable.ic_migrate,
 						shape = pos.shape,
 						onClick = onOpenBrokenSourcesMigration,
+					)
+				}
+				item { pos ->
+					ActionSettingsItem(
+						title = stringResource(R.string.cloudstream_plugins),
+						subtitle = stringResource(R.string.cloudstream_plugins_summary),
+						icon = R.drawable.ic_extension_settings,
+						shape = pos.shape,
+						onClick = onOpenCloudstream,
 					)
 				}
 				item { pos ->

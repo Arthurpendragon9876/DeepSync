@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cloudstream_plugins">Cloudstream plugins</string>
+    <string name="cloudstream_plugins_summary">Install Cloudstream (.cs3) plugins as anime and streaming sources</string>
+    <string name="cloudstream_installed">Installed plugins</string>
+    <string name="cloudstream_none_installed">No Cloudstream plugins installed yet. Add a repository below, or install a .cs3 file.</string>
+    <string name="cloudstream_add_sources">Add plugins</string>
+    <string name="cloudstream_add_repository">Add repository</string>
+    <string name="cloudstream_add_repository_summary">A repository URL, cloudstreamrepo:// link or short code</string>
+    <string name="cloudstream_install_url">Install from URL</string>
+    <string name="cloudstream_install_url_summary">A direct link to a .cs3 file</string>
+    <string name="cloudstream_install_file">Install from file</string>
+    <string name="cloudstream_install_file_summary">Pick a .cs3 file from this device</string>
+    <string name="cloudstream_reload">Reload plugins</string>
+    <string name="cloudstream_reload_summary">Try again, for example after a plugin failed to load</string>
+    <string name="cloudstream_repositories">Repositories</string>
+    <string name="cloudstream_available">Available plugins</string>
+    <string name="cloudstream_repo_failed">Could not read %1$s: %2$s</string>
+    <string name="cloudstream_no_available">Nothing new to install from your repositories.</string>
+    <string name="cloudstream_url_hint">https://…</string>
+    <string name="cloudstream_installing">Installing %1$s…</string>
+    <string name="cloudstream_installed_toast">%1$s installed</string>
+    <string name="cloudstream_failed_toast">Failed: %1$s</string>
+    <string name="cloudstream_remove_plugin_title">Remove %1$s?</string>
+    <string name="cloudstream_remove_repo_title">Remove this repository?</string>
+    <string name="cloudstream_repo_down">marked as down</string>
+    <string name="cloudstream_update_to">Update to v%1$d</string>
+</resources>

@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.koitharu.kotatsu.cloudstream.CloudstreamRuntime
 import org.koitharu.kotatsu.core.model.ContentWarning
 import org.koitharu.kotatsu.mihon.compat.KotoInjektBridge
 import uy.kohesive.injekt.Injekt
@@ -43,6 +44,8 @@ data class AnimeExtension(
 	/** Absolute path when the APK is app-private (installed from a repo inside the app). */
 	val privateApk: String?,
 	val sources: List<AnimeSource>,
+	/** For extensions with no name to judge by (Cloudstream plugins): true when they are TV & Movies. */
+	val streamingHint: Boolean? = null,
 ) {
 
 	/** The one language its sources share, "all" when they differ; falls back to the package name. */
@@ -74,6 +77,7 @@ data class AnimeExtension(
 class AnimeExtensionManager @Inject constructor(
 	@ApplicationContext private val context: Context,
 	private val injektBridge: Lazy<KotoInjektBridge>,
+	private val cloudstream: Lazy<CloudstreamRuntime>,
 ) {
 
 	private val _extensions = MutableStateFlow<List<AnimeExtension>>(emptyList())
@@ -146,7 +150,7 @@ class AnimeExtensionManager @Inject constructor(
 		val tagged = _tvMovies.value.toMutableSet()
 		for (ext in fresh) {
 			tvDecided += ext.pkg
-			if (looksLikeStreaming(ext.name, ext.pkg)) tagged += ext.pkg
+			if (ext.streamingHint ?: looksLikeStreaming(ext.name, ext.pkg)) tagged += ext.pkg
 		}
 		prefs.edit().putStringSet(KEY_TV_MOVIES, tagged).putStringSet(KEY_TV_DECIDED, tvDecided).apply()
 		_tvMovies.value = tagged
@@ -218,6 +222,13 @@ class AnimeExtensionManager @Inject constructor(
 						errors[info.packageName] = rootMessage(it)
 					}
 			}
+			// Cloudstream (.cs3) plugins: each provider is an anime source, see CloudstreamAnimeSource.
+			runCatching { cloudstream.get().loadExtensions() }
+				.onSuccess { list -> list.forEach { loaded[it.pkg] = it } }
+				.onFailure {
+					Log.e(TAG, "cloudstream load failed", it)
+					errors["cloudstream"] = rootMessage(it)
+				}
 			_errors.value = errors
 			autoTagStreaming(loaded.values)
 			_extensions.value = loaded.values.toList()
@@ -227,6 +238,10 @@ class AnimeExtensionManager @Inject constructor(
 
 	suspend fun uninstallPrivate(pkg: String) {
 		withContext(Dispatchers.IO) {
+			if (CloudstreamRuntime.isCloudstreamPackage(pkg)) {
+				cloudstream.get().uninstall(pkg.removePrefix(CloudstreamRuntime.PACKAGE_PREFIX))
+				return@withContext
+			}
 			val file = File(privateDir, "$pkg.apk")
 			// A loaded copy is read-only (Android refuses writable dex files).
 			file.setWritable(true)

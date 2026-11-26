@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.zip.ZipFile
 
 
 plugins {
@@ -173,6 +174,98 @@ kotlin {
 	}
 }
 
+// Cloudstream (.cs3) plugin support: the official library jar with the Android-only classes removed (Yugen
+// ships its own implementations of those under com.lagradost.*), verified by hash.
+def cloudstreamSourceJar = layout.projectDirectory.file('libs/cloudstream3-library-jvm-1.0.1.jar')
+// Official library:jvmJar built from recloudstream/cloudstream commit caf0db3dc13bd75a496d4a94152bb8f22f8fdb1e.
+def cloudstreamSourceSha256 = '0a281a34bc4335f024b9bf0ac55ba341d7ae99f5b8918c692c669d7d0bed600e'
+def cloudstreamSanitizedJarTask = tasks.register('prepareCloudstreamRuntimeJar', Jar) {
+	archiveBaseName.set('cloudstream3-runtime')
+	archiveVersion.set('pre-release')
+	destinationDirectory.set(layout.buildDirectory.dir('generated/cloudstream'))
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+	preserveFileTimestamps = false
+	reproducibleFileOrder = true
+
+	from({
+		def sourceJar = cloudstreamSourceJar.asFile
+		if (!sourceJar.exists()) {
+			throw new GradleException("Missing Cloudstream source jar: ${sourceJar.absolutePath}")
+		}
+		zipTree(sourceJar)
+	}) {
+		// library:jvmJar contains a no-op JVM resolver. Kototoro supplies the Android implementation.
+		exclude 'com/lagradost/cloudstream3/network/WebViewResolver*.class'
+		// The JVM context helper always returns null. Kototoro supplies the Android implementation.
+		exclude 'com/lagradost/api/ContextHelper_jvmKt.class'
+	}
+
+	doLast {
+		[
+			(cloudstreamSourceJar.asFile): cloudstreamSourceSha256,
+		].each { inputJar, expectedSha256 ->
+			def digest = java.security.MessageDigest.getInstance('SHA-256')
+			inputJar.withInputStream { input ->
+				byte[] buffer = new byte[8192]
+				for (int read = input.read(buffer); read != -1; read = input.read(buffer)) {
+					digest.update(buffer, 0, read)
+				}
+			}
+			def actualSha256 = digest.digest().encodeHex().toString()
+			if (actualSha256 != expectedSha256) {
+				throw new GradleException(
+					"Unexpected Cloudstream jar SHA-256 for ${inputJar.name}: ${actualSha256}; expected ${expectedSha256}",
+				)
+			}
+		}
+
+		def outputJar = archiveFile.get().asFile
+		def forbiddenEntries = []
+		ZipFile zipFile = new ZipFile(outputJar)
+		try {
+			zipFile.entries().each { entry ->
+				if (
+					entry.name.startsWith('coil3/') ||
+					entry.name.startsWith('androidx/') ||
+					entry.name.startsWith('kotlinx/coroutines/') ||
+					entry.name.startsWith('com/google/android/material/') ||
+					(
+						(entry.name ==~ /.*\/R(\$[^\/]+)?\.class$/ || entry.name.endsWith('/BuildConfig.class')) &&
+						!entry.name.startsWith('com/lagradost/cloudstream3/') &&
+						!entry.name.startsWith('com/lagradost/api/')
+					)
+				) {
+					forbiddenEntries << entry.name
+				}
+			}
+		} finally {
+			zipFile.close()
+		}
+		if (!forbiddenEntries.isEmpty()) {
+			throw new GradleException("Sanitized Cloudstream jar still contains forbidden entries: ${forbiddenEntries.take(5)}")
+		}
+		ZipFile verifiedZipFile = new ZipFile(outputJar)
+		try {
+			[
+				'com/lagradost/cloudstream3/plugins/BasePlugin.class',
+				'com/lagradost/cloudstream3/utils/ExtractorApi.class',
+				'com/lagradost/cloudstream3/utils/JsInterpreterKt.class',
+				// The official NewPipe-backed extractor; the host bundles NewPipeExtractor for it (#608).
+				'com/lagradost/cloudstream3/extractors/YoutubeExtractor.class',
+			].each { requiredEntry ->
+				if (verifiedZipFile.getEntry(requiredEntry) == null) {
+					throw new GradleException("Sanitized Cloudstream jar is missing ${requiredEntry}")
+				}
+			}
+		} finally {
+			verifiedZipFile.close()
+		}
+	}
+}
+
+def cloudstreamRuntimeJar = files(cloudstreamSanitizedJarTask.flatMap { it.archiveFile })
+
+
 dependencies {
 	coreLibraryDesugaring libs.desugar.jdk.libs
 	implementation libs.kotlinx.coroutines.android
@@ -225,6 +318,20 @@ dependencies {
 	implementation libs.okhttp.tls
 	implementation libs.okhttp.dnsoverhttps
 	implementation libs.okio
+	// Cloudstream (.cs3) plugin runtime: the sanitized official library plus what it and the plugins link against.
+	implementation cloudstreamRuntimeJar
+	implementation files('libs/fuzzywuzzy-1.4.0.jar')
+	implementation libs.gson
+	implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
+	implementation 'com.fasterxml.jackson.module:jackson-module-kotlin:2.15.2'
+	implementation(libs.nicehttp) {
+		exclude group: 'org.json', module: 'json'
+	}
+	implementation libs.rhino
+	implementation(libs.newpipe.extractor) {
+		// The javax.script adapter: Android has no javax.script, and NewPipe calls Rhino directly.
+		exclude group: 'org.mozilla', module: 'rhino-engine'
+	}
 	implementation libs.rxjava
 	implementation libs.quickJs
 	implementation libs.junrar
