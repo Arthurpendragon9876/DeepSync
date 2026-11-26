@@ -5,6 +5,7 @@ import androidx.core.view.updatePaddingRelative
 import androidx.appcompat.widget.TooltipCompat
 import com.hannesdorfmann.adapterdelegates4.dsl.adapterDelegateViewBinding
 import org.koitharu.kotatsu.R
+import org.koitharu.kotatsu.cloudstream.CloudstreamRuntime
 import org.koitharu.kotatsu.core.model.MangaSource
 import org.koitharu.kotatsu.core.parser.favicon.extensionPackageFaviconUri
 import org.koitharu.kotatsu.core.ui.image.FaviconDrawable
@@ -80,11 +81,13 @@ fun sourceCatalogItemExtensionAD(
 		binding.imageViewSettings.isVisible = isInstalled && item.sourceName != null && !isAnime
 		binding.imageViewSettings.isEnabled = !isInProgress
 		binding.imageViewSettings.alpha = if (isInProgress) 0.45f else 1f
-		// Only anime-family extensions can be tagged; it is the metadata that keeps Anime and TV & Movies apart
-		binding.imageViewTag.isVisible = isInstalled && isAnime
+		// Only anime-family extensions (Aniyomi and Cloudstream) can be tagged; it is the metadata that keeps Anime
+		// and TV & Movies apart
+		val isTaggable = isAnime || CloudstreamRuntime.isCloudstreamPackage(item.packageName)
+		binding.imageViewTag.isVisible = isInstalled && isTaggable
 		binding.imageViewTag.isEnabled = !isInProgress
 		binding.imageViewTag.alpha = if (isInProgress) 0.45f else 1f
-		if (isInstalled && isAnime) {
+		if (isInstalled && isTaggable) {
 			val tagDescription = context.getString(if (item.isTvMovies) R.string.ds_untag_tv_movies else R.string.ds_tag_tv_movies)
 			binding.imageViewTag.setIconResource(if (item.isTvMovies) R.drawable.ic_streaming else R.drawable.ic_tv)
 			binding.imageViewTag.contentDescription = tagDescription

@@ -99,6 +99,7 @@ private fun CloudstreamScreen(runtime: CloudstreamRuntime, animeExtensions: Anim
 	val context = LocalContext.current
 	val scope = rememberCoroutineScope()
 	val installed by runtime.installed.collectAsState()
+	val tvMoviesPackages by animeExtensions.tvMovies.collectAsState()
 	val repos by runtime.repos.collectAsState()
 	var available by remember { mutableStateOf<List<CloudstreamRepoPlugin>>(emptyList()) }
 	var loadingRepos by remember { mutableStateOf(false) }
@@ -234,6 +235,23 @@ private fun CloudstreamScreen(runtime: CloudstreamRuntime, animeExtensions: Anim
 							shape = pos.shape,
 							enabled = true,
 							onClick = { dialog = Dialog.RemovePlugin(plugin) },
+							trailing = if (plugin.error == null) {
+								{
+									// Cloudstream plugins are split into Anime and TV & Movies like Aniyomi extensions:
+									// tagged automatically from the types they declare, and switchable here.
+									val pkg = CloudstreamRuntime.PACKAGE_PREFIX + plugin.internalName
+									val isTv = pkg in tvMoviesPackages
+									val description = stringResource(if (isTv) R.string.ds_untag_tv_movies else R.string.ds_tag_tv_movies)
+									IconButton(onClick = { animeExtensions.setTvMovies(pkg, !isTv) }) {
+										Icon(
+											painter = painterResource(if (isTv) R.drawable.ic_streaming else R.drawable.ic_tv),
+											contentDescription = description,
+										)
+									}
+								}
+							} else {
+								null
+							},
 						)
 					}
 				}
@@ -440,6 +458,7 @@ private fun PluginRow(
 	shape: Shape,
 	enabled: Boolean,
 	onClick: () -> Unit,
+	trailing: (@Composable () -> Unit)? = null,
 ) {
 	Surface(
 		onClick = onClick,
@@ -472,6 +491,7 @@ private fun PluginRow(
 					)
 				}
 			}
+			trailing?.invoke()
 		}
 	}
 }

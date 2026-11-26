@@ -180,9 +180,7 @@ class CloudstreamRuntime @Inject constructor(
 				nsfw = plugin.providers.all { TvType.NSFW in it.supportedTypes },
 				privateApk = file.absolutePath,
 				sources = plugin.providers.map { CloudstreamAnimeSource(it, pkg, this) },
-				streamingHint = plugin.providers.none { api ->
-					api.supportedTypes.any { it == TvType.Anime || it == TvType.AnimeMovie || it == TvType.OVA }
-				},
+				providerTypes = plugin.providers.map { api -> api.supportedTypes.mapTo(HashSet()) { it.name } },
 			)
 		}
 		publishInstalled(files)
