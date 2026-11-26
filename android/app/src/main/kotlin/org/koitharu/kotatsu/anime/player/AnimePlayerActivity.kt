@@ -117,6 +117,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.koitharu.kotatsu.R
+import org.koitharu.kotatsu.anime.AnimeEpisodeFilters
+import org.koitharu.kotatsu.anime.AnimeEpisodeMeta
 import org.koitharu.kotatsu.anime.AnimeMangaRepository
 import org.koitharu.kotatsu.anime.AnimeStream
 import org.koitharu.kotatsu.core.model.parcelable.ParcelableManga
@@ -244,8 +246,8 @@ class AnimePlayerActivity : AppCompatActivity() {
 			togglePlay = { togglePlay() },
 			seekTo = { player?.seekTo(it) },
 			seekBy = { seekBy(it) },
-			previous = { go(index - 1) },
-			next = { go(index + 1) },
+			previous = { go(previousIndex()) },
+			next = { go(nextIndex()) },
 			subtitles = { dialog = PlayerDialog.SUBTITLES },
 			audio = { dialog = PlayerDialog.AUDIO },
 			quality = { dialog = PlayerDialog.QUALITY },
@@ -270,8 +272,8 @@ class AnimePlayerActivity : AppCompatActivity() {
 		duration = duration,
 		speed = speed,
 		aspectLabel = RESIZE_LABELS[resizeIdx],
-		hasPrevious = index > 0,
-		hasNext = index + 1 < chapters.size,
+		hasPrevious = previousIndex() in chapters.indices,
+		hasNext = nextIndex() in chapters.indices,
 		canPickStream = AnimePlaybackSession.streams.size > 1,
 		canExitFullscreen = watchEnabled,
 		skipSeconds = skipSeconds,
@@ -478,6 +480,8 @@ class AnimePlayerActivity : AppCompatActivity() {
 			errorText = "No playable streams for this episode."
 			return
 		}
+		// What this episode's streams show about a dub lets the episode list hide it in Dub mode when it has none.
+		AnimeStreamAutoPicker.dubAvailability(list)?.let { dub -> chapters.getOrNull(index)?.let { AnimeEpisodeMeta.dubSeen[it.id] = dub } }
 		val saved = AnimePlaybackSession.rememberedServer(this, manga)
 		// Sub / Dub also ranks streams: an explicit remembered server still wins, the previous episode's
 		// server only stays first while it matches the preset (see AnimeStreamAutoPicker).
@@ -526,6 +530,22 @@ class AnimePlayerActivity : AppCompatActivity() {
 	}
 
 	/** Switches to episode [newIndex] (the episode list, previous / next, auto-play): saves progress, resolves again. */
+	/**
+	 * The episode before / after the playing one, skipping those the Sub / Dub choice hides from the list.
+	 * Out of range (so not playable) when there is none.
+	 */
+	private fun previousIndex(): Int = neighbourIndex(-1)
+
+	private fun nextIndex(): Int = neighbourIndex(1)
+
+	private fun neighbourIndex(step: Int): Int {
+		if (index !in chapters.indices) return index + step
+		val visible = AnimeEpisodeFilters.visibleIndices(
+			chapters.map { AnimeEpisodeFilters.audioOf(it) }, activePreset, index,
+		)
+		return visible.getOrNull(visible.indexOf(index) + step) ?: -1
+	}
+
 	private fun go(newIndex: Int) {
 		if (newIndex !in chapters.indices) return
 		if (newIndex == index && errorText == null) return
@@ -700,7 +720,7 @@ class AnimePlayerActivity : AppCompatActivity() {
 
 			override fun onPlaybackStateChanged(state: Int) {
 				isBuffering = state == Player.STATE_BUFFERING
-				if (state == Player.STATE_ENDED && index + 1 in chapters.indices && AnimePlayerPrefs.isAutoPlayNext(this@AnimePlayerActivity)) go(index + 1)
+				if (state == Player.STATE_ENDED && nextIndex() in chapters.indices && AnimePlayerPrefs.isAutoPlayNext(this@AnimePlayerActivity)) go(nextIndex())
 			}
 
 			override fun onTracksChanged(t: Tracks) {
@@ -1125,15 +1145,15 @@ class AnimePlayerActivity : AppCompatActivity() {
 				horizontalArrangement = Arrangement.spacedBy(28.dp),
 				verticalAlignment = Alignment.CenterVertically,
 			) {
-				PlainIcon(R.drawable.ic_ap_prev, "Previous episode", size = 48.dp, iconSize = 30.dp, enabled = index > 0) { go(index - 1) }
+				PlainIcon(R.drawable.ic_ap_prev, "Previous episode", size = 48.dp, iconSize = 30.dp, enabled = previousIndex() in chapters.indices) { go(previousIndex()) }
 				PlainIcon(
 					if (isPlaying) R.drawable.ic_ap_pause else R.drawable.ic_ap_play,
 					if (isPlaying) "Pause" else "Play",
 					size = 60.dp, iconSize = 42.dp,
 				) { togglePlay() }
 				PlainIcon(
-					R.drawable.ic_ap_next, "Next episode", size = 48.dp, iconSize = 30.dp, enabled = index + 1 < chapters.size,
-				) { go(index + 1) }
+					R.drawable.ic_ap_next, "Next episode", size = 48.dp, iconSize = 30.dp, enabled = nextIndex() in chapters.indices,
+				) { go(nextIndex()) }
 			}
 			Row(
 				Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 8.dp, end = 0.dp),
@@ -1236,15 +1256,15 @@ class AnimePlayerActivity : AppCompatActivity() {
 				horizontalArrangement = Arrangement.spacedBy(72.dp),
 				verticalAlignment = Alignment.CenterVertically,
 			) {
-				PlainIcon(R.drawable.ic_ap_prev, "Previous episode", size = 64.dp, iconSize = 40.dp, enabled = index > 0) { go(index - 1) }
+				PlainIcon(R.drawable.ic_ap_prev, "Previous episode", size = 64.dp, iconSize = 40.dp, enabled = previousIndex() in chapters.indices) { go(previousIndex()) }
 				PlainIcon(
 					if (isPlaying) R.drawable.ic_ap_pause else R.drawable.ic_ap_play,
 					if (isPlaying) "Pause" else "Play",
 					size = 80.dp, iconSize = 56.dp,
 				) { togglePlay() }
 				PlainIcon(
-					R.drawable.ic_ap_next, "Next episode", size = 64.dp, iconSize = 40.dp, enabled = index + 1 < chapters.size,
-				) { go(index + 1) }
+					R.drawable.ic_ap_next, "Next episode", size = 64.dp, iconSize = 40.dp, enabled = nextIndex() in chapters.indices,
+				) { go(nextIndex()) }
 			}
 		}
 	}

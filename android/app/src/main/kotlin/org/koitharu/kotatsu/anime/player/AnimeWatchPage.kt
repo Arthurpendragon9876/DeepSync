@@ -44,6 +44,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -74,6 +75,7 @@ import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import org.koitharu.kotatsu.R
+import org.koitharu.kotatsu.anime.AnimeEpisodeFilters
 import org.koitharu.kotatsu.anime.AnimeEpisodeMeta
 import org.koitharu.kotatsu.core.util.ext.mangaSourceExtra
 import org.koitharu.kotatsu.parsers.model.Manga
@@ -119,12 +121,39 @@ internal fun WatchPage(
 	modifier: Modifier = Modifier,
 ) {
 	var ascending by rememberSaveable { mutableStateOf(true) }
+	// The Sub / Dub choice hides episodes that cannot be played that way; this lists them all again.
+	var showAllAudio by rememberSaveable { mutableStateOf(false) }
+	var pickedSeason by rememberSaveable { mutableStateOf<Int?>(null) }
 	val chapters = data.chapters
-	val shown = remember(chapters, ascending) { if (ascending) chapters else chapters.asReversed() }
 	val historyIdx = remember(chapters, data.historyChapterId) {
 		chapters.indexOfFirst { it.id == data.historyChapterId }
 	}
 	val navBar = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+	// Names are parsed once per list; the audio is read each time because playing an episode can teach it.
+	val seasonOfEpisode = remember(chapters) { chapters.map { AnimeEpisodeFilters.seasonOf(it) } }
+	val audioIdx = if (showAllAudio) {
+		chapters.indices.toList()
+	} else {
+		AnimeEpisodeFilters.visibleIndices(chapters.map { AnimeEpisodeFilters.audioOf(it) }, data.audioPreset, data.selectedIndex)
+	}
+	val hiddenByAudio = chapters.size - audioIdx.size
+	// A season picker only exists when the entry names two or more seasons.
+	val seasonKeys = AnimeEpisodeFilters.seasonKeys(audioIdx.map { seasonOfEpisode[it] })
+	fun keyOf(index: Int) = AnimeEpisodeFilters.keyOf(seasonOfEpisode.getOrNull(index))
+	val season: Int? = when {
+		seasonKeys.isEmpty() -> null
+		pickedSeason in seasonKeys -> pickedSeason
+		historyIdx >= 0 && keyOf(historyIdx) in seasonKeys -> keyOf(historyIdx)
+		data.selectedIndex >= 0 && keyOf(data.selectedIndex) in seasonKeys -> keyOf(data.selectedIndex)
+		else -> seasonKeys.first()
+	}
+	// Playing on into another season (next episode) moves the picker along.
+	LaunchedEffect(data.selectedIndex) {
+		if (data.selectedIndex >= 0 && seasonKeys.isNotEmpty()) pickedSeason = keyOf(data.selectedIndex)
+	}
+	val visible = audioIdx.filter { season == null || keyOf(it) == season }
+	val shown = if (ascending) visible else visible.asReversed()
 
 	LazyColumn(
 		modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
@@ -138,15 +167,35 @@ internal fun WatchPage(
 		}
 		item(key = "info") { InfoCard(data.manga, chapters.size) }
 		item(key = "notes") { NotesBlock(data, actions) }
+		if (season != null) {
+			item(key = "seasons") {
+				SeasonPicker(
+					keys = seasonKeys,
+					selected = season,
+					countOf = { key -> audioIdx.count { keyOf(it) == key } },
+					onPick = { pickedSeason = it },
+				)
+			}
+		}
 		item(key = "header") {
 			EpisodesHeader(
-				count = chapters.size,
+				count = visible.size,
 				waiting = data.selectedIndex < 0,
 				ascending = ascending,
 				preset = data.audioPreset,
 				onSort = { ascending = !ascending },
 				onPreset = actions.onAudioPreset,
 			)
+		}
+		if (hiddenByAudio > 0 || showAllAudio) {
+			item(key = "audioHint") {
+				AudioFilterHint(
+					hidden = hiddenByAudio,
+					dub = data.audioPreset == "dub",
+					showingAll = showAllAudio,
+					onToggle = { showAllAudio = !showAllAudio },
+				)
+			}
 		}
 		if (data.loading && chapters.isEmpty()) {
 			item(key = "loading") {
@@ -163,15 +212,15 @@ internal fun WatchPage(
 				}
 			}
 		}
-		items(shown, key = { it.id }) { chapter ->
-			val position = chapters.indexOf(chapter)
+		items(shown, key = { chapters[it].id }) { position ->
 			EpisodeCard(
-				chapter = chapter,
+				chapter = chapters[position],
 				manga = data.manga,
 				imageLoader = imageLoader,
 				selected = position == data.selectedIndex,
 				playing = position == data.selectedIndex && data.isPlaying,
 				watched = historyIdx >= 0 && (position < historyIdx || (position == historyIdx && data.historyPercent >= 0.9f)),
+				stripSeason = seasonKeys.isNotEmpty(),
 				onClick = { actions.onSelectEpisode(position) },
 			)
 		}
@@ -185,7 +234,8 @@ private fun TitleBlock(data: WatchPageData) {
 		"Episode Selection Pending"
 	} else {
 		val label = AnimePlaybackSession.episodeLabel(chapter)
-		chapter.title?.takeIf { it.isNotBlank() && it != label }?.let { "$label - $it" } ?: label
+		chapter.title?.let { AnimeEpisodeFilters.stripSeasonPrefix(it) }
+			?.takeIf { it.isNotBlank() && it != label }?.let { "$label - $it" } ?: label
 	}
 	Column {
 		Text(
@@ -507,7 +557,7 @@ private fun EpisodesHeader(
 				tint = MaterialTheme.colorScheme.onSurface,
 			)
 		}
-		// Sub / Dub is a playback preset applied when an episode starts, not a filter of this list.
+		// Sub / Dub sets the audio an episode starts with and also hides the episodes that cannot be played that way.
 		var menu by remember { mutableStateOf(false) }
 		Box {
 			HeaderButton(onClick = { menu = true }) {
@@ -535,6 +585,52 @@ private fun EpisodesHeader(
 	}
 }
 
+/** Season dropdown, shown only for entries that hold more than one season. */
+@Composable
+private fun SeasonPicker(keys: List<Int>, selected: Int, countOf: (Int) -> Int, onPick: (Int) -> Unit) {
+	var menu by remember { mutableStateOf(false) }
+	Box {
+		HeaderButton(onClick = { menu = true }) {
+			Text(
+				AnimeEpisodeFilters.seasonLabel(selected),
+				fontSize = 14.sp,
+				fontWeight = FontWeight.SemiBold,
+				color = MaterialTheme.colorScheme.onSurface,
+			)
+			Icon(
+				painterResource(R.drawable.ic_ap_expand), null,
+				modifier = Modifier.padding(start = 4.dp).size(20.dp),
+				tint = MaterialTheme.colorScheme.onSurface,
+			)
+		}
+		DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+			keys.forEach { key ->
+				DropdownMenuItem(
+					text = { Text("${AnimeEpisodeFilters.seasonLabel(key)} · ${countOf(key)}") },
+					onClick = { menu = false; onPick(key) },
+					trailingIcon = {
+						if (key == selected) Icon(painterResource(R.drawable.ic_ap_check), null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+					},
+				)
+			}
+		}
+	}
+}
+
+/** Says how many episodes the Sub / Dub choice is hiding and lets the list be shown in full. */
+@Composable
+private fun AudioFilterHint(hidden: Int, dub: Boolean, showingAll: Boolean, onToggle: () -> Unit) {
+	val text = when {
+		showingAll -> "Showing every episode"
+		dub -> "$hidden without a dub hidden"
+		else -> "$hidden dub-only hidden"
+	}
+	Row(verticalAlignment = Alignment.CenterVertically) {
+		Text(text, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+		TextButton(onClick = onToggle) { Text(if (showingAll) "Apply filter" else "Show all", fontSize = 12.sp) }
+	}
+}
+
 @Composable
 private fun HeaderButton(onClick: () -> Unit, content: @Composable () -> Unit) {
 	Row(
@@ -552,6 +648,7 @@ private fun EpisodeCard(
 	selected: Boolean,
 	playing: Boolean,
 	watched: Boolean,
+	stripSeason: Boolean,
 	onClick: () -> Unit,
 ) {
 	val ctx = LocalContext.current
@@ -560,7 +657,9 @@ private fun EpisodeCard(
 		ImageRequest.Builder(ctx).data(thumb).crossfade(true).mangaSourceExtra(manga.source).build()
 	}
 	val label = AnimePlaybackSession.episodeLabel(chapter)
-	val title = chapter.title?.takeIf { it.isNotBlank() && it != label } ?: manga.title
+	// With a season picker on screen the "S1 E3:" in front of the name only repeats it.
+	val title = chapter.title?.let { if (stripSeason) AnimeEpisodeFilters.stripSeasonPrefix(it) else it }
+		?.takeIf { it.isNotBlank() && it != label } ?: manga.title
 	val primary = MaterialTheme.colorScheme.primary
 	Surface(
 		onClick = onClick,

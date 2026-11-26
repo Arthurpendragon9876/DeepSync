@@ -95,6 +95,19 @@ object AnimeStreamAutoPicker {
 			preset ?: AnimePlaybackSession.audioPreset(context), preferStrict,
 		)
 
+	/**
+	 * Whether an episode's streams offer a dub: true when one is a dub or carries both audios, false when some are
+	 * labelled Sub or Raw and none is a dub, null when nothing is labelled and so nothing can be said.
+	 */
+	fun dubAvailability(streams: List<AnimeStream>): Boolean? {
+		val variants = streams.map { variantOf(it) }
+		return when {
+			variants.any { it == Variant.DUB || it == Variant.DUAL } -> true
+			variants.any { it == Variant.SUB || it == Variant.RAW } -> false
+			else -> null
+		}
+	}
+
 	/** "sub" / "dub" when the stream is clearly one or the other; null for dual, raw and unlabeled streams. */
 	fun explicitPresetOf(stream: AnimeStream?): String? = when (stream?.let { variantOf(it) }) {
 		Variant.DUB -> "dub"

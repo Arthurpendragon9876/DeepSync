@@ -3,6 +3,8 @@ package org.koitharu.kotatsu.anime
 import eu.kanade.tachiyomi.animesource.model.AnimeFilterList
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.animesource.model.SAnime
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import eu.kanade.tachiyomi.animesource.model.SEpisode
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
@@ -31,6 +33,12 @@ import java.util.concurrent.ConcurrentHashMap
 /** Side table for per-episode data that [MangaChapter] has no field for (the thumbnail). */
 object AnimeEpisodeMeta {
 	val previews = ConcurrentHashMap<Long, String>()
+
+	/**
+	 * Whether an episode's streams offered a dub, learned when the episode is played (true = yes, false = the
+	 * streams were labelled and none was a dub). Compose state, so the episode list refilters when it changes.
+	 */
+	val dubSeen: SnapshotStateMap<Long, Boolean> = mutableStateMapOf()
 }
 
 /** A resolved, playable stream plus the HTTP client that must be used to fetch it. */
