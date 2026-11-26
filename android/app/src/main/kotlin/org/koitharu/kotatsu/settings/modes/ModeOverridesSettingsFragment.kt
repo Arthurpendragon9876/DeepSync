@@ -135,6 +135,8 @@ private fun ModeOverridesScreen(
 				item {
 					SwitchSettingsItem(
 						title = stringResource(R.string.ds_mode_overrides),
+						subtitle = stringResource(R.string.ds_mode_overrides_desc),
+						icon = R.drawable.ic_tune,
 						checked = live { settings.isModeOverridesEnabled },
 						onCheckedChange = {
 							settings.isModeOverridesEnabled = it

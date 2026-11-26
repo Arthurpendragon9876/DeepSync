@@ -29,4 +29,5 @@
     <string name="cloudstream_no_matches">No plugins match your search.</string>
     <string name="ds_home_per_mode_managed">Editing the %1$s Home. Whether each mode has its own Home is set in Override global defaults.</string>
     <string name="reader_bars_customize">Customise reader bars</string>
+    <string name="ds_mode_overrides_desc">Let Manga, Novel and Streaming each keep their own settings</string>
 </resources>
