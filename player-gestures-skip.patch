@@ -1,0 +1,407 @@
+diff -ruN a/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimePlayerActivity.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimePlayerActivity.kt
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimePlayerActivity.kt	2026-11-26 08:31:01.480877883 +0000
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimePlayerActivity.kt	2026-11-26 08:31:01.482092747 +0000
+@@ -1,7 +1,9 @@
+ package org.koitharu.kotatsu.anime.player
+ 
+ import android.app.PictureInPictureParams
++import android.media.AudioManager
+ import android.os.Handler
++import android.provider.Settings
+ import android.os.Looper
+ import android.content.Context
+ import android.content.pm.ActivityInfo
+@@ -32,6 +34,9 @@
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.gestures.detectTapGestures
++import androidx.compose.foundation.gestures.detectVerticalDragGestures
++import androidx.compose.foundation.layout.fillMaxHeight
++import kotlin.math.roundToInt
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+@@ -236,6 +241,21 @@
+ 	}
+ 	private var skipSeconds = 85
+ 
++	// --- swipe gestures (volume on the right half, brightness on the left half) ---
++	private class Hud(val brightness: Boolean, val fraction: Float, val tick: Int)
++
++	private var swipeGestures = true
++	private var hud by mutableStateOf<Hud?>(null)
++	private var hudTick = 0
++	private var brightnessLevel = 0.5f
++	private var volumeLevel = 0f
++
++	// --- "Skip Opening" pill (AniSkip timestamps) ---
++	private var skipPrompt = true
++	private var skipStamps by mutableStateOf<List<SkipStamp>>(emptyList())
++	private var skipKey = ""
++	private var skipHiddenStart by mutableLongStateOf(-1L)
++
+ 	/** Settings > Player > Player style, read once per launch: one of [AnimePlayerPrefs.STYLE_VALUES]. */
+ 	private var playerStyle = AnimePlayerPrefs.STYLE_YUGEN
+ 
+@@ -328,6 +348,8 @@
+ 		fullscreen = !watchEnabled
+ 		audioPreset = AnimePlaybackSession.audioPreset(this)
+ 		skipSeconds = AnimePlayerPrefs.skipSeconds(this)
++		swipeGestures = AnimePlayerPrefs.isSwipeGestures(this)
++		skipPrompt = AnimePlayerPrefs.isSkipPrompt(this)
+ 		playerStyle = AnimePlayerPrefs.playerStyle(this)
+ 		if (parcel != null) {
+ 			// Opened with just a title: this screen loads the episodes and resolves the stream itself.
+@@ -381,12 +403,60 @@
+ 						duration = it.duration.takeIf { d -> d != C.TIME_UNSET && d > 0 } ?: 0L
+ 						isPlaying = it.isPlaying
+ 					}
++					maybeLoadSkipStamps()
+ 					delay(300)
+ 				}
+ 			}
+ 		}
+ 	}
+ 
++	// --- swipe gestures & skip prompt -----------------------------------------------------------
++
++	private fun currentBrightness(): Float {
++		val windowValue = window.attributes.screenBrightness
++		if (windowValue >= 0f) return windowValue
++		return runCatching { Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f }
++			.getOrDefault(0.5f).coerceIn(0.02f, 1f)
++	}
++
++	private fun syncVolume() {
++		val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
++		volumeLevel = am.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
++	}
++
++	private fun adjustBrightness(delta: Float) {
++		brightnessLevel = (brightnessLevel + delta).coerceIn(0.02f, 1f)
++		// Window brightness only affects this screen and resets when the player closes; no permission needed.
++		window.attributes = window.attributes.apply { screenBrightness = brightnessLevel }
++		hud = Hud(true, brightnessLevel, ++hudTick)
++	}
++
++	private fun adjustVolume(delta: Float) {
++		val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
++		val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
++		volumeLevel = (volumeLevel + delta).coerceIn(0f, 1f)
++		am.setStreamVolume(AudioManager.STREAM_MUSIC, (volumeLevel * max).roundToInt(), 0)
++		hud = Hud(false, volumeLevel, ++hudTick)
++	}
++
++	/** Looks the opening / ending / recap up once per episode, as soon as the episode length is known. */
++	private fun maybeLoadSkipStamps() {
++		if (!skipPrompt || duration <= 0L) return
++		val anime = AnimePlaybackSession.manga ?: return
++		val chapter = chapters.getOrNull(index) ?: return
++		val key = "${anime.id}_${chapter.id}"
++		if (key == skipKey) return
++		skipKey = key
++		skipStamps = emptyList()
++		skipHiddenStart = -1L
++		val titles = listOf(anime.title) + anime.altTitles
++		val length = duration
++		lifecycleScope.launch {
++			val found = AnimeSkipTimes.fetch(titles, chapter.number, length)
++			if (skipKey == key) skipStamps = found
++		}
++	}
++
+ 	// --- episode / stream handling --------------------------------------------------------------
+ 
+ 	private val manga get() = AnimePlaybackSession.manga!!
+@@ -1075,6 +1145,21 @@
+ 						p.seekTo((p.currentPosition + delta).coerceIn(0L, if (p.duration > 0) p.duration else Long.MAX_VALUE))
+ 					},
+ 				)
++			}.pointerInput(locked, compact) {
++				// Right half: volume. Left half: brightness. Only in fullscreen, never while locked.
++				if (!swipeGestures || compact || locked) return@pointerInput
++				var rightSide = false
++				detectVerticalDragGestures(
++					onDragStart = { offset ->
++						rightSide = offset.x >= size.width / 2f
++						if (rightSide) syncVolume() else brightnessLevel = currentBrightness()
++					},
++					onVerticalDrag = { change, dragAmount ->
++						change.consume()
++						val delta = -dragAmount / size.height * 1.3f
++						if (rightSide) adjustVolume(delta) else adjustBrightness(delta)
++					},
++				)
+ 			},
+ 		) {
+ 			if (isBuffering && errorText == null) {
+@@ -1113,6 +1198,37 @@
+ 						.clip(RoundedCornerShape(12.dp)).background(Color(0xCCB3261E)).padding(horizontal = 14.dp, vertical = 8.dp),
+ 				)
+ 			}
++			hud?.let { h ->
++				LaunchedEffect(h.tick) {
++					delay(900)
++					if (hud?.tick == h.tick) hud = null
++				}
++				GestureHudBar(h, Modifier.align(if (h.brightness) Alignment.CenterStart else Alignment.CenterEnd).padding(horizontal = 40.dp))
++			}
++			val activeSkip = if (skipPrompt && !locked && !inPip && dialog == PlayerDialog.NONE && index >= 0) {
++				skipStamps.firstOrNull { position >= it.startMs && position < it.endMs - 1000L && it.startMs != skipHiddenStart }
++			} else null
++			// The pill stays for ten seconds per segment so it never sits on the picture for a whole opening.
++			LaunchedEffect(activeSkip?.startMs) {
++				val start = activeSkip?.startMs ?: return@LaunchedEffect
++				delay(10_000)
++				skipHiddenStart = start
++			}
++			if (activeSkip != null) {
++				val toNext = activeSkip.kind == SkipStamp.Kind.ENDING && nextIndex() in chapters.indices && duration - activeSkip.endMs < 20_000L
++				Row(
++					Modifier.align(Alignment.BottomEnd)
++						.padding(end = if (compact) 12.dp else 32.dp, bottom = if (shown) (if (compact) 52.dp else 112.dp) else (if (compact) 12.dp else 36.dp))
++						.clip(RoundedCornerShape(50)).background(Color(0xCC000000))
++						.clickable { if (toNext) go(nextIndex()) else player?.seekTo(activeSkip.endMs) }
++						.padding(horizontal = 18.dp, vertical = 10.dp),
++					verticalAlignment = Alignment.CenterVertically,
++				) {
++					Text(if (toNext) "Next Episode" else activeSkip.kind.label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
++					Spacer(Modifier.width(8.dp))
++					Icon(painterResource(R.drawable.ic_ap_next), null, tint = Color.White, modifier = Modifier.size(20.dp))
++				}
++			}
+ 			if (chooseServer && dialog == PlayerDialog.NONE && errorText == null) {
+ 				TextButton(
+ 					onClick = { dialog = PlayerDialog.QUALITY },
+@@ -1123,6 +1239,28 @@
+ 		}
+ 	}
+ 
++	/** Vertical level bar shown while swiping: brightness on the left edge, volume on the right. */
++	@Composable
++	private fun GestureHudBar(h: Hud, modifier: Modifier) {
++		Column(
++			modifier.clip(RoundedCornerShape(24.dp)).background(Color(0x99000000)).padding(vertical = 14.dp, horizontal = 12.dp),
++			horizontalAlignment = Alignment.CenterHorizontally,
++		) {
++			Text("${(h.fraction * 100).roundToInt()}%", color = Color.White, fontSize = 12.sp)
++			Spacer(Modifier.height(8.dp))
++			Box(Modifier.width(6.dp).height(110.dp).clip(RoundedCornerShape(3.dp)).background(Color(0x44FFFFFF))) {
++				Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(h.fraction.coerceIn(0.001f, 1f)).background(Color.White))
++			}
++			Spacer(Modifier.height(8.dp))
++			Icon(
++				painterResource(if (h.brightness) R.drawable.ic_ap_brightness else R.drawable.ic_ap_volume),
++				if (h.brightness) "Brightness" else "Volume",
++				tint = Color.White,
++				modifier = Modifier.size(22.dp),
++			)
++		}
++	}
++
+ 	/** Controls of the 16:9 video on the watch page: close, subtitles, more; transport; seek bar and fullscreen. */
+ 	@Composable
+ 	private fun CompactControls() {
+diff -ruN a/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimePlayerPrefs.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimePlayerPrefs.kt
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimePlayerPrefs.kt	2026-11-26 08:31:01.486345431 +0000
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimePlayerPrefs.kt	2026-11-26 08:31:01.487369454 +0000
+@@ -28,6 +28,12 @@
+ 	/** Length of the skip pill ("+85 s"), in seconds. */
+ 	const val KEY_SKIP_SECONDS = "anime_player_skip_seconds"
+ 
++	/** Swipe up / down on the right half for volume and on the left half for brightness. */
++	const val KEY_SWIPE_GESTURES = "anime_player_swipe_gestures"
++
++	/** Show a "Skip Opening" pill while an opening / ending / recap is playing (AniSkip timestamps). */
++	const val KEY_SKIP_PROMPT = "anime_player_skip_prompt"
++
+ 	/** Which control layout the built-in player draws; one of [STYLE_VALUES]. */
+ 	const val KEY_PLAYER_STYLE = "anime_player_style"
+ 
+@@ -157,6 +163,10 @@
+ 
+ 	fun isAutoPlayNext(context: Context): Boolean = prefs(context).getBoolean(KEY_AUTOPLAY_NEXT, true)
+ 
++	fun isSwipeGestures(context: Context): Boolean = prefs(context).getBoolean(KEY_SWIPE_GESTURES, true)
++
++	fun isSkipPrompt(context: Context): Boolean = prefs(context).getBoolean(KEY_SKIP_PROMPT, true)
++
+ 	fun skipSeconds(context: Context): Int =
+ 		prefs(context).getString(KEY_SKIP_SECONDS, "85")?.toIntOrNull()?.takeIf { it > 0 } ?: 85
+ }
+diff -ruN a/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimeSkipTimes.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimeSkipTimes.kt
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimeSkipTimes.kt	1970-01-01 00:00:00.000000000 +0000
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/player/AnimeSkipTimes.kt	2026-11-26 08:31:01.499684156 +0000
+@@ -0,0 +1,93 @@
++package org.koitharu.kotatsu.anime.player
++
++import eu.kanade.tachiyomi.network.NetworkHelper
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import okhttp3.MediaType.Companion.toMediaType
++import okhttp3.Request
++import okhttp3.RequestBody.Companion.toRequestBody
++import org.json.JSONObject
++import uy.kohesive.injekt.Injekt
++import uy.kohesive.injekt.api.get
++import java.util.concurrent.ConcurrentHashMap
++
++/** One skippable part of an episode (opening, ending, recap), in milliseconds. */
++data class SkipStamp(val kind: Kind, val startMs: Long, val endMs: Long) {
++
++	enum class Kind(val label: String) {
++		OPENING("Skip Opening"),
++		ENDING("Skip Ending"),
++		RECAP("Skip Recap"),
++	}
++}
++
++/**
++ * Opening / ending / recap timestamps for the "Skip Opening" pill, fetched the way CloudStream does it:
++ * the community AniSkip database, keyed by MyAnimeList id + episode number + episode length. The MAL id comes
++ * from AniList's public search (no login needed). Everything fails soft: no match means no pill.
++ */
++object AnimeSkipTimes {
++
++	private val malIds = ConcurrentHashMap<String, Int>()
++	private val stamps = ConcurrentHashMap<String, List<SkipStamp>>()
++	private val JSON = "application/json".toMediaType()
++
++	suspend fun fetch(titles: List<String>, episode: Float, durationMs: Long): List<SkipStamp> {
++		if (episode <= 0f || durationMs <= 0L) return emptyList()
++		val ep = episode.toInt()
++		val names = titles.filter { it.isNotBlank() }.distinct().take(3)
++		if (names.isEmpty()) return emptyList()
++		val cacheKey = names.first() + "#" + ep + "#" + durationMs / 5000L
++		stamps[cacheKey]?.let { return it }
++		return withContext(Dispatchers.IO) {
++			runCatching {
++				val mal = names.firstNotNullOfOrNull { malIdOf(it) } ?: return@runCatching emptyList()
++				loadStamps(mal, ep, durationMs)
++			}.getOrDefault(emptyList()).also { if (it.isNotEmpty()) stamps[cacheKey] = it }
++		}
++	}
++
++	private fun malIdOf(title: String): Int? {
++		malIds[title]?.let { return it }
++		val client = Injekt.get<NetworkHelper>().client
++		val body = JSONObject()
++			.put("query", "query(\$s:String){Media(search:\$s,type:ANIME){idMal}}")
++			.put("variables", JSONObject().put("s", title))
++			.toString().toRequestBody(JSON)
++		val request = Request.Builder().url("https://graphql.anilist.co").post(body).build()
++		client.newCall(request).execute().use { response ->
++			if (!response.isSuccessful) return null
++			val id = JSONObject(response.body?.string() ?: return null)
++				.optJSONObject("data")?.optJSONObject("Media")?.optInt("idMal", 0) ?: 0
++			if (id <= 0) return null
++			malIds[title] = id
++			return id
++		}
++	}
++
++	private fun loadStamps(malId: Int, episode: Int, durationMs: Long): List<SkipStamp> {
++		val client = Injekt.get<NetworkHelper>().client
++		val url = "https://api.aniskip.com/v2/skip-times/$malId/$episode" +
++			"?types[]=op&types[]=ed&types[]=mixed-op&types[]=mixed-ed&types[]=recap&episodeLength=${durationMs / 1000L}"
++		client.newCall(Request.Builder().url(url).build()).execute().use { response ->
++			if (!response.isSuccessful) return emptyList()
++			val json = JSONObject(response.body?.string() ?: return emptyList())
++			val results = json.optJSONArray("results") ?: return emptyList()
++			val out = ArrayList<SkipStamp>()
++			for (i in 0 until results.length()) {
++				val item = results.getJSONObject(i)
++				val kind = when (item.optString("skipType")) {
++					"op", "mixed-op" -> SkipStamp.Kind.OPENING
++					"ed", "mixed-ed" -> SkipStamp.Kind.ENDING
++					"recap" -> SkipStamp.Kind.RECAP
++					else -> continue
++				}
++				val interval = item.optJSONObject("interval") ?: continue
++				val start = (interval.optDouble("startTime", -1.0) * 1000).toLong()
++				val end = (interval.optDouble("endTime", -1.0) * 1000).toLong()
++				if (start >= 0 && end > start) out += SkipStamp(kind, start, end)
++			}
++			return out.sortedBy { it.startMs }
++		}
++	}
++}
+diff -ruN a/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/settings/AnimePlayerSettingsFragment.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/settings/AnimePlayerSettingsFragment.kt
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/settings/AnimePlayerSettingsFragment.kt	2026-11-26 08:31:01.491156517 +0000
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/settings/AnimePlayerSettingsFragment.kt	2026-11-26 08:31:01.492182593 +0000
+@@ -72,6 +72,8 @@
+ 	var quality by rememberStringPref(AnimePlayerPrefs.KEY_PREFERRED_QUALITY, AnimePlayerPrefs.QUALITY_BEST)
+ 	var autoNext by rememberBooleanPref(AnimePlayerPrefs.KEY_AUTOPLAY_NEXT, true)
+ 	var skip by rememberStringPref(AnimePlayerPrefs.KEY_SKIP_SECONDS, "85")
++	var swipeGestures by rememberBooleanPref(AnimePlayerPrefs.KEY_SWIPE_GESTURES, true)
++	var skipPrompt by rememberBooleanPref(AnimePlayerPrefs.KEY_SKIP_PROMPT, true)
+ 	var subFont by rememberStringPref(AnimePlayerPrefs.KEY_SUB_FONT, "sans")
+ 	var subSize by rememberStringPref(AnimePlayerPrefs.KEY_SUB_SIZE, "normal")
+ 	var subColor by rememberStringPref(AnimePlayerPrefs.KEY_SUB_COLOR, "white")
+@@ -191,6 +193,26 @@
+ 						shape = pos.shape,
+ 					)
+ 				}
++				item { pos ->
++					SwitchSettingsItem(
++						title = stringResource(R.string.ds_player_swipe_gestures),
++						subtitle = stringResource(R.string.ds_player_swipe_gestures_summary),
++						checked = swipeGestures,
++						onCheckedChange = { swipeGestures = it },
++						icon = R.drawable.ic_ap_brightness,
++						shape = pos.shape,
++					)
++				}
++				item { pos ->
++					SwitchSettingsItem(
++						title = stringResource(R.string.ds_player_skip_prompt),
++						subtitle = stringResource(R.string.ds_player_skip_prompt_summary),
++						checked = skipPrompt,
++						onCheckedChange = { skipPrompt = it },
++						icon = R.drawable.ic_ap_forward,
++						shape = pos.shape,
++					)
++				}
+ 				item { pos ->
+ 					ListSettingsItem(
+ 						title = stringResource(R.string.ds_player_skip_length),
+diff -ruN a/android/app/src/main/res/drawable/ic_ap_brightness.xml b/android/app/src/main/res/drawable/ic_ap_brightness.xml
+--- a/android/app/src/main/res/drawable/ic_ap_brightness.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/android/app/src/main/res/drawable/ic_ap_brightness.xml	2026-11-26 08:31:01.502557292 +0000
+@@ -0,0 +1,9 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="#FFFFFFFF"
++        android:pathData="M20,8.69V4h-4.69L12,0.69 8.69,4H4v4.69L0.69,12 4,15.31V20h4.69L12,23.31 15.31,20H20v-4.69L23.31,12 20,8.69zM12,18c-3.31,0 -6,-2.69 -6,-6s2.69,-6 6,-6 6,2.69 6,6 -2.69,6 -6,6zM12,8c-2.21,0 -4,1.79 -4,4s1.79,4 4,4 4,-1.79 4,-4 -1.79,-4 -4,-4z" />
++</vector>
+diff -ruN a/android/app/src/main/res/drawable/ic_ap_volume.xml b/android/app/src/main/res/drawable/ic_ap_volume.xml
+--- a/android/app/src/main/res/drawable/ic_ap_volume.xml	1970-01-01 00:00:00.000000000 +0000
++++ b/android/app/src/main/res/drawable/ic_ap_volume.xml	2026-11-26 08:31:01.506835519 +0000
+@@ -0,0 +1,9 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android"
++    android:width="24dp"
++    android:height="24dp"
++    android:viewportWidth="24"
++    android:viewportHeight="24">
++    <path
++        android:fillColor="#FFFFFFFF"
++        android:pathData="M3,9v6h4l5,5V4L7,9H3zM16.5,12c0,-1.77 -1.02,-3.29 -2.5,-4.03v8.05c1.48,-0.73 2.5,-2.25 2.5,-4.02zM14,3.23v2.06c2.89,0.86 5,3.54 5,6.71s-2.11,5.85 -5,6.71v2.06c4.01,-0.91 7,-4.49 7,-8.77s-2.99,-7.86 -7,-8.77z" />
++</vector>
+diff -ruN a/android/app/src/main/res/values/strings.xml b/android/app/src/main/res/values/strings.xml
+--- a/android/app/src/main/res/values/strings.xml	2026-11-26 08:31:01.495866504 +0000
++++ b/android/app/src/main/res/values/strings.xml	2026-11-26 08:31:01.496864459 +0000
+@@ -1725,6 +1725,10 @@
+     <string name="ds_player_group_playback">Playback</string>
+     <string name="ds_player_autoplay_next">Play next episode automatically</string>
+     <string name="ds_player_autoplay_next_summary">Start the following episode when one ends</string>
++    <string name="ds_player_swipe_gestures">Swipe gestures</string>
++    <string name="ds_player_swipe_gestures_summary">Swipe up or down on the right side for volume and on the left side for brightness</string>
++    <string name="ds_player_skip_prompt">Skip opening prompt</string>
++    <string name="ds_player_skip_prompt_summary">Show a Skip Opening / Ending / Recap button when the episode has known timestamps</string>
+     <string name="ds_player_skip_length">Skip button length</string>
+     <string name="ds_player_vlc">Always open in VLC</string>
+     <string name="ds_player_vlc_summary">Uses the built-in player when VLC is not installed</string>
