@@ -72,6 +72,8 @@ private fun AnimePlayerSettingsContent() {
 	var quality by rememberStringPref(AnimePlayerPrefs.KEY_PREFERRED_QUALITY, AnimePlayerPrefs.QUALITY_BEST)
 	var autoNext by rememberBooleanPref(AnimePlayerPrefs.KEY_AUTOPLAY_NEXT, true)
 	var skip by rememberStringPref(AnimePlayerPrefs.KEY_SKIP_SECONDS, "85")
+	var swipeGestures by rememberBooleanPref(AnimePlayerPrefs.KEY_SWIPE_GESTURES, true)
+	var skipPrompt by rememberBooleanPref(AnimePlayerPrefs.KEY_SKIP_PROMPT, true)
 	var subFont by rememberStringPref(AnimePlayerPrefs.KEY_SUB_FONT, "sans")
 	var subSize by rememberStringPref(AnimePlayerPrefs.KEY_SUB_SIZE, "normal")
 	var subColor by rememberStringPref(AnimePlayerPrefs.KEY_SUB_COLOR, "white")
@@ -188,6 +190,26 @@ private fun AnimePlayerSettingsContent() {
 						checked = autoNext,
 						onCheckedChange = { autoNext = it },
 						icon = R.drawable.ic_ap_next,
+						shape = pos.shape,
+					)
+				}
+				item { pos ->
+					SwitchSettingsItem(
+						title = stringResource(R.string.ds_player_swipe_gestures),
+						subtitle = stringResource(R.string.ds_player_swipe_gestures_summary),
+						checked = swipeGestures,
+						onCheckedChange = { swipeGestures = it },
+						icon = R.drawable.ic_ap_brightness,
+						shape = pos.shape,
+					)
+				}
+				item { pos ->
+					SwitchSettingsItem(
+						title = stringResource(R.string.ds_player_skip_prompt),
+						subtitle = stringResource(R.string.ds_player_skip_prompt_summary),
+						checked = skipPrompt,
+						onCheckedChange = { skipPrompt = it },
+						icon = R.drawable.ic_ap_forward,
 						shape = pos.shape,
 					)
 				}

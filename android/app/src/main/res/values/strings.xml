@@ -1725,6 +1725,10 @@
     <string name="ds_player_group_playback">Playback</string>
     <string name="ds_player_autoplay_next">Play next episode automatically</string>
     <string name="ds_player_autoplay_next_summary">Start the following episode when one ends</string>
+    <string name="ds_player_swipe_gestures">Swipe gestures</string>
+    <string name="ds_player_swipe_gestures_summary">Swipe up or down on the right side for volume and on the left side for brightness</string>
+    <string name="ds_player_skip_prompt">Skip opening prompt</string>
+    <string name="ds_player_skip_prompt_summary">Show a Skip Opening / Ending / Recap button when the episode has known timestamps</string>
     <string name="ds_player_skip_length">Skip button length</string>
     <string name="ds_player_vlc">Always open in VLC</string>
     <string name="ds_player_vlc_summary">Uses the built-in player when VLC is not installed</string>

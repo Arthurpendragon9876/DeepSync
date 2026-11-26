@@ -28,6 +28,12 @@ object AnimePlayerPrefs {
 	/** Length of the skip pill ("+85 s"), in seconds. */
 	const val KEY_SKIP_SECONDS = "anime_player_skip_seconds"
 
+	/** Swipe up / down on the right half for volume and on the left half for brightness. */
+	const val KEY_SWIPE_GESTURES = "anime_player_swipe_gestures"
+
+	/** Show a "Skip Opening" pill while an opening / ending / recap is playing (AniSkip timestamps). */
+	const val KEY_SKIP_PROMPT = "anime_player_skip_prompt"
+
 	/** Which control layout the built-in player draws; one of [STYLE_VALUES]. */
 	const val KEY_PLAYER_STYLE = "anime_player_style"
 
@@ -156,6 +162,10 @@ object AnimePlayerPrefs {
 		prefs(context).getString(KEY_PREFERRED_QUALITY, QUALITY_BEST)?.takeIf { it in QUALITY_VALUES } ?: QUALITY_BEST
 
 	fun isAutoPlayNext(context: Context): Boolean = prefs(context).getBoolean(KEY_AUTOPLAY_NEXT, true)
+
+	fun isSwipeGestures(context: Context): Boolean = prefs(context).getBoolean(KEY_SWIPE_GESTURES, true)
+
+	fun isSkipPrompt(context: Context): Boolean = prefs(context).getBoolean(KEY_SKIP_PROMPT, true)
 
 	fun skipSeconds(context: Context): Int =
 		prefs(context).getString(KEY_SKIP_SECONDS, "85")?.toIntOrNull()?.takeIf { it > 0 } ?: 85

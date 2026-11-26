@@ -1,7 +1,9 @@
 package org.koitharu.kotatsu.anime.player
 
 import android.app.PictureInPictureParams
+import android.media.AudioManager
 import android.os.Handler
+import android.provider.Settings
 import android.os.Looper
 import android.content.Context
 import android.content.pm.ActivityInfo
@@ -32,6 +34,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.fillMaxHeight
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -236,6 +241,21 @@ class AnimePlayerActivity : AppCompatActivity() {
 	}
 	private var skipSeconds = 85
 
+	// --- swipe gestures (volume on the right half, brightness on the left half) ---
+	private class Hud(val brightness: Boolean, val fraction: Float, val tick: Int)
+
+	private var swipeGestures = true
+	private var hud by mutableStateOf<Hud?>(null)
+	private var hudTick = 0
+	private var brightnessLevel = 0.5f
+	private var volumeLevel = 0f
+
+	// --- "Skip Opening" pill (AniSkip timestamps) ---
+	private var skipPrompt = true
+	private var skipStamps by mutableStateOf<List<SkipStamp>>(emptyList())
+	private var skipKey = ""
+	private var skipHiddenStart by mutableLongStateOf(-1L)
+
 	/** Settings > Player > Player style, read once per launch: one of [AnimePlayerPrefs.STYLE_VALUES]. */
 	private var playerStyle = AnimePlayerPrefs.STYLE_YUGEN
 
@@ -328,6 +348,8 @@ class AnimePlayerActivity : AppCompatActivity() {
 		fullscreen = !watchEnabled
 		audioPreset = AnimePlaybackSession.audioPreset(this)
 		skipSeconds = AnimePlayerPrefs.skipSeconds(this)
+		swipeGestures = AnimePlayerPrefs.isSwipeGestures(this)
+		skipPrompt = AnimePlayerPrefs.isSkipPrompt(this)
 		playerStyle = AnimePlayerPrefs.playerStyle(this)
 		if (parcel != null) {
 			// Opened with just a title: this screen loads the episodes and resolves the stream itself.
@@ -381,9 +403,57 @@ class AnimePlayerActivity : AppCompatActivity() {
 						duration = it.duration.takeIf { d -> d != C.TIME_UNSET && d > 0 } ?: 0L
 						isPlaying = it.isPlaying
 					}
+					maybeLoadSkipStamps()
 					delay(300)
 				}
 			}
+		}
+	}
+
+	// --- swipe gestures & skip prompt -----------------------------------------------------------
+
+	private fun currentBrightness(): Float {
+		val windowValue = window.attributes.screenBrightness
+		if (windowValue >= 0f) return windowValue
+		return runCatching { Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f }
+			.getOrDefault(0.5f).coerceIn(0.02f, 1f)
+	}
+
+	private fun syncVolume() {
+		val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+		volumeLevel = am.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+	}
+
+	private fun adjustBrightness(delta: Float) {
+		brightnessLevel = (brightnessLevel + delta).coerceIn(0.02f, 1f)
+		// Window brightness only affects this screen and resets when the player closes; no permission needed.
+		window.attributes = window.attributes.apply { screenBrightness = brightnessLevel }
+		hud = Hud(true, brightnessLevel, ++hudTick)
+	}
+
+	private fun adjustVolume(delta: Float) {
+		val am = getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+		val max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+		volumeLevel = (volumeLevel + delta).coerceIn(0f, 1f)
+		am.setStreamVolume(AudioManager.STREAM_MUSIC, (volumeLevel * max).roundToInt(), 0)
+		hud = Hud(false, volumeLevel, ++hudTick)
+	}
+
+	/** Looks the opening / ending / recap up once per episode, as soon as the episode length is known. */
+	private fun maybeLoadSkipStamps() {
+		if (!skipPrompt || duration <= 0L) return
+		val anime = AnimePlaybackSession.manga ?: return
+		val chapter = chapters.getOrNull(index) ?: return
+		val key = "${anime.id}_${chapter.id}"
+		if (key == skipKey) return
+		skipKey = key
+		skipStamps = emptyList()
+		skipHiddenStart = -1L
+		val titles = listOf(anime.title) + anime.altTitles
+		val length = duration
+		lifecycleScope.launch {
+			val found = AnimeSkipTimes.fetch(titles, chapter.number, length)
+			if (skipKey == key) skipStamps = found
 		}
 	}
 
@@ -1075,6 +1145,21 @@ class AnimePlayerActivity : AppCompatActivity() {
 						p.seekTo((p.currentPosition + delta).coerceIn(0L, if (p.duration > 0) p.duration else Long.MAX_VALUE))
 					},
 				)
+			}.pointerInput(locked, compact) {
+				// Right half: volume. Left half: brightness. Only in fullscreen, never while locked.
+				if (!swipeGestures || compact || locked) return@pointerInput
+				var rightSide = false
+				detectVerticalDragGestures(
+					onDragStart = { offset ->
+						rightSide = offset.x >= size.width / 2f
+						if (rightSide) syncVolume() else brightnessLevel = currentBrightness()
+					},
+					onVerticalDrag = { change, dragAmount ->
+						change.consume()
+						val delta = -dragAmount / size.height * 1.3f
+						if (rightSide) adjustVolume(delta) else adjustBrightness(delta)
+					},
+				)
 			},
 		) {
 			if (isBuffering && errorText == null) {
@@ -1113,6 +1198,37 @@ class AnimePlayerActivity : AppCompatActivity() {
 						.clip(RoundedCornerShape(12.dp)).background(Color(0xCCB3261E)).padding(horizontal = 14.dp, vertical = 8.dp),
 				)
 			}
+			hud?.let { h ->
+				LaunchedEffect(h.tick) {
+					delay(900)
+					if (hud?.tick == h.tick) hud = null
+				}
+				GestureHudBar(h, Modifier.align(if (h.brightness) Alignment.CenterStart else Alignment.CenterEnd).padding(horizontal = 40.dp))
+			}
+			val activeSkip = if (skipPrompt && !locked && !inPip && dialog == PlayerDialog.NONE && index >= 0) {
+				skipStamps.firstOrNull { position >= it.startMs && position < it.endMs - 1000L && it.startMs != skipHiddenStart }
+			} else null
+			// The pill stays for ten seconds per segment so it never sits on the picture for a whole opening.
+			LaunchedEffect(activeSkip?.startMs) {
+				val start = activeSkip?.startMs ?: return@LaunchedEffect
+				delay(10_000)
+				skipHiddenStart = start
+			}
+			if (activeSkip != null) {
+				val toNext = activeSkip.kind == SkipStamp.Kind.ENDING && nextIndex() in chapters.indices && duration - activeSkip.endMs < 20_000L
+				Row(
+					Modifier.align(Alignment.BottomEnd)
+						.padding(end = if (compact) 12.dp else 32.dp, bottom = if (shown) (if (compact) 52.dp else 112.dp) else (if (compact) 12.dp else 36.dp))
+						.clip(RoundedCornerShape(50)).background(Color(0xCC000000))
+						.clickable { if (toNext) go(nextIndex()) else player?.seekTo(activeSkip.endMs) }
+						.padding(horizontal = 18.dp, vertical = 10.dp),
+					verticalAlignment = Alignment.CenterVertically,
+				) {
+					Text(if (toNext) "Next Episode" else activeSkip.kind.label, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+					Spacer(Modifier.width(8.dp))
+					Icon(painterResource(R.drawable.ic_ap_next), null, tint = Color.White, modifier = Modifier.size(20.dp))
+				}
+			}
 			if (chooseServer && dialog == PlayerDialog.NONE && errorText == null) {
 				TextButton(
 					onClick = { dialog = PlayerDialog.QUALITY },
@@ -1120,6 +1236,28 @@ class AnimePlayerActivity : AppCompatActivity() {
 				) { Text("Choose a server", color = Color.White, fontSize = 16.sp) }
 			}
 			errorText?.let { ErrorCard(it, compact, Modifier.align(Alignment.Center)) }
+		}
+	}
+
+	/** Vertical level bar shown while swiping: brightness on the left edge, volume on the right. */
+	@Composable
+	private fun GestureHudBar(h: Hud, modifier: Modifier) {
+		Column(
+			modifier.clip(RoundedCornerShape(24.dp)).background(Color(0x99000000)).padding(vertical = 14.dp, horizontal = 12.dp),
+			horizontalAlignment = Alignment.CenterHorizontally,
+		) {
+			Text("${(h.fraction * 100).roundToInt()}%", color = Color.White, fontSize = 12.sp)
+			Spacer(Modifier.height(8.dp))
+			Box(Modifier.width(6.dp).height(110.dp).clip(RoundedCornerShape(3.dp)).background(Color(0x44FFFFFF))) {
+				Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().fillMaxHeight(h.fraction.coerceIn(0.001f, 1f)).background(Color.White))
+			}
+			Spacer(Modifier.height(8.dp))
+			Icon(
+				painterResource(if (h.brightness) R.drawable.ic_ap_brightness else R.drawable.ic_ap_volume),
+				if (h.brightness) "Brightness" else "Volume",
+				tint = Color.White,
+				modifier = Modifier.size(22.dp),
+			)
 		}
 	}
 
