@@ -34,9 +34,16 @@ class GlobalSearchScopeTest {
 	fun `global results use the Explore source classification everywhere`() {
 		val search = source("search/ui/multi/SearchViewModel.kt")
 
-		assertTrue(search.contains(".filter{it.isNovelSource==isNovelScope}"))
-		assertTrue(search.contains(".filter{it.source.isNovelSource==isNovelScope}"))
-		assertTrue(search.contains("searchLocal():SearchResultsListModel?=if(isNovelScope){null}"))
+		// Global search follows the 3-way HomeMode (Manga / Novel / Anime), not the old novel boolean.
+		assertTrue(search.contains("get()=settings.homeMode"))
+		assertTrue(search.contains(".filter{it.isInMode(mode,settings.streamingKind)}"))
+		assertTrue(search.contains(".filter{it.source.isInMode(mode,settings.streamingKind)}"))
+		// The local library only holds manga, so it is searched in Manga mode only.
+		assertTrue(
+			search.contains(
+				"searchLocal():SearchResultsListModel?=if(mode!=org.koitharu.kotatsu.home.ui.model.HomeMode.MANGA){null}",
+			),
+		)
 	}
 
 	private fun resource(relativePath: String): String {

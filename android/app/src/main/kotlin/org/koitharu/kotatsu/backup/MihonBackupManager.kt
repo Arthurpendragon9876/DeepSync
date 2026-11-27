@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.protobuf.ProtoBuf
+import okio.Buffer
+import okio.BufferedSource
 import okio.buffer
 import okio.gzip
 import okio.source
@@ -245,14 +247,26 @@ class MihonBackupManager @Inject constructor(
     )
   }
 
+    /**
+     * Reads the whole payload but gives up past [limit] bytes, so a huge or maliciously compressed
+     * backup fails with a clear error instead of an OutOfMemoryError.
+     */
+    private fun BufferedSource.readBounded(limit: Long): ByteArray {
+        val out = Buffer()
+        while (out.size <= limit) {
+            if (read(out, READ_CHUNK_BYTES) == -1L) return out.readByteArray()
+        }
+        throw BadBackupFormatException(java.io.IOException("Backup is larger than $limit bytes"))
+    }
+
     private fun decode(uri: Uri): MihonBackup {
         val payload = context.contentResolver.openInputStream(uri)?.use { input ->
             val source = input.source().buffer()
             val peeked = source.peek().apply { require(2) }
             val signature = peeked.readShort().toInt()
             when (signature) {
-                0x1f8b -> source.gzip().buffer().readByteArray()
-                else -> source.readByteArray()
+                0x1f8b -> source.gzip().buffer().readBounded(MAX_BACKUP_BYTES)
+                else -> source.readBounded(MAX_BACKUP_BYTES)
             }
         } ?: throw BadBackupFormatException(null)
 
@@ -639,6 +653,10 @@ class MihonBackupManager @Inject constructor(
 
   private companion object {
     const val DEFAULT_CATEGORY_TITLE = "Default"
+
+    /** Decompressed size cap for one backup; real libraries are a small fraction of this. */
+    const val MAX_BACKUP_BYTES = 256L * 1024 * 1024
+    const val READ_CHUNK_BYTES = 8192L
   }
 }
 
