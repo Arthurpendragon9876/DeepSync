@@ -1,0 +1,250 @@
+diff --git a/b/desktop/yomi/main/android-backup.js b/desktop/yomi/main/android-backup.js
+new file mode 100644
+index 0000000..038968a
+--- /dev/null
++++ b/desktop/yomi/main/android-backup.js
+@@ -0,0 +1,101 @@
++'use strict'
++// Reads a DeepSync/Yugen (Android) backup, "*.bk.zip", and converts the parts both apps can share into Yomi's
++// own backup shape, so the result goes straight through the normal `backup:import` merge.
++//
++// What maps, and why only this much:
++//   Android (Kotatsu based) identifies a title by *source + URL*; Yomi identifies it by its *AniList id*.
++//   The only bridge between the two is the AniList link the Android app stores when a title is tracked
++//   (the "scrobbling" section, scrobbler id 2). Titles without that link cannot be placed in Yomi and are
++//   returned in `report.unmatched` instead of being guessed.
++const fs = require('fs')
++const os = require('os')
++const path = require('path')
++const { Zip } = require('./zip')
++
++const ANILIST_SCROBBLER = 2 // ScrobblerService.ANILIST in the Android app
++const SUPPORTED_FORMAT = 1 // BackupIndex.FORMAT_VERSION
++const catId = (id) => `android-${id}`
++
++async function readSection(zip, name) {
++  if (!zip.has(name)) return []
++  const text = (await zip.readText(name)).trim()
++  if (!text) return []
++  const data = JSON.parse(text)
++  return Array.isArray(data) ? data : [data]
++}
++
++async function readAndroidBackup(file) {
++  const zip = await Zip.open(file)
++  try {
++    const [index] = await readSection(zip, 'index')
++    if (!index || index.format_version == null) throw new Error('Not an Android DeepSync backup (no index entry)')
++    if (index.format_version > SUPPORTED_FORMAT) throw new Error(`Backup format ${index.format_version} is newer than this Yomi understands`)
++    return {
++      index,
++      categories: await readSection(zip, 'categories'),
++      favourites: await readSection(zip, 'favourites'),
++      history: await readSection(zip, 'history'),
++      scrobbling: await readSection(zip, 'scrobbling'),
++    }
++  } finally {
++    await zip.close()
++  }
++}
++
++// -> { favourites, history, report } in Yomi's backup shape (manga only: the Android app has no anime or novels).
++function toYomi(b) {
++  const anilist = new Map() // android manga id -> AniList id
++  for (const s of b.scrobbling) if (s.scrobbler === ANILIST_SCROBBLER && s.target_id > 0) anilist.set(s.manga_id, s.target_id)
++
++  const categories = b.categories.slice().sort((a, c) => a.sort_key - c.sort_key).map((c) => ({ id: catId(c.category_id), name: c.title }))
++  const items = {}
++  const unmatched = []
++  let favCount = 0
++  for (const f of b.favourites) {
++    const id = anilist.get(f.manga_id)
++    if (!id) { unmatched.push({ title: f.manga.title, source: f.manga.source, where: 'favourites' }); continue }
++    const key = `manga:${id}`
++    const cat = catId(f.category_id)
++    const it = items[key] || (items[key] = { key, mode: 'manga', id, title: f.manga.title, cover: f.manga.cover_url || null, cats: [], at: f.created_at })
++    if (!it.cats.includes(cat)) it.cats.push(cat)
++    favCount++
++  }
++
++  const history = {}
++  for (const h of b.history) {
++    const id = anilist.get(h.manga_id)
++    if (!id) { if (!unmatched.some((u) => u.title === h.manga.title)) unmatched.push({ title: h.manga.title, source: h.manga.source, where: 'history' }); continue }
++    const key = `manga:${id}`
++    const prev = history[key]
++    if (prev && prev.at >= h.updated_at) continue
++    history[key] = { key, mode: 'manga', id, title: h.manga.title, cover: h.manga.cover_url || null, number: null, label: 'Imported from Android', count: 1, at: h.updated_at }
++  }
++
++  // keep only categories that exist in the backup; make sure favourites never point at a missing one
++  const known = new Set(categories.map((c) => c.id))
++  for (const it of Object.values(items)) it.cats = it.cats.filter((c) => known.has(c))
++  for (const k of Object.keys(items)) if (!items[k].cats.length) delete items[k]
++
++  return {
++    favourites: { categories, items },
++    history,
++    report: {
++      favourites: Object.keys(items).length,
++      history: Object.keys(history).length,
++      categories: categories.length,
++      unmatched,
++      totals: { favourites: b.favourites.length, history: b.history.length, anilistLinks: anilist.size },
++    },
++  }
++}
++
++async function convertFile(file) { return toYomi(await readAndroidBackup(file)) }
++
++// For the renderer: it sends the file as base64, we spill it to a temp file because Zip reads by random access.
++async function convertBuffer(buf) {
++  const tmp = path.join(os.tmpdir(), `yomi-android-backup-${process.pid}-${Date.now()}.zip`)
++  await fs.promises.writeFile(tmp, buf)
++  try { return await convertFile(tmp) } finally { fs.promises.unlink(tmp).catch(() => {}) }
++}
++
++module.exports = { readAndroidBackup, toYomi, convertFile, convertBuffer }
+diff --git a/desktop/yomi/main/api.js b/desktop/yomi/main/api.js
+index 45a2e61..af88d59 100644
+--- a/desktop/yomi/main/api.js
++++ b/desktop/yomi/main/api.js
+@@ -315,6 +315,12 @@ function createApi({ store, zipUrl, proxyUrl, streamUrl = (u) => u, dialogs = {}
+       return { byDay, byMode, total: store.activity.length, streak, titles: titles.length, favourites: Object.keys(store.favourites.items).length, top: titles.sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 5) }
+     },
+     'backup:export': async () => ({ settings: store.publicSettings(), progress: store.progress, links: store.links, favourites: store.favourites, history: store.history, activity: store.activity, exportedAt: new Date().toISOString() }),
++    'backup:importAndroid': async ({ b64 }) => {
++      const { convertBuffer } = require('./android-backup')
++      const { favourites, history, report } = await convertBuffer(Buffer.from(String(b64 || ''), 'base64'))
++      await h['backup:import']({ data: { favourites, history } })
++      return report
++    },
+     'backup:import': async ({ data }) => {
+       if (data.progress) Object.assign(store.progress, data.progress)
+       if (data.links) Object.assign(store.links, data.links)
+diff --git a/desktop/yomi/renderer/js/views/settings.js b/desktop/yomi/renderer/js/views/settings.js
+index 4af0a79..1442055 100644
+--- a/desktop/yomi/renderer/js/views/settings.js
++++ b/desktop/yomi/renderer/js/views/settings.js
+@@ -230,11 +230,14 @@ const panes = {
+   },
+   data() {
+     const file = h('input', { type: 'file', accept: '.json', class: 'hidden', onchange: async (e) => { try { await api('backup:import', { data: JSON.parse(await e.target.files[0].text()) }); toast('Backup imported'); window.dispatchEvent(new Event('ds:boot')) } catch (er) { toast('Invalid backup file: ' + er.message, true) } } })
++    const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s) }
++    const androidFile = h('input', { type: 'file', accept: '.zip', class: 'hidden', onchange: async (e) => { try { const f = e.target.files[0]; if (!f) return; const r = await api('backup:importAndroid', { b64: toB64(await f.arrayBuffer()) }); toast(`Imported ${r.favourites} favourites, ${r.history} history entries` + (r.unmatched.length ? ` (${r.unmatched.length} skipped: not linked to AniList)` : '')); window.dispatchEvent(new Event('ds:boot')) } catch (er) { toast('Cannot read Android backup: ' + er.message, true) } e.target.value = '' } })
+     return [row('Export backup', 'Settings, progress, library links, favourites, history and stats as a JSON file. Tracker tokens are never included.', h('button', { class: 'btn', onclick: async () => {
+       const blob = new Blob([JSON.stringify(await api('backup:export'), null, 2)], { type: 'application/json' })
+       const a = h('a', { href: URL.createObjectURL(blob), download: 'yomi-backup.json' }); document.body.append(a); a.click(); a.remove()
+     } }, icon('download', 18), 'Export')),
+     row('Import backup', 'Merges a previously exported file', h('button', { class: 'btn', onclick: () => file.click() }, 'Import')), file,
++    row('Import Android backup', 'Reads a .bk.zip from the Android app. Only titles tracked with AniList there can be brought over (favourites, categories, history).', h('button', { class: 'btn', onclick: () => androidFile.click() }, 'Import')), androidFile,
+     row('Clear cache', 'Forget cached AniList responses', h('button', { class: 'btn', onclick: async () => { await api('cache:clear'); toast('Cache cleared') } }, 'Clear')),
+     row('Data folder', 'Where settings and progress are stored', h('button', { class: 'btn', onclick: () => api('app:openDataDir') }, icon('folder', 18), 'Open'))]
+   },
+diff --git a/b/desktop/yomi/test/android-backup.test.js b/desktop/yomi/test/android-backup.test.js
+new file mode 100644
+index 0000000..019baf0
+--- /dev/null
++++ b/desktop/yomi/test/android-backup.test.js
+@@ -0,0 +1,72 @@
++'use strict'
++const test = require('node:test')
++const assert = require('node:assert/strict')
++const fs = require('fs')
++const os = require('os')
++const path = require('path')
++const zlib = require('zlib')
++const { convertFile, toYomi } = require('../main/android-backup')
++
++// minimal zip writer (deflate) so the fixture matches what the Android app produces: one JSON entry per section
++function makeZip(entries) {
++  const table = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0 })
++  const crc = (buf) => { let c = 0xffffffff; for (const b of buf) c = table[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0 }
++  const parts = [], central = []
++  let offset = 0
++  for (const [name, text] of Object.entries(entries)) {
++    const raw = Buffer.from(text), data = zlib.deflateRawSync(raw), nm = Buffer.from(name)
++    const local = Buffer.alloc(30); local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(8, 8)
++    local.writeUInt32LE(crc(raw), 14); local.writeUInt32LE(data.length, 18); local.writeUInt32LE(raw.length, 22); local.writeUInt16LE(nm.length, 26)
++    const cen = Buffer.alloc(46); cen.writeUInt32LE(0x02014b50, 0); cen.writeUInt16LE(20, 4); cen.writeUInt16LE(20, 6); cen.writeUInt16LE(8, 10)
++    cen.writeUInt32LE(crc(raw), 16); cen.writeUInt32LE(data.length, 20); cen.writeUInt32LE(raw.length, 24); cen.writeUInt16LE(nm.length, 28); cen.writeUInt32LE(offset, 42)
++    parts.push(local, nm, data); central.push(cen, nm); offset += 30 + nm.length + data.length
++  }
++  const cd = Buffer.concat(central), end = Buffer.alloc(22)
++  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(central.length / 2, 8); end.writeUInt16LE(central.length / 2, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(offset, 16)
++  return Buffer.concat([...parts, cd, end])
++}
++
++const manga = (id, title, source = 'MANGADEX') => ({ id, title, url: '/' + id, public_url: 'https://x/' + id, cover_url: `https://c/${id}.jpg`, source })
++const fixture = {
++  index: JSON.stringify([{ app_id: 'org.koitharu.kotatsu', app_version: 1, created_at: 1, format_version: 1 }]),
++  categories: JSON.stringify([{ category_id: 2, created_at: 1, sort_key: 1, title: 'Reading' }, { category_id: 1, created_at: 1, sort_key: 0, title: 'Plan' }]),
++  favourites: JSON.stringify([
++    { manga_id: 10, category_id: 1, created_at: 5, manga: manga(10, 'Linked A') },
++    { manga_id: 10, category_id: 2, created_at: 6, manga: manga(10, 'Linked A') },
++    { manga_id: 11, category_id: 1, created_at: 7, manga: manga(11, 'Not tracked') },
++  ]),
++  history: JSON.stringify([
++    { manga_id: 10, created_at: 1, updated_at: 100, chapter_id: 1, page: 0, scroll: 0, manga: manga(10, 'Linked A') },
++    { manga_id: 12, created_at: 1, updated_at: 50, chapter_id: 1, page: 0, scroll: 0, manga: manga(12, 'Orphan history') },
++  ]),
++  scrobbling: JSON.stringify([
++    { scrobbler: 2, id: 1, manga_id: 10, target_id: 555 }, // AniList
++    { scrobbler: 1, id: 2, manga_id: 11, target_id: 999 }, // Shikimori only: not usable
++  ]),
++}
++
++test('converts linked favourites, categories and history; reports the rest', async () => {
++  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ab-')), 'b.bk.zip')
++  fs.writeFileSync(f, makeZip(fixture))
++  const { favourites, history, report } = await convertFile(f)
++  assert.deepEqual(favourites.categories.map((c) => c.name), ['Plan', 'Reading']) // sorted by sort_key
++  assert.deepEqual(Object.keys(favourites.items), ['manga:555'])
++  assert.deepEqual(favourites.items['manga:555'].cats.sort(), ['android-1', 'android-2'])
++  assert.equal(favourites.items['manga:555'].id, 555)
++  assert.equal(history['manga:555'].at, 100)
++  assert.deepEqual(report.unmatched.map((u) => u.title).sort(), ['Not tracked', 'Orphan history'])
++  assert.deepEqual([report.favourites, report.history], [1, 1])
++})
++
++test('rejects a zip that is not an Android backup, and newer formats', async () => {
++  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ab-'))
++  const a = path.join(dir, 'a.zip'); fs.writeFileSync(a, makeZip({ other: '[]' }))
++  await assert.rejects(convertFile(a), /Not an Android/)
++  const b = path.join(dir, 'b.zip'); fs.writeFileSync(b, makeZip({ index: JSON.stringify([{ format_version: 99 }]) }))
++  await assert.rejects(convertFile(b), /newer/)
++})
++
++test('toYomi tolerates empty sections', () => {
++  const r = toYomi({ categories: [], favourites: [], history: [], scrobbling: [] })
++  assert.deepEqual(r.favourites, { categories: [], items: {} })
++})
+diff --git a/b/desktop/yomi/tools/android-backup-to-yomi.js b/desktop/yomi/tools/android-backup-to-yomi.js
+new file mode 100755
+index 0000000..00cc681
+--- /dev/null
++++ b/desktop/yomi/tools/android-backup-to-yomi.js
+@@ -0,0 +1,23 @@
++#!/usr/bin/env node
++'use strict'
++// Usage: node tools/android-backup-to-yomi.js <backup.bk.zip> [out.json]
++// Writes a Yomi backup JSON (import it in Settings > Data & backup > Import backup) and prints what could not be matched.
++const fs = require('fs')
++const path = require('path')
++const { convertFile } = require('../main/android-backup')
++
++;(async () => {
++  const [input, out] = process.argv.slice(2)
++  if (!input) { console.error('Usage: android-backup-to-yomi <backup.bk.zip> [out.json]'); process.exit(2) }
++  const { favourites, history, report } = await convertFile(input)
++  const target = out || input.replace(/(\.bk)?\.zip$/i, '') + '.yomi.json'
++  fs.writeFileSync(target, JSON.stringify({ favourites, history, exportedAt: new Date().toISOString(), source: 'android' }, null, 2))
++  console.log(`Wrote ${path.resolve(target)}`)
++  console.log(`Favourites ${report.favourites}/${report.totals.favourites}, history ${report.history}/${report.totals.history}, categories ${report.categories}`)
++  if (report.unmatched.length) {
++    console.log(`\n${report.unmatched.length} title(s) have no AniList link in the Android app, so they were skipped:`)
++    for (const u of report.unmatched.slice(0, 40)) console.log(`  - ${u.title} (${u.source}, ${u.where})`)
++    if (report.unmatched.length > 40) console.log(`  ... and ${report.unmatched.length - 40} more`)
++    console.log('Track them with AniList in the Android app, make a new backup and convert again.')
++  }
++})().catch((e) => { console.error('Error: ' + e.message); process.exit(1) })
