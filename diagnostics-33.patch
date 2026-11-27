@@ -1,0 +1,967 @@
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/parser/CachingMangaRepository.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/parser/CachingMangaRepository.kt
+@@ -15,6 +15,7 @@
+ import org.koitharu.kotatsu.core.logs.breadcrumb
+ import org.koitharu.kotatsu.core.util.MultiMutex
+ import org.koitharu.kotatsu.core.util.ext.processLifecycleScope
++import org.koitharu.kotatsu.diagnostics.SourceHealthTracker
+ import org.koitharu.kotatsu.parsers.model.Manga
+ import org.koitharu.kotatsu.parsers.model.MangaChapter
+ import org.koitharu.kotatsu.parsers.model.MangaPage
+@@ -90,7 +91,13 @@
+ 		}
+ 		return SafeDeferred(
+ 			processLifecycleScope.async(dispatcher) {
+-				runCatchingCancellable { block() }
++				runCatchingCancellable { block() }.also { result ->
++					// Feeds the Source & Plugin Health screen; local only
++					result.fold(
++						onSuccess = { SourceHealthTracker.instance?.onSuccess(source) },
++						onFailure = { SourceHealthTracker.instance?.onFailure(source, it) },
++					)
++				}
+ 			},
+ 		)
+ 	}
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/parser/MangaRepository.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/parser/MangaRepository.kt
+@@ -104,6 +104,8 @@
+ 		private val animeExtensionManager: AnimeExtensionManager,
+ 		private val jsHost: JsHost,
+ 		@ApplicationContext private val context: Context,
++		// Injected only so the tracker exists (and registers itself) before any plugin repository does
++		@Suppress("unused") private val healthTracker: org.koitharu.kotatsu.diagnostics.SourceHealthTracker,
+ 	) {
+ 
+ 		private val cache = ArrayMap<MangaSource, WeakReference<MangaRepository>>()
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/mihon/MihonMangaRepository.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/mihon/MihonMangaRepository.kt
+@@ -24,6 +24,7 @@
+ import org.koitharu.kotatsu.core.cache.MemoryContentCache
+ import org.koitharu.kotatsu.core.logs.breadcrumb
+ import org.koitharu.kotatsu.core.parser.CachingMangaRepository
++import org.koitharu.kotatsu.diagnostics.trackHealth
+ import org.koitharu.kotatsu.core.prefs.AppSettings
+ import org.koitharu.kotatsu.core.prefs.SourceSettings
+ import org.koitharu.kotatsu.mihon.model.MihonMangaSource
+@@ -115,7 +116,10 @@
+ 			isSearchWithFiltersSupported = true,
+ 		)
+ 
+-	override suspend fun getList(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> = withContext(Dispatchers.IO) {
++	override suspend fun getList(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> =
++		trackHealth(source) { getListImpl(offset, order, filter) }
++
++	private suspend fun getListImpl(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> = withContext(Dispatchers.IO) {
+ 		val state = paginationStates.getOrPut(paginationKey(order, filter)) { PaginationState() }
+ 		val page = synchronized(state) {
+ 			if (offset == 0) {
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/AnimeMangaRepository.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/anime/AnimeMangaRepository.kt
+@@ -13,6 +13,7 @@
+ import okhttp3.OkHttpClient
+ import org.koitharu.kotatsu.core.cache.MemoryContentCache
+ import org.koitharu.kotatsu.core.parser.CachingMangaRepository
++import org.koitharu.kotatsu.diagnostics.trackHealth
+ import org.koitharu.kotatsu.parsers.InternalParsersApi
+ import org.koitharu.kotatsu.parsers.model.ContentRating
+ import org.koitharu.kotatsu.parsers.model.Manga
+@@ -81,6 +82,9 @@
+ 		)
+ 
+ 	override suspend fun getList(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> =
++		trackHealth(source) { getListImpl(offset, order, filter) }
++
++	private suspend fun getListImpl(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> =
+ 		withContext(Dispatchers.IO) {
+ 			val key = "$order|${filter?.query}|${filter?.tags}|${filter?.tagsExclude}"
+ 			val state = paginationStates.getOrPut(key) { PaginationState() }
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/lnreader/LnMangaRepository.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/lnreader/LnMangaRepository.kt
+@@ -12,6 +12,7 @@
+ import org.json.JSONObject
+ import org.koitharu.kotatsu.core.cache.MemoryContentCache
+ import org.koitharu.kotatsu.core.parser.CachingMangaRepository
++import org.koitharu.kotatsu.diagnostics.trackHealth
+ import org.koitharu.kotatsu.lnreader.js.JsException
+ import org.koitharu.kotatsu.lnreader.js.JsHost
+ import org.koitharu.kotatsu.lnreader.model.LnMangaSource
+@@ -75,7 +76,10 @@
+ 			isSearchWithFiltersSupported = false,
+ 		)
+ 
+-	override suspend fun getList(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> {
++	override suspend fun getList(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> =
++		trackHealth(source) { getListImpl(offset, order, filter) }
++
++	private suspend fun getListImpl(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> {
+ 		val state = paginationStates.getOrPut("$order|${filter?.query}|${filter?.tags}") { PaginationState() }
+ 		val page = synchronized(state) {
+ 			if (offset == 0) {
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/ServicesSettingsFragment.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/ServicesSettingsFragment.kt
+@@ -54,6 +54,7 @@
+ import org.koitharu.kotatsu.settings.compose.rememberBooleanPref
+ import org.koitharu.kotatsu.settings.compose.rememberIntPref
+ import org.koitharu.kotatsu.settings.discord.DiscordSettingsFragment
++import org.koitharu.kotatsu.settings.diagnostics.DiagnosticsFragment
+ import org.koitharu.kotatsu.settings.webhook.WebhookSettingsFragment
+ import android.text.format.DateUtils
+ import android.widget.Toast
+@@ -113,6 +114,13 @@
+ 							isFromRoot = false,
+ 						)
+ 					},
++					onOpenDiagnostics = {
++						(activity as? SettingsActivity)?.openFragment(
++							DiagnosticsFragment::class.java,
++							null,
++							isFromRoot = false,
++						)
++					},
+ 				)
+ 			}
+ 		}
+@@ -233,6 +241,7 @@
+ 	onScrobblerClick: (ScrobblerService) -> Unit,
+ 	onOpenDiscord: () -> Unit,
+ 	onOpenWebhooks: () -> Unit,
++	onOpenDiagnostics: () -> Unit,
+ ) {
+ 	var suggestionsEnabled by rememberBooleanPref(AppSettings.KEY_SUGGESTIONS, false)
+ 	var relatedManga by rememberBooleanPref(AppSettings.KEY_RELATED_MANGA, true)
+@@ -506,6 +515,15 @@
+ 						onClick = onOpenWebhooks,
+ 					)
+ 				}
++				item { pos ->
++					NavigationSettingsItem(
++						title = stringResource(R.string.diagnostics),
++						subtitle = stringResource(R.string.diagnostics_summary),
++						icon = R.drawable.ic_sync_problem,
++						shape = pos.shape,
++						onClick = onOpenDiagnostics,
++					)
++				}
+ 			}
+ 		}
+ 		item { Spacer(Modifier.height(24.dp).fillMaxWidth()) }
+--- a/android/app/src/main/res/values/strings.xml
++++ b/android/app/src/main/res/values/strings.xml
+@@ -1825,4 +1825,25 @@
+     <string name="ds_override_suggestions_source_desc">AniList uses its recommendations for what you read or watch, matched to your sources. TV &amp; Movies always uses sources.</string>
+     <string name="ds_suggestions_source_sources">Sources</string>
+     <string name="ds_suggestions_source_anilist">AniList</string>
++    <string name="diagnostics">Source &amp; plugin health</string>
++    <string name="diagnostics_summary">See why a source fails: plugin error, Cloudflare check or a dead site</string>
++    <string name="diagnostics_offline_note">Everything stays on this device. Requests that fail while you are offline are never counted.</string>
++    <string name="diagnostics_plugin_errors">Plugin load errors</string>
++    <string name="diagnostics_sources">Sources this session</string>
++    <string name="diagnostics_empty">No source requests recorded yet. Open a source, then come back.</string>
++    <string name="diagnostics_state_unknown">Unknown</string>
++    <string name="diagnostics_state_healthy">Working</string>
++    <string name="diagnostics_state_degraded">Having problems</string>
++    <string name="diagnostics_state_dead">Suspected dead</string>
++    <string name="diagnostics_kind_plugin">Plugin failed to run</string>
++    <string name="diagnostics_kind_cloudflare">Needs a Cloudflare or login check in the browser</string>
++    <string name="diagnostics_kind_timeout">Timed out</string>
++    <string name="diagnostics_kind_endpoint">Site not reachable (DNS or 404)</string>
++    <string name="diagnostics_kind_other">Other error</string>
++    <string name="diagnostics_endpoint_streak">%1$d failures in a row</string>
++    <string name="diagnostics_last_ok">last worked %1$s</string>
++    <string name="diagnostics_share">Share redacted report</string>
++    <string name="diagnostics_share_summary">No tokens, cookies or links with queries are included</string>
++    <string name="diagnostics_clear">Clear health data</string>
++    <string name="diagnostics_cleared">Health data cleared</string>
+ </resources>
+--- /dev/null
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/diagnostics/DiagnosticsRedactor.kt
+@@ -0,0 +1,38 @@
++package org.koitharu.kotatsu.diagnostics
++
++/**
++ * Strips anything that could be a credential from text that ends up in the diagnostics screen or its exported
++ * report: sync tokens (GitHub, Dropbox, OneDrive, WebDAV), tracker tokens (AniList, MAL, ...), cookies and
++ * query strings. Applied when a failure is recorded and again when a report is built.
++ */
++object DiagnosticsRedactor {
++
++	const val MASK = "[redacted]"
++
++	private val urlUserInfo = Regex("""(?i)(\b[a-z][a-z0-9+.-]*://)[^/\s@]+@""")
++	private val urlQuery = Regex("""(?i)(\b[a-z][a-z0-9+.-]*://[^\s?#"'<>]*)[?#][^\s"'<>]*""")
++	private val bearer = Regex("""(?i)\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}""")
++	private val keyValue = Regex(
++		"""(?i)\b(access[_-]?token|refresh[_-]?token|id[_-]?token|token|api[_-]?key|apikey|client[_-]?secret|secret|""" +
++			"""password|passwd|pwd|authorization|cookie|set-cookie)\s*[=:]\s*[^\s&;,"']+""",
++	)
++	private val githubToken = Regex("""\b(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})""")
++	private val dropboxToken = Regex("""\bsl\.[A-Za-z0-9_-]{20,}""")
++	private val jwt = Regex("""\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.?[A-Za-z0-9_-]*""")
++	private val email = Regex("""[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""")
++	private val longOpaque = Regex("""\b[A-Za-z0-9_-]{32,}\b""")
++
++	fun redact(text: String): String {
++		var result = text
++		result = urlUserInfo.replace(result) { "${it.groupValues[1]}$MASK@" }
++		result = urlQuery.replace(result) { "${it.groupValues[1]}?$MASK" }
++		result = bearer.replace(result) { "${it.groupValues[1]} $MASK" }
++		result = keyValue.replace(result) { "${it.groupValues[1]}=$MASK" }
++		result = githubToken.replace(result, MASK)
++		result = dropboxToken.replace(result, MASK)
++		result = jwt.replace(result, MASK)
++		result = email.replace(result, MASK)
++		result = longOpaque.replace(result, MASK)
++		return result
++	}
++}
+--- /dev/null
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/diagnostics/SourceHealth.kt
+@@ -0,0 +1,176 @@
++package org.koitharu.kotatsu.diagnostics
++
++import java.io.InterruptedIOException
++import java.net.SocketTimeoutException
++import java.net.UnknownHostException
++
++enum class HealthState { UNKNOWN, HEALTHY, DEGRADED, SUSPECTED_DEAD }
++
++/** Why a request failed. Being offline is deliberately not a kind: it is never recorded as a failure. */
++enum class FailureKind { PLUGIN_LOAD, CLOUDFLARE_AUTH, TIMEOUT, ENDPOINT, OTHER }
++
++enum class PluginRuntime { CS3, ANIYOMI, MIHON, LNREADER, BUILT_IN }
++
++data class SourceHealth(
++	val key: String,
++	val title: String,
++	val runtime: PluginRuntime,
++	val state: HealthState = HealthState.UNKNOWN,
++	/** Consecutive DNS / 404 / 410 failures; reset by any success or any other kind of failure. */
++	val endpointFailures: Int = 0,
++	val lastKind: FailureKind? = null,
++	/** Already redacted. */
++	val lastMessage: String? = null,
++	val lastSuccessAt: Long = 0L,
++	val lastFailureAt: Long = 0L,
++)
++
++/** A plugin that did not load, as reported by its runtime. */
++data class PluginLoadIssue(
++	val runtime: PluginRuntime,
++	val name: String,
++	val message: String,
++)
++
++object FailureClassifier {
++
++	private const val MAX_DEPTH = 8
++	private val deadStatus = Regex("""\b(404|410)\b""")
++
++	/** Looks through the cause chain, outermost first, and returns the first recognizable kind. */
++	fun classify(error: Throwable): FailureKind {
++		var current: Throwable? = error
++		var depth = 0
++		while (current != null && depth < MAX_DEPTH) {
++			classifyOne(current)?.let { return it }
++			current = current.cause?.takeIf { it !== current }
++			depth++
++		}
++		return FailureKind.OTHER
++	}
++
++	private fun classifyOne(t: Throwable): FailureKind? {
++		val name = t.javaClass.simpleName
++		return when {
++			t is LinkageError || t is ClassNotFoundException ||
++				name.contains("QuickJs", ignoreCase = true) ||
++				name.contains("ExtensionLoad", ignoreCase = true) -> FailureKind.PLUGIN_LOAD
++
++			name.contains("CloudFlare", ignoreCase = true) ||
++				name.contains("AuthRequired", ignoreCase = true) ||
++				name.contains("Captcha", ignoreCase = true) -> FailureKind.CLOUDFLARE_AUTH
++
++			t is UnknownHostException -> FailureKind.ENDPOINT
++
++			(name.contains("HttpStatus") || name == "HttpException") &&
++				deadStatus.containsMatchIn(t.message.orEmpty()) -> FailureKind.ENDPOINT
++
++			t is SocketTimeoutException || name.contains("Timeout", ignoreCase = true) ||
++				(t is InterruptedIOException && t.message.orEmpty().contains("timeout", ignoreCase = true)) ->
++				FailureKind.TIMEOUT
++
++			else -> null
++		}
++	}
++}
++
++/**
++ * The health state machine, with no Android dependencies.
++ *
++ *  - Offline never counts: nothing is recorded, so an unseen source stays UNKNOWN and a known one keeps its state.
++ *  - A success makes the source HEALTHY and clears its streak.
++ *  - A DNS / 404 / 410 failure counts toward a streak; [deadThreshold] in a row make it SUSPECTED_DEAD, fewer is DEGRADED.
++ *  - Any other failure (timeout, Cloudflare / auth, plugin load error, unknown) makes it DEGRADED and breaks the streak.
++ */
++class SourceHealthBook(
++	private val deadThreshold: Int = DEAD_THRESHOLD,
++	private val clock: () -> Long = System::currentTimeMillis,
++) {
++
++	private val entries = LinkedHashMap<String, SourceHealth>()
++
++	/** Returns true when the visible state changed (not merely a timestamp). */
++	@Synchronized
++	fun onSuccess(key: String, title: String, runtime: PluginRuntime): Boolean {
++		val previous = entries[key]
++		val next = (previous ?: SourceHealth(key, title, runtime)).copy(
++			title = title,
++			runtime = runtime,
++			state = HealthState.HEALTHY,
++			endpointFailures = 0,
++			lastSuccessAt = clock(),
++		)
++		entries[key] = next
++		return previous == null || previous.state != next.state || previous.endpointFailures != 0
++	}
++
++	@Synchronized
++	fun onFailure(key: String, title: String, runtime: PluginRuntime, error: Throwable, isOnline: Boolean): Boolean {
++		if (!isOnline) {
++			return false
++		}
++		val kind = FailureClassifier.classify(error)
++		val previous = entries[key] ?: SourceHealth(key, title, runtime)
++		val streak = if (kind == FailureKind.ENDPOINT) previous.endpointFailures + 1 else 0
++		val state = if (kind == FailureKind.ENDPOINT && streak >= deadThreshold) {
++			HealthState.SUSPECTED_DEAD
++		} else {
++			HealthState.DEGRADED
++		}
++		val message = DiagnosticsRedactor.redact(error.message ?: error.javaClass.simpleName).take(MAX_MESSAGE)
++		val next = previous.copy(
++			title = title,
++			runtime = runtime,
++			state = state,
++			endpointFailures = streak,
++			lastKind = kind,
++			lastMessage = message,
++			lastFailureAt = clock(),
++		)
++		entries[key] = next
++		return previous.state != next.state || previous.lastKind != next.lastKind ||
++			previous.endpointFailures != next.endpointFailures
++	}
++
++	@Synchronized
++	fun snapshot(): List<SourceHealth> = entries.values.toList()
++
++	@Synchronized
++	fun clear() = entries.clear()
++
++	companion object {
++
++		const val DEAD_THRESHOLD = 3
++		private const val MAX_MESSAGE = 200
++	}
++}
++
++/** Plain-text report for sharing: only health states and redacted messages, never settings, tokens or URLs with queries. */
++object DiagnosticsReport {
++
++	fun build(
++		entries: List<SourceHealth>,
++		issues: List<PluginLoadIssue>,
++		appVersion: String,
++		formatTime: (Long) -> String,
++	): String = buildString {
++		appendLine("DeepSync diagnostics")
++		appendLine("App version: $appVersion")
++		appendLine()
++		appendLine("Plugin load errors: ${issues.size}")
++		for (issue in issues) {
++			appendLine("- [${issue.runtime}] ${DiagnosticsRedactor.redact(issue.name)}: ${DiagnosticsRedactor.redact(issue.message).take(300)}")
++		}
++		appendLine()
++		appendLine("Sources seen this session: ${entries.size}")
++		for (e in entries.sortedByDescending { it.state.ordinal }) {
++			append("- [${e.runtime}] ${DiagnosticsRedactor.redact(e.title)}: ${e.state}")
++			e.lastKind?.let { append(", last failure $it") }
++			if (e.endpointFailures > 0) append(", ${e.endpointFailures} endpoint failures in a row")
++			if (e.lastSuccessAt > 0) append(", last ok ${formatTime(e.lastSuccessAt)}")
++			if (e.lastFailureAt > 0) append(", last failed ${formatTime(e.lastFailureAt)}")
++			e.lastMessage?.let { append("\n    ").append(DiagnosticsRedactor.redact(it)) }
++			appendLine()
++		}
++	}
++}
+--- /dev/null
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/diagnostics/SourceHealthTracker.kt
+@@ -0,0 +1,97 @@
++package org.koitharu.kotatsu.diagnostics
++
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import org.koitharu.kotatsu.anime.AnimeMangaSource
++import org.koitharu.kotatsu.cloudstream.CloudstreamRuntime
++import org.koitharu.kotatsu.core.os.NetworkState
++import org.koitharu.kotatsu.lnreader.model.LnMangaSource
++import org.koitharu.kotatsu.mihon.model.MihonMangaSource
++import org.koitharu.kotatsu.parsers.model.MangaSource
++import javax.inject.Inject
++import javax.inject.Singleton
++
++/**
++ * Local-only record of how each source has been behaving this session. Nothing is sent anywhere and nothing is
++ * written to disk; it only feeds the Source & Plugin Health screen.
++ *
++ * Repositories reach it through [trackHealth], which uses [instance] so the three plugin repositories do not need
++ * a new constructor argument. The instance is set as soon as the repository factory (which injects this) exists.
++ */
++@Singleton
++class SourceHealthTracker @Inject constructor(
++	private val networkState: NetworkState,
++) {
++
++	private val book = SourceHealthBook()
++	private val _entries = MutableStateFlow<List<SourceHealth>>(emptyList())
++
++	val entries: StateFlow<List<SourceHealth>> = _entries.asStateFlow()
++
++	init {
++		instance = this
++	}
++
++	fun onSuccess(source: MangaSource) {
++		if (book.onSuccess(source.name, titleOf(source), runtimeOf(source))) {
++			_entries.value = book.snapshot()
++		}
++	}
++
++	fun onFailure(source: MangaSource, error: Throwable) {
++		if (book.onFailure(source.name, titleOf(source), runtimeOf(source), error, networkState.isOnline())) {
++			_entries.value = book.snapshot()
++		}
++	}
++
++	/** Includes timestamp-only updates that [entries] skips. */
++	fun snapshot(): List<SourceHealth> = book.snapshot()
++
++	fun clear() {
++		book.clear()
++		_entries.value = emptyList()
++	}
++
++	companion object {
++
++		@Volatile
++		var instance: SourceHealthTracker? = null
++			private set
++
++		fun runtimeOf(source: MangaSource): PluginRuntime = when (source) {
++			is MihonMangaSource -> PluginRuntime.MIHON
++			is LnMangaSource -> PluginRuntime.LNREADER
++			is AnimeMangaSource -> if (CloudstreamRuntime.isCloudstreamPackage(source.pkgName)) {
++				PluginRuntime.CS3
++			} else {
++				PluginRuntime.ANIYOMI
++			}
++
++			else -> PluginRuntime.BUILT_IN
++		}
++
++		fun titleOf(source: MangaSource): String = when (source) {
++			is MihonMangaSource -> source.displayName
++			is LnMangaSource -> source.displayName
++			is AnimeMangaSource -> source.displayName
++			else -> source.name
++		}
++	}
++}
++
++/** Runs [block] and records its outcome for [source]; the result or exception is passed through unchanged. */
++suspend inline fun <T> trackHealth(source: MangaSource, block: () -> T): T {
++	val tracker = SourceHealthTracker.instance
++	try {
++		val result = block()
++		tracker?.onSuccess(source)
++		return result
++	} catch (e: CancellationException) {
++		throw e
++	} catch (e: Throwable) {
++		tracker?.onFailure(source, e)
++		throw e
++	}
++}
+--- /dev/null
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/diagnostics/DiagnosticsViewModel.kt
+@@ -0,0 +1,63 @@
++package org.koitharu.kotatsu.settings.diagnostics
++
++import androidx.lifecycle.ViewModel
++import androidx.lifecycle.viewModelScope
++import dagger.hilt.android.lifecycle.HiltViewModel
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.SharingStarted
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.combine
++import kotlinx.coroutines.flow.stateIn
++import org.koitharu.kotatsu.anime.AnimeExtensionManager
++import org.koitharu.kotatsu.cloudstream.CloudstreamRuntime
++import org.koitharu.kotatsu.diagnostics.PluginLoadIssue
++import org.koitharu.kotatsu.diagnostics.PluginRuntime
++import org.koitharu.kotatsu.diagnostics.SourceHealth
++import org.koitharu.kotatsu.diagnostics.SourceHealthTracker
++import org.koitharu.kotatsu.mihon.MihonExtensionManager
++import javax.inject.Inject
++
++data class DiagnosticsState(
++	val sources: List<SourceHealth> = emptyList(),
++	val issues: List<PluginLoadIssue> = emptyList(),
++)
++
++@HiltViewModel
++class DiagnosticsViewModel @Inject constructor(
++	private val tracker: SourceHealthTracker,
++	mihon: MihonExtensionManager,
++	anime: AnimeExtensionManager,
++	cloudstream: dagger.Lazy<CloudstreamRuntime>,
++) : ViewModel() {
++
++	private val refreshTick = MutableStateFlow(0)
++
++	val state: StateFlow<DiagnosticsState> = combine(
++		tracker.entries,
++		mihon.failedExtensions,
++		anime.errors,
++		cloudstream.get().installed,
++		refreshTick,
++	) { _, mihonErrors, animeErrors, cs3, _ ->
++		val issues = ArrayList<PluginLoadIssue>()
++		mihonErrors.mapTo(issues) { PluginLoadIssue(PluginRuntime.MIHON, it.pkgName, it.message) }
++		animeErrors.mapTo(issues) { (name, message) ->
++			PluginLoadIssue(if (name == "cloudstream") PluginRuntime.CS3 else PluginRuntime.ANIYOMI, name, message)
++		}
++		cs3.filter { it.error != null }.mapTo(issues) { PluginLoadIssue(PluginRuntime.CS3, it.displayName, it.error.orEmpty()) }
++		DiagnosticsState(
++			// Re-read so timestamp-only updates show too; worst first
++			sources = tracker.snapshot().sortedWith(compareByDescending<SourceHealth> { it.state.ordinal }.thenBy { it.title.lowercase() }),
++			issues = issues,
++		)
++	}.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DiagnosticsState())
++
++	fun refresh() {
++		refreshTick.value++
++	}
++
++	fun clear() {
++		tracker.clear()
++		refresh()
++	}
++}
+--- /dev/null
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/settings/diagnostics/DiagnosticsFragment.kt
+@@ -0,0 +1,214 @@
++package org.koitharu.kotatsu.settings.diagnostics
++
++import android.content.Intent
++import android.os.Bundle
++import android.text.format.DateUtils
++import android.view.LayoutInflater
++import android.view.View
++import android.view.ViewGroup
++import android.widget.Toast
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.getValue
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.ComposeView
++import androidx.compose.ui.platform.ViewCompositionStrategy
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.unit.dp
++import androidx.fragment.app.viewModels
++import dagger.hilt.android.AndroidEntryPoint
++import org.koitharu.kotatsu.BuildConfig
++import org.koitharu.kotatsu.R
++import org.koitharu.kotatsu.diagnostics.DiagnosticsReport
++import org.koitharu.kotatsu.diagnostics.DiagnosticsRedactor
++import org.koitharu.kotatsu.diagnostics.FailureKind
++import org.koitharu.kotatsu.diagnostics.HealthState
++import org.koitharu.kotatsu.diagnostics.PluginRuntime
++import org.koitharu.kotatsu.diagnostics.SourceHealth
++import org.koitharu.kotatsu.settings.compose.ActionSettingsItem
++import org.koitharu.kotatsu.settings.compose.BaseComposeSettingsFragment
++import org.koitharu.kotatsu.settings.compose.DropSauceTheme
++import org.koitharu.kotatsu.settings.compose.SettingsGroup
++import org.koitharu.kotatsu.settings.compose.SettingsScaffold
++
++@AndroidEntryPoint
++class DiagnosticsFragment : BaseComposeSettingsFragment(R.string.diagnostics) {
++
++	private val viewModel by viewModels<DiagnosticsViewModel>()
++
++	override fun onCreateView(
++		inflater: LayoutInflater,
++		container: ViewGroup?,
++		savedInstanceState: Bundle?,
++	): View = ComposeView(requireContext()).apply {
++		setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
++		setContent {
++			DropSauceTheme {
++				DiagnosticsScreen(viewModel = viewModel, onShare = ::shareReport, onClear = ::clear)
++			}
++		}
++	}
++
++	override fun onResume() {
++		super.onResume()
++		viewModel.refresh()
++	}
++
++	private fun shareReport() {
++		val state = viewModel.state.value
++		val report = DiagnosticsReport.build(
++			entries = state.sources,
++			issues = state.issues,
++			appVersion = BuildConfig.VERSION_NAME,
++			formatTime = { DateUtils.getRelativeTimeSpanString(it).toString() },
++		)
++		val send = Intent(Intent.ACTION_SEND).apply {
++			type = "text/plain"
++			putExtra(Intent.EXTRA_SUBJECT, getString(R.string.diagnostics))
++			putExtra(Intent.EXTRA_TEXT, report)
++		}
++		startActivity(Intent.createChooser(send, getString(R.string.diagnostics_share)))
++	}
++
++	private fun clear() {
++		viewModel.clear()
++		Toast.makeText(requireContext(), R.string.diagnostics_cleared, Toast.LENGTH_SHORT).show()
++	}
++}
++
++@Composable
++private fun DiagnosticsScreen(viewModel: DiagnosticsViewModel, onShare: () -> Unit, onClear: () -> Unit) {
++	val state by viewModel.state.collectAsState()
++	val seen = state.sources
++
++	SettingsScaffold {
++		item {
++			Text(
++				text = stringResource(R.string.diagnostics_offline_note),
++				style = MaterialTheme.typography.bodyMedium,
++				color = MaterialTheme.colorScheme.onSurfaceVariant,
++				modifier = Modifier.fillMaxWidth(),
++			)
++		}
++		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
++		if (state.issues.isNotEmpty()) {
++			item {
++				SettingsGroup(title = stringResource(R.string.diagnostics_plugin_errors)) {
++					state.issues.forEach { issue ->
++						item { pos ->
++							ActionSettingsItem(
++								title = issue.name,
++								// Already plain text from the runtime; redacted in case a path or URL slipped in
++								subtitle = runtimeLabel(issue.runtime) + " · " + DiagnosticsRedactor.redact(issue.message).take(160),
++								icon = R.drawable.ic_alert_outline,
++								shape = pos.shape,
++								onClick = {},
++							)
++						}
++					}
++				}
++			}
++			item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
++		}
++		item {
++			SettingsGroup(title = stringResource(R.string.diagnostics_sources)) {
++				if (seen.isEmpty()) {
++					item { pos ->
++						ActionSettingsItem(
++							title = stringResource(R.string.diagnostics_empty),
++							icon = R.drawable.ic_info_outline,
++							shape = pos.shape,
++							onClick = {},
++						)
++					}
++				}
++				seen.forEach { health ->
++					item { pos ->
++						ActionSettingsItem(
++							title = health.title,
++							subtitle = health.subtitle(),
++							icon = health.state.icon(),
++							shape = pos.shape,
++							onClick = {},
++						)
++					}
++				}
++			}
++		}
++		item { Spacer(Modifier.height(8.dp).fillMaxWidth()) }
++		item {
++			SettingsGroup {
++				item { pos ->
++					ActionSettingsItem(
++						title = stringResource(R.string.diagnostics_share),
++						subtitle = stringResource(R.string.diagnostics_share_summary),
++						icon = R.drawable.ic_share,
++						shape = pos.shape,
++						onClick = onShare,
++					)
++				}
++				item { pos ->
++					ActionSettingsItem(
++						title = stringResource(R.string.diagnostics_clear),
++						icon = R.drawable.ic_delete,
++						shape = pos.shape,
++						onClick = onClear,
++					)
++				}
++			}
++		}
++		item { Spacer(Modifier.height(24.dp).fillMaxWidth()) }
++	}
++}
++
++private fun runtimeLabel(runtime: PluginRuntime) = when (runtime) {
++	PluginRuntime.CS3 -> "Cloudstream (.cs3)"
++	PluginRuntime.ANIYOMI -> "Aniyomi"
++	PluginRuntime.MIHON -> "Mihon"
++	PluginRuntime.LNREADER -> "LNReader"
++	PluginRuntime.BUILT_IN -> "Built-in"
++}
++
++private fun HealthState.icon() = when (this) {
++	HealthState.HEALTHY -> R.drawable.ic_check
++	HealthState.DEGRADED -> R.drawable.ic_alert_outline
++	HealthState.SUSPECTED_DEAD -> R.drawable.ic_sync_problem
++	HealthState.UNKNOWN -> R.drawable.ic_info_outline
++}
++
++private fun HealthState.label() = when (this) {
++	HealthState.HEALTHY -> R.string.diagnostics_state_healthy
++	HealthState.DEGRADED -> R.string.diagnostics_state_degraded
++	HealthState.SUSPECTED_DEAD -> R.string.diagnostics_state_dead
++	HealthState.UNKNOWN -> R.string.diagnostics_state_unknown
++}
++
++private fun FailureKind.label() = when (this) {
++	FailureKind.PLUGIN_LOAD -> R.string.diagnostics_kind_plugin
++	FailureKind.CLOUDFLARE_AUTH -> R.string.diagnostics_kind_cloudflare
++	FailureKind.TIMEOUT -> R.string.diagnostics_kind_timeout
++	FailureKind.ENDPOINT -> R.string.diagnostics_kind_endpoint
++	FailureKind.OTHER -> R.string.diagnostics_kind_other
++}
++
++@Composable
++private fun SourceHealth.subtitle(): String {
++	val parts = ArrayList<String>(5)
++	parts += runtimeLabel(runtime)
++	parts += stringResource(state.label())
++	if (state != HealthState.HEALTHY) {
++		lastKind?.let { parts += stringResource(it.label()) }
++	}
++	if (endpointFailures > 1) {
++		parts += stringResource(R.string.diagnostics_endpoint_streak, endpointFailures)
++	}
++	if (lastSuccessAt > 0L) {
++		parts += stringResource(R.string.diagnostics_last_ok, DateUtils.getRelativeTimeSpanString(lastSuccessAt).toString())
++	}
++	return parts.joinToString(" · ")
++}
+--- /dev/null
++++ b/android/app/src/test/kotlin/org/koitharu/kotatsu/diagnostics/SourceHealthTest.kt
+@@ -0,0 +1,102 @@
++package org.koitharu.kotatsu.diagnostics
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import java.io.IOException
++import java.net.SocketTimeoutException
++import java.net.UnknownHostException
++
++class SourceHealthTest {
++
++	// Named like the real ones so the classifier's name matching is exercised without Android classes
++	private class CloudFlareProtectedException(message: String) : IOException(message)
++	private class HttpStatusException(message: String) : IOException(message)
++
++	private val book = SourceHealthBook(clock = { 1_000L })
++
++	private fun SourceHealthBook.fail(error: Throwable, online: Boolean = true) =
++		onFailure("MIHON_1", "Source", PluginRuntime.MIHON, error, online)
++
++	private fun SourceHealthBook.state() = snapshot().single().state
++
++	@Test
++	fun `offline failures leave an unseen source unknown`() {
++		assertFalse(book.fail(UnknownHostException("no network"), online = false))
++		assertTrue(book.snapshot().isEmpty())
++	}
++
++	@Test
++	fun `offline failures never move a known source or its streak`() {
++		book.fail(UnknownHostException("a"))
++		book.fail(UnknownHostException("b"))
++		repeat(5) { book.fail(UnknownHostException("offline"), online = false) }
++		val entry = book.snapshot().single()
++		assertEquals(HealthState.DEGRADED, entry.state)
++		assertEquals(2, entry.endpointFailures)
++	}
++
++	@Test
++	fun `a single timeout is degraded`() {
++		book.fail(SocketTimeoutException("timeout"))
++		assertEquals(HealthState.DEGRADED, book.state())
++		assertEquals(FailureKind.TIMEOUT, book.snapshot().single().lastKind)
++	}
++
++	@Test
++	fun `three consecutive dns or 404 failures are suspected dead`() {
++		book.fail(UnknownHostException("dns"))
++		book.fail(HttpStatusException("HTTP 404"))
++		assertEquals(HealthState.DEGRADED, book.state())
++		book.fail(UnknownHostException("dns"))
++		assertEquals(HealthState.SUSPECTED_DEAD, book.state())
++		assertEquals(3, book.snapshot().single().endpointFailures)
++	}
++
++	@Test
++	fun `a timeout in between breaks the endpoint streak`() {
++		book.fail(UnknownHostException("dns"))
++		book.fail(UnknownHostException("dns"))
++		book.fail(SocketTimeoutException("timeout"))
++		book.fail(UnknownHostException("dns"))
++		assertEquals(HealthState.DEGRADED, book.state())
++		assertEquals(1, book.snapshot().single().endpointFailures)
++	}
++
++	@Test
++	fun `a success recovers a suspected dead source`() {
++		repeat(3) { book.fail(UnknownHostException("dns")) }
++		assertEquals(HealthState.SUSPECTED_DEAD, book.state())
++		book.onSuccess("MIHON_1", "Source", PluginRuntime.MIHON)
++		assertEquals(HealthState.HEALTHY, book.state())
++		assertEquals(0, book.snapshot().single().endpointFailures)
++	}
++
++	@Test
++	fun `cloudflare and plugin errors are degraded and never count toward dead`() {
++		repeat(4) { book.fail(CloudFlareProtectedException("challenge")) }
++		assertEquals(HealthState.DEGRADED, book.state())
++		assertEquals(FailureKind.CLOUDFLARE_AUTH, book.snapshot().single().lastKind)
++		book.fail(NoClassDefFoundError("eu/kanade/Foo"))
++		assertEquals(FailureKind.PLUGIN_LOAD, book.snapshot().single().lastKind)
++		assertEquals(HealthState.DEGRADED, book.state())
++	}
++
++	@Test
++	fun `the cause chain is searched and a non 404 status is not an endpoint failure`() {
++		assertEquals(
++			FailureKind.ENDPOINT,
++			FailureClassifier.classify(RuntimeException("wrapped", UnknownHostException("dns"))),
++		)
++		assertEquals(FailureKind.OTHER, FailureClassifier.classify(HttpStatusException("HTTP 500")))
++	}
++
++	@Test
++	fun `recorded messages are redacted`() {
++		book.fail(IOException("failed https://example.com/api?access_token=abc123secret&x=1"))
++		val message = book.snapshot().single().lastMessage.orEmpty()
++		assertFalse(message.contains("abc123secret"))
++		assertFalse(message.contains("access_token"))
++	}
++}
+--- /dev/null
++++ b/android/app/src/test/kotlin/org/koitharu/kotatsu/diagnostics/DiagnosticsRedactorTest.kt
+@@ -0,0 +1,80 @@
++package org.koitharu.kotatsu.diagnostics
++
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class DiagnosticsRedactorTest {
++
++	private fun assertGone(secret: String, text: String) {
++		val out = DiagnosticsRedactor.redact(text)
++		assertFalse("leaked '$secret' in: $out", out.contains(secret))
++	}
++
++	@Test
++	fun `github tokens are removed`() {
++		val token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
++		assertGone(token, "push failed with $token")
++		val pat = "github_pat_11ABCDEFG0abcdefghijkl_mnopqrstuvwxyz0123456789"
++		assertGone(pat, "auth: $pat")
++	}
++
++	@Test
++	fun `dropbox and onedrive style bearer tokens are removed`() {
++		val dropbox = "sl.B1234567890abcdefghijklmnopqrstuvwxyz"
++		assertGone(dropbox, "Dropbox said $dropbox is bad")
++		val graph = "EwBwA8l6BAAU7p9QDpi/YbMDTzXUkVrKLogXtlsAAfdLR2KuUtYm"
++		assertGone(graph, "Authorization: Bearer $graph")
++	}
++
++	@Test
++	fun `webdav credentials in the url are removed`() {
++		val out = DiagnosticsRedactor.redact("PROPFIND https://alice:hunter2@dav.example.com/remote.php/dav failed")
++		assertFalse(out.contains("alice"))
++		assertFalse(out.contains("hunter2"))
++		assertTrue(out.contains("dav.example.com"))
++	}
++
++	@Test
++	fun `query strings and key value secrets are removed`() {
++		assertGone("tok123456", "GET https://api.example.com/v1/me?token=tok123456&page=2")
++		assertGone("s3cr3t", "client_secret=s3cr3t and password: s3cr3t")
++		assertGone("sessionvalue", "Cookie: sessionvalue")
++	}
++
++	@Test
++	fun `jwt style tracker tokens and emails are removed`() {
++		val jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxMjM0NTYifQ.c2lnbmF0dXJl"
++		assertGone(jwt, "anilist returned $jwt")
++		assertGone("bob@example.com", "login for bob@example.com failed")
++	}
++
++	@Test
++	fun `ordinary diagnostics text survives`() {
++		val text = "Unable to resolve host example.com: HTTP 404 on /series/one-piece"
++		assertTrue(DiagnosticsRedactor.redact(text) == text)
++	}
++
++	@Test
++	fun `the exported report never contains a token`() {
++		val token = "ghp_" + "Z9y8X7w6V5u4T3s2R1q0P9o8N7m6L5k4J3i2"
++		val report = DiagnosticsReport.build(
++			entries = listOf(
++				SourceHealth(
++					key = "MIHON_1",
++					title = "Some Source",
++					runtime = PluginRuntime.MIHON,
++					state = HealthState.DEGRADED,
++					lastKind = FailureKind.OTHER,
++					lastMessage = "bad token $token at https://x.test/a?key=hidden",
++				),
++			),
++			issues = listOf(PluginLoadIssue(PluginRuntime.CS3, "plugin.cs3", "Authorization: Bearer $token")),
++			appVersion = "0.0.0",
++			formatTime = { "now" },
++		)
++		assertFalse(report.contains(token))
++		assertFalse(report.contains("hidden"))
++		assertTrue(report.contains("Some Source"))
++	}
++}
