@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import org.koitharu.kotatsu.core.cache.MemoryContentCache
 import org.koitharu.kotatsu.core.parser.CachingMangaRepository
+import org.koitharu.kotatsu.diagnostics.trackHealth
 import org.koitharu.kotatsu.parsers.InternalParsersApi
 import org.koitharu.kotatsu.parsers.model.ContentRating
 import org.koitharu.kotatsu.parsers.model.Manga
@@ -81,6 +82,9 @@ class AnimeMangaRepository(
 		)
 
 	override suspend fun getList(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> =
+		trackHealth(source) { getListImpl(offset, order, filter) }
+
+	private suspend fun getListImpl(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> =
 		withContext(Dispatchers.IO) {
 			val key = "$order|${filter?.query}|${filter?.tags}|${filter?.tagsExclude}"
 			val state = paginationStates.getOrPut(key) { PaginationState() }

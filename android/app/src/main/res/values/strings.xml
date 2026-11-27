@@ -1825,4 +1825,25 @@
     <string name="ds_override_suggestions_source_desc">AniList uses its recommendations for what you read or watch, matched to your sources. TV &amp; Movies always uses sources.</string>
     <string name="ds_suggestions_source_sources">Sources</string>
     <string name="ds_suggestions_source_anilist">AniList</string>
+    <string name="diagnostics">Source &amp; plugin health</string>
+    <string name="diagnostics_summary">See why a source fails: plugin error, Cloudflare check or a dead site</string>
+    <string name="diagnostics_offline_note">Everything stays on this device. Requests that fail while you are offline are never counted.</string>
+    <string name="diagnostics_plugin_errors">Plugin load errors</string>
+    <string name="diagnostics_sources">Sources this session</string>
+    <string name="diagnostics_empty">No source requests recorded yet. Open a source, then come back.</string>
+    <string name="diagnostics_state_unknown">Unknown</string>
+    <string name="diagnostics_state_healthy">Working</string>
+    <string name="diagnostics_state_degraded">Having problems</string>
+    <string name="diagnostics_state_dead">Suspected dead</string>
+    <string name="diagnostics_kind_plugin">Plugin failed to run</string>
+    <string name="diagnostics_kind_cloudflare">Needs a Cloudflare or login check in the browser</string>
+    <string name="diagnostics_kind_timeout">Timed out</string>
+    <string name="diagnostics_kind_endpoint">Site not reachable (DNS or 404)</string>
+    <string name="diagnostics_kind_other">Other error</string>
+    <string name="diagnostics_endpoint_streak">%1$d failures in a row</string>
+    <string name="diagnostics_last_ok">last worked %1$s</string>
+    <string name="diagnostics_share">Share redacted report</string>
+    <string name="diagnostics_share_summary">No tokens, cookies or links with queries are included</string>
+    <string name="diagnostics_clear">Clear health data</string>
+    <string name="diagnostics_cleared">Health data cleared</string>
 </resources>

@@ -24,6 +24,7 @@ import kotlinx.coroutines.withContext
 import org.koitharu.kotatsu.core.cache.MemoryContentCache
 import org.koitharu.kotatsu.core.logs.breadcrumb
 import org.koitharu.kotatsu.core.parser.CachingMangaRepository
+import org.koitharu.kotatsu.diagnostics.trackHealth
 import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.SourceSettings
 import org.koitharu.kotatsu.mihon.model.MihonMangaSource
@@ -115,7 +116,10 @@ class MihonMangaRepository(
 			isSearchWithFiltersSupported = true,
 		)
 
-	override suspend fun getList(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> = withContext(Dispatchers.IO) {
+	override suspend fun getList(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> =
+		trackHealth(source) { getListImpl(offset, order, filter) }
+
+	private suspend fun getListImpl(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> = withContext(Dispatchers.IO) {
 		val state = paginationStates.getOrPut(paginationKey(order, filter)) { PaginationState() }
 		val page = synchronized(state) {
 			if (offset == 0) {

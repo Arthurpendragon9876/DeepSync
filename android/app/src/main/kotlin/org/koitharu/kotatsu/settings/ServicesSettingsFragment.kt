@@ -54,6 +54,7 @@ import org.koitharu.kotatsu.settings.compose.SwitchSettingsItem
 import org.koitharu.kotatsu.settings.compose.rememberBooleanPref
 import org.koitharu.kotatsu.settings.compose.rememberIntPref
 import org.koitharu.kotatsu.settings.discord.DiscordSettingsFragment
+import org.koitharu.kotatsu.settings.diagnostics.DiagnosticsFragment
 import org.koitharu.kotatsu.settings.webhook.WebhookSettingsFragment
 import android.text.format.DateUtils
 import android.widget.Toast
@@ -109,6 +110,13 @@ class ServicesSettingsFragment : BaseComposeSettingsFragment(R.string.services) 
 					onOpenWebhooks = {
 						(activity as? SettingsActivity)?.openFragment(
 							WebhookSettingsFragment::class.java,
+							null,
+							isFromRoot = false,
+						)
+					},
+					onOpenDiagnostics = {
+						(activity as? SettingsActivity)?.openFragment(
+							DiagnosticsFragment::class.java,
 							null,
 							isFromRoot = false,
 						)
@@ -233,6 +241,7 @@ private fun ServicesScreen(
 	onScrobblerClick: (ScrobblerService) -> Unit,
 	onOpenDiscord: () -> Unit,
 	onOpenWebhooks: () -> Unit,
+	onOpenDiagnostics: () -> Unit,
 ) {
 	var suggestionsEnabled by rememberBooleanPref(AppSettings.KEY_SUGGESTIONS, false)
 	var relatedManga by rememberBooleanPref(AppSettings.KEY_RELATED_MANGA, true)
@@ -504,6 +513,15 @@ private fun ServicesScreen(
 						icon = R.drawable.ic_web,
 						shape = pos.shape,
 						onClick = onOpenWebhooks,
+					)
+				}
+				item { pos ->
+					NavigationSettingsItem(
+						title = stringResource(R.string.diagnostics),
+						subtitle = stringResource(R.string.diagnostics_summary),
+						icon = R.drawable.ic_sync_problem,
+						shape = pos.shape,
+						onClick = onOpenDiagnostics,
 					)
 				}
 			}

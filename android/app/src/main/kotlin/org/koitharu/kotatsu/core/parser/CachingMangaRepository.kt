@@ -15,6 +15,7 @@ import org.koitharu.kotatsu.core.cache.SafeDeferred
 import org.koitharu.kotatsu.core.logs.breadcrumb
 import org.koitharu.kotatsu.core.util.MultiMutex
 import org.koitharu.kotatsu.core.util.ext.processLifecycleScope
+import org.koitharu.kotatsu.diagnostics.SourceHealthTracker
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaChapter
 import org.koitharu.kotatsu.parsers.model.MangaPage
@@ -90,7 +91,13 @@ abstract class CachingMangaRepository(
 		}
 		return SafeDeferred(
 			processLifecycleScope.async(dispatcher) {
-				runCatchingCancellable { block() }
+				runCatchingCancellable { block() }.also { result ->
+					// Feeds the Source & Plugin Health screen; local only
+					result.fold(
+						onSuccess = { SourceHealthTracker.instance?.onSuccess(source) },
+						onFailure = { SourceHealthTracker.instance?.onFailure(source, it) },
+					)
+				}
 			},
 		)
 	}

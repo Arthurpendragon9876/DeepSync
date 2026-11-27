@@ -104,6 +104,8 @@ interface MangaRepository {
 		private val animeExtensionManager: AnimeExtensionManager,
 		private val jsHost: JsHost,
 		@ApplicationContext private val context: Context,
+		// Injected only so the tracker exists (and registers itself) before any plugin repository does
+		@Suppress("unused") private val healthTracker: org.koitharu.kotatsu.diagnostics.SourceHealthTracker,
 	) {
 
 		private val cache = ArrayMap<MangaSource, WeakReference<MangaRepository>>()

@@ -12,6 +12,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.koitharu.kotatsu.core.cache.MemoryContentCache
 import org.koitharu.kotatsu.core.parser.CachingMangaRepository
+import org.koitharu.kotatsu.diagnostics.trackHealth
 import org.koitharu.kotatsu.lnreader.js.JsException
 import org.koitharu.kotatsu.lnreader.js.JsHost
 import org.koitharu.kotatsu.lnreader.model.LnMangaSource
@@ -75,7 +76,10 @@ class LnMangaRepository(
 			isSearchWithFiltersSupported = false,
 		)
 
-	override suspend fun getList(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> {
+	override suspend fun getList(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> =
+		trackHealth(source) { getListImpl(offset, order, filter) }
+
+	private suspend fun getListImpl(offset: Int, order: SortOrder?, filter: MangaListFilter?): List<Manga> {
 		val state = paginationStates.getOrPut("$order|${filter?.query}|${filter?.tags}") { PaginationState() }
 		val page = synchronized(state) {
 			if (offset == 0) {
