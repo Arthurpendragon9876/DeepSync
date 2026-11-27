@@ -70,3 +70,31 @@ test('toShinkai tolerates empty sections', () => {
   const r = toShinkai({ categories: [], favourites: [], history: [], scrobbling: [] })
   assert.deepEqual(r.favourites, { categories: [], items: {} })
 })
+
+test('reads Kototoro and Usagi backups: no format_version, tombstones, anime/novel tracker rows', async () => {
+  const kt = (app_id) => ({
+    index: JSON.stringify([{ app_id, app_version: 3, created_at: 1 }]),
+    categories: JSON.stringify([{ category_id: 1, created_at: 1, sort_key: 0, title: 'Reading' }]),
+    favourites: JSON.stringify([
+      { manga_id: 10, category_id: 1, created_at: 5, manga: manga(10, 'Manga one', 'MIHON_1') },
+      { manga_id: 20, category_id: 1, created_at: 5, manga: manga(20, 'An anime', 'MIHON_2') },
+      { manga_id: 30, category_id: 1, created_at: 5, deleted_at: 9, manga: manga(30, 'Removed', 'MIHON_3') },
+    ]),
+    history: JSON.stringify([{ manga_id: 10, created_at: 1, updated_at: 7, chapter_id: 1, page: 0, scroll: 0, manga: manga(10, 'Manga one', 'MIHON_1') }]),
+    scrobbling: JSON.stringify([
+      { scrobbler: 2, id: 1, manga_id: 10, target_id: 100, media_type: 'manga' },
+      { scrobbler: 2, id: 2, manga_id: 20, target_id: 200, media_type: 'anime' },
+      { scrobbler: 2, id: 3, manga_id: 30, target_id: 300 },
+    ]),
+  })
+  for (const [appId, name] of [['org.skepsun.kototoro', 'Kototoro'], ['org.draken.usagi', 'Usagi']]) {
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ab-')), 'k.bk.zip')
+    fs.writeFileSync(f, makeZip(kt(appId)))
+    const { favourites, history, report } = await convertFile(f)
+    assert.equal(report.app, name)
+    assert.deepEqual(Object.keys(favourites.items).sort(), ['anime:200', 'manga:100'])
+    assert.equal(favourites.items['anime:200'].mode, 'anime')
+    assert.deepEqual(Object.keys(history), ['manga:100'])
+    assert.equal(report.unmatched.length, 0) // the removed favourite is skipped, not reported
+  }
+})

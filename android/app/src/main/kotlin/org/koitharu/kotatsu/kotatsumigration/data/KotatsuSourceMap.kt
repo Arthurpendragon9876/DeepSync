@@ -49,6 +49,15 @@ class KotatsuSourceMap @Inject constructor(
 		return load().byId[sourceId]
 	}
 
+	/**
+	 * Mihon source id -> the legacy Kotatsu parser name that maps onto it (`MANGADEX`, ...). The reverse of
+	 * [resolve], used when exporting to an app that only knows Kotatsu parsers. Where several parsers share one
+	 * Mihon source the first one in the table wins.
+	 */
+	suspend fun legacyNamesById(): Map<Long, String> {
+		return load().legacyById
+	}
+
 	private suspend fun load(): Tables {
 		tables?.let { return it }
 		return mutex.withLock {
@@ -66,6 +75,7 @@ class KotatsuSourceMap @Inject constructor(
 		val file = json.decodeFromString(SourceMapFile.serializer(), raw)
 		val byName = LinkedHashMap<String, MihonTarget>(file.entries.size)
 		val byId = LinkedHashMap<Long, MihonTarget>(file.entries.size)
+		val legacyById = LinkedHashMap<Long, String>(file.entries.size)
 		for ((enumName, entry) in file.entries) {
 			val id = entry.id.toLongOrNull() ?: continue
 			val target = MihonTarget(
@@ -76,16 +86,18 @@ class KotatsuSourceMap @Inject constructor(
 			byName[enumName.uppercase()] = target
 			// Many Kotatsu enums can map to one Mihon id (language variants); first wins.
 			byId.putIfAbsent(id, target)
+			legacyById.putIfAbsent(id, enumName.uppercase())
 		}
-		Tables(byName, byId)
+		Tables(byName, byId, legacyById)
 	} catch (e: Exception) {
 		e.printStackTraceDebug()
-		Tables(emptyMap(), emptyMap())
+		Tables(emptyMap(), emptyMap(), emptyMap())
 	}
 
 	private class Tables(
 		val byName: Map<String, MihonTarget>,
 		val byId: Map<Long, MihonTarget>,
+		val legacyById: Map<Long, String>,
 	)
 
 	private companion object {

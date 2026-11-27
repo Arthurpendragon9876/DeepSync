@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); version
 
 ## [Unreleased]
 
+### Added
+
+- Backup & restore: **Restore from Kototoro/Usagi**, **Export for Kototoro** and **Export for Usagi**. Titles are re-keyed to the other app's ids and sources, tracker ids are renumbered, and anything the other app cannot open is counted and skipped.
+- Desktop (Yomi and Shinkai): *Import Android backup* also reads Kototoro and Usagi backups.
+
 ## [0.1.2] - 2026-11-22
 
 Stable release. It follows three betas (0.1.2-beta.1 to beta.3) and is meant for everyday use, but it is still young software: please report anything odd. If Android refuses to install it over an earlier version, uninstall once and restore from your backup or cloud sync.

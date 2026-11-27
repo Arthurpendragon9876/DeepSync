@@ -237,7 +237,7 @@ const panes = {
       const a = h('a', { href: URL.createObjectURL(blob), download: 'yomi-backup.json' }); document.body.append(a); a.click(); a.remove()
     } }, icon('download', 18), 'Export')),
     row('Import backup', 'Merges a previously exported file', h('button', { class: 'btn', onclick: () => file.click() }, 'Import')), file,
-    row('Import Android backup', 'Reads a .bk.zip from the Android app. Only titles tracked with AniList there can be brought over (favourites, categories, history).', h('button', { class: 'btn', onclick: () => androidFile.click() }, 'Import')), androidFile,
+    row('Import Android backup', 'Reads a .bk.zip from the Android app, Kototoro or Usagi. Only titles tracked with AniList there can be brought over (favourites, categories, history).', h('button', { class: 'btn', onclick: () => androidFile.click() }, 'Import')), androidFile,
     row('Clear cache', 'Forget cached AniList responses', h('button', { class: 'btn', onclick: async () => { await api('cache:clear'); toast('Cache cleared') } }, 'Clear')),
     row('Data folder', 'Where settings and progress are stored', h('button', { class: 'btn', onclick: () => api('app:openDataDir') }, icon('folder', 18), 'Open'))]
   },

@@ -29,10 +29,15 @@ import org.koitharu.kotatsu.backup.MihonBackupExporter
 import org.koitharu.kotatsu.backup.MihonBackupManager
 import org.koitharu.kotatsu.backup.MihonBackupManager.Options
 import org.koitharu.kotatsu.backup.MihonBackupManager.RestoreReport
+import org.koitharu.kotatsu.backup.foreign.ForeignBackupExporter
+import org.koitharu.kotatsu.backup.foreign.ForeignBackupExporter.Companion.displayName
+import org.koitharu.kotatsu.backup.foreign.ForeignBackupImporter
+import org.koitharu.kotatsu.backup.foreign.ForeignBackupRules
 import org.koitharu.kotatsu.backup.local.domain.BackupUtils
 import org.koitharu.kotatsu.backup.local.ui.backup.BackupService
 import org.koitharu.kotatsu.backup.local.ui.periodical.PeriodicalBackupSettingsFragment
 import org.koitharu.kotatsu.backup.local.ui.restore.RestoreDialogFragment
+import org.koitharu.kotatsu.backup.local.ui.restore.RestoreService
 import org.koitharu.kotatsu.core.ui.dialog.buildAlertDialog
 import org.koitharu.kotatsu.core.util.ext.checkNotificationPermission
 import org.koitharu.kotatsu.core.util.ext.getDisplayMessage
@@ -62,6 +67,12 @@ class BackupSettingsFragment : BaseComposeSettingsFragment(R.string.backup_resto
 	@Inject
 	lateinit var mihonExporter: MihonBackupExporter
 
+	@Inject
+	lateinit var foreignExporter: ForeignBackupExporter
+
+	@Inject
+	lateinit var foreignImporter: ForeignBackupImporter
+
 	private val restoreMihonBackupLauncher = registerForActivityResult(
 		ActivityResultContracts.OpenDocument(),
 	) { uri ->
@@ -83,6 +94,30 @@ class BackupSettingsFragment : BaseComposeSettingsFragment(R.string.backup_resto
 	) { uri ->
 		if (uri != null) {
 			runMihonExportJob(uri)
+		}
+	}
+
+	private val exportKototoroBackupLauncher = registerForActivityResult(
+		ActivityResultContracts.CreateDocument(BackupUtils.MIME_TYPE),
+	) { uri ->
+		if (uri != null) {
+			runForeignExportJob(ForeignBackupRules.App.KOTOTORO, uri)
+		}
+	}
+
+	private val exportUsagiBackupLauncher = registerForActivityResult(
+		ActivityResultContracts.CreateDocument(BackupUtils.MIME_TYPE),
+	) { uri ->
+		if (uri != null) {
+			runForeignExportJob(ForeignBackupRules.App.USAGI, uri)
+		}
+	}
+
+	private val restoreForeignBackupLauncher = registerForActivityResult(
+		ActivityResultContracts.OpenDocument(),
+	) { uri ->
+		if (uri != null) {
+			runForeignRestoreJob(uri)
 		}
 	}
 
@@ -144,6 +179,19 @@ class BackupSettingsFragment : BaseComposeSettingsFragment(R.string.backup_resto
 					onExportToMihon = {
 						exportMihonBackupLauncher.launch(MihonBackupExporter.generateFileName())
 					},
+					onRestoreFromKototoroUsagi = {
+						restoreForeignBackupLauncher.launch(arrayOf(BackupUtils.MIME_TYPE, "application/*", "*/*"))
+					},
+					onExportToKototoro = {
+						exportKototoroBackupLauncher.launch(
+							ForeignBackupExporter.generateFileName(ForeignBackupRules.App.KOTOTORO),
+						)
+					},
+					onExportToUsagi = {
+						exportUsagiBackupLauncher.launch(
+							ForeignBackupExporter.generateFileName(ForeignBackupRules.App.USAGI),
+						)
+					},
 				)
 			}
 		}
@@ -190,6 +238,47 @@ class BackupSettingsFragment : BaseComposeSettingsFragment(R.string.backup_resto
 				},
 				onFailure = { it.getDisplayMessage(resources) },
 			)
+			Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
+		}
+	}
+
+	private fun runForeignExportJob(target: ForeignBackupRules.App, uri: Uri) {
+		lifecycleScope.launch {
+			val message = runCatching {
+				foreignExporter.export(target, uri)
+			}.fold(
+				onSuccess = { report ->
+					if (report.skipped > 0) {
+						getString(R.string.export_foreign_done_partial, report.converted, report.skipped, target.displayName())
+					} else {
+						getString(R.string.export_foreign_done, report.converted, target.displayName())
+					}
+				},
+				onFailure = { it.getDisplayMessage(resources) },
+			)
+			Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
+		}
+	}
+
+	private fun runForeignRestoreJob(uri: Uri) {
+		lifecycleScope.launch {
+			val message = runCatching {
+				val prepared = foreignImporter.prepare(uri)
+				check(RestoreService.start(requireContext(), prepared.uri, prepared.sections)) {
+					getString(R.string.error_occurred)
+				}
+				val report = prepared.report
+				if (report.skipped > 0) {
+					getString(
+						R.string.import_foreign_started_partial,
+						report.converted,
+						prepared.app.displayName(),
+						report.skipped,
+					)
+				} else {
+					getString(R.string.import_foreign_started, report.converted, prepared.app.displayName())
+				}
+			}.getOrElse { it.getDisplayMessage(resources) }
 			Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
 		}
 	}
@@ -261,6 +350,9 @@ private fun BackupScreen(
 	migrationSubtitle: String,
 	onMigrateFromKotatsu: () -> Unit,
 	onExportToMihon: () -> Unit,
+	onRestoreFromKototoroUsagi: () -> Unit,
+	onExportToKototoro: () -> Unit,
+	onExportToUsagi: () -> Unit,
 ) {
 	SettingsScaffold {
 		item {
@@ -328,6 +420,36 @@ private fun BackupScreen(
 
 						shape = pos.shape,
 						onClick = onExportToMihon,
+					)
+				}
+				item { pos ->
+					ActionSettingsItem(
+						title = stringResource(R.string.restore_from_kototoro_usagi),
+						subtitle = stringResource(R.string.restore_kototoro_usagi_summary),
+						icon = R.drawable.ic_revert,
+
+						shape = pos.shape,
+						onClick = onRestoreFromKototoroUsagi,
+					)
+				}
+				item { pos ->
+					ActionSettingsItem(
+						title = stringResource(R.string.export_to_kototoro),
+						subtitle = stringResource(R.string.export_to_kototoro_summary),
+						icon = R.drawable.ic_upload_file,
+
+						shape = pos.shape,
+						onClick = onExportToKototoro,
+					)
+				}
+				item { pos ->
+					ActionSettingsItem(
+						title = stringResource(R.string.export_to_usagi),
+						subtitle = stringResource(R.string.export_to_usagi_summary),
+						icon = R.drawable.ic_upload_file,
+
+						shape = pos.shape,
+						onClick = onExportToUsagi,
 					)
 				}
 			}
