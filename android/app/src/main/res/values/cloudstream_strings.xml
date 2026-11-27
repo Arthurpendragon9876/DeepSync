@@ -30,4 +30,14 @@
     <string name="ds_home_per_mode_managed">Editing the %1$s Home. Whether each mode has its own Home is set in Override global defaults.</string>
     <string name="reader_bars_customize">Customise reader bars</string>
     <string name="ds_mode_overrides_desc">Let Manga, Novel and Streaming each keep their own settings</string>
+    <string name="extension_stores_tab_stores">Stores</string>
+    <string name="extension_stores_tab_cloudstream">Cloudstream</string>
+    <string name="cloudstream_domain_title">%1$s settings</string>
+    <string name="cloudstream_domain_summary">Override a provider\'s website address when its default domain is blocked or has moved. Leave a field empty to use the plugin\'s own address.</string>
+    <string name="cloudstream_domain_none">This plugin did not load, so it has no providers to configure.</string>
+    <string name="cloudstream_domain_invalid">Enter a full address starting with https://</string>
+    <string name="cloudstream_domain_saved">Provider addresses saved</string>
+    <string name="engine_all">All engines</string>
+    <string name="engine_aniyomi">Aniyomi</string>
+    <string name="engine_cloudstream">Cloudstream</string>
 </resources>

@@ -45,13 +45,37 @@ sealed interface ExtensionCatalogPage {
 		val title: String,
 	) : ExtensionCatalogPage
 
+	/** One Cloudstream repository, listed as a tab of the Streaming kind next to the Aniyomi stores. */
+	data class Cloudstream(
+		val repoUrl: String,
+		val title: String,
+	) : ExtensionCatalogPage {
+		override val id: String get() = CLOUDSTREAM_PAGE_PREFIX + repoUrl
+	}
+
 	data object Empty : ExtensionCatalogPage {
 		override val id: String = "empty"
 	}
 }
 
+/** Id prefix of a Cloudstream repository page; the rest is the repository URL. */
+const val CLOUDSTREAM_PAGE_PREFIX = "cs:"
+
+/** A short tab name for a Cloudstream repository: the GitHub user for raw/GitHub links, the host otherwise. */
+internal fun cloudstreamRepoLabel(url: String): String {
+	val uri = runCatching { java.net.URI(url) }.getOrNull()
+	val host = uri?.host.orEmpty()
+	val segments = uri?.path.orEmpty().split('/').filter { it.isNotEmpty() }
+	return when {
+		host == "raw.githubusercontent.com" || host == "github.com" -> segments.firstOrNull()
+		host.isNotEmpty() -> host.removePrefix("www.")
+		else -> null
+	} ?: url
+}
+
 fun buildExtensionCatalogPages(
 	stores: List<ExtensionStoreRecord>,
+	cloudstreamRepos: List<String> = emptyList(),
 ): List<ExtensionCatalogPage> {
 	val labels = extensionStoreDisplayLabels(stores)
 	return buildList {
@@ -59,6 +83,7 @@ fun buildExtensionCatalogPages(
 		stores.mapTo(this) { store ->
 			ExtensionCatalogPage.Store(store.id, labels[store.id] ?: store.displayName)
 		}
+		cloudstreamRepos.mapTo(this) { ExtensionCatalogPage.Cloudstream(it, cloudstreamRepoLabel(it)) }
 	}
 }
 
@@ -66,7 +91,7 @@ internal fun shouldShowCatalogFilters(pages: List<ExtensionCatalogPage>): Boolea
 	pages.any { it != ExtensionCatalogPage.Empty }
 
 internal fun shouldShowStoreTabDivider(position: Int, page: ExtensionCatalogPage): Boolean =
-	position == 1 && page is ExtensionCatalogPage.Store
+	position == 1 && (page is ExtensionCatalogPage.Store || page is ExtensionCatalogPage.Cloudstream)
 
 internal fun canUseStoreCatalogForUpdates(health: StoreHealth): Boolean =
 	health != StoreHealth.UNAVAILABLE

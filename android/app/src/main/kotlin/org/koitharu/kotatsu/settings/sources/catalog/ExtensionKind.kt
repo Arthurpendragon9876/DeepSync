@@ -28,3 +28,13 @@ val ExternalExtensionRepoEntry.kind: ExtensionKind
 		isNovelExtension -> ExtensionKind.NOVEL
 		else -> ExtensionKind.MANGA
 	}
+
+/** Streaming only: which engine's extensions the manager shows. Cycled by the engine chip. */
+enum class StreamingEngine {
+	ALL,
+	ANIYOMI,
+	CLOUDSTREAM,
+	;
+
+	fun next(): StreamingEngine = entries[(ordinal + 1) % entries.size]
+}

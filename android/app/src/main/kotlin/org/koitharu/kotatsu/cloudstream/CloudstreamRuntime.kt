@@ -53,6 +53,13 @@ data class CloudstreamInstalledPlugin(
 	val error: String?,
 )
 
+/** One provider's address: what its plugin ships with, and what the user replaced it with (null = none). */
+data class CloudstreamProviderDomain(
+	val provider: String,
+	val default: String,
+	val custom: String?,
+)
+
 /** One plugin a Cloudstream repository offers. */
 data class CloudstreamRepoPlugin(
 	val internalName: String,
@@ -93,7 +100,10 @@ class CloudstreamRuntime @Inject constructor(
 		val providers: List<MainAPI>,
 		val extractors: List<ExtractorApi>,
 		val manifest: Manifest,
-	)
+	) {
+		/** Each provider's address as the plugin shipped it, by provider name; filled when overrides are applied. */
+		val defaultDomains = HashMap<String, String>()
+	}
 
 	private class Manifest(
 		val pluginClassName: String,
@@ -112,6 +122,11 @@ class CloudstreamRuntime @Inject constructor(
 
 	private val prefs = context.getSharedPreferences("deepsync_cloudstream", Context.MODE_PRIVATE)
 	private val _repos = MutableStateFlow(readRepos())
+
+	private val _available = MutableStateFlow<List<CloudstreamRepoPlugin>>(emptyList())
+
+	/** What the added repositories offer, as of the last [refreshAvailable]; feeds the extension manager's repository tabs. */
+	val available: StateFlow<List<CloudstreamRepoPlugin>> = _available.asStateFlow()
 
 	/** Repository URLs the user added. */
 	val repos: StateFlow<List<String>> = _repos.asStateFlow()
@@ -171,6 +186,7 @@ class CloudstreamRuntime @Inject constructor(
 				.getOrNull() ?: continue
 			errors.remove(file.name)
 			if (plugin.providers.isEmpty()) continue
+			applyDomains(file.nameWithoutExtension, plugin)
 			val pkg = packageOf(file)
 			extensions += AnimeExtension(
 				pkg = pkg,
@@ -349,6 +365,41 @@ class CloudstreamRuntime @Inject constructor(
 		.take(MAX_CAUSE_DEPTH)
 		.joinToString(" <- ") { "${it.javaClass.simpleName}: ${it.message}" }
 
+	// --- provider domains ------------------------------------------------------------------------
+
+	private fun domainKey(internalName: String, provider: String) = "domain:$internalName:$provider"
+
+	/** Points every provider of [plugin] at its saved address, or back at the shipped one when none is saved. */
+	private fun applyDomains(internalName: String, plugin: LoadedPlugin) {
+		for (api in plugin.providers) {
+			val shipped = plugin.defaultDomains.getOrPut(api.name) { api.mainUrl }
+			val custom = prefs.getString(domainKey(internalName, api.name), null)?.takeIf { it.isNotBlank() }
+			val target = custom ?: shipped
+			if (api.mainUrl != target) api.mainUrl = target
+		}
+	}
+
+	/** The providers of a loaded plugin with their default and overridden addresses; empty when it did not load. */
+	fun providerDomains(internalName: String): List<CloudstreamProviderDomain> {
+		val plugin = loaded[File(pluginsDir, "$internalName.cs3").absolutePath] ?: return emptyList()
+		return plugin.providers.map { api ->
+			CloudstreamProviderDomain(
+				provider = api.name,
+				default = plugin.defaultDomains[api.name] ?: api.mainUrl,
+				custom = prefs.getString(domainKey(internalName, api.name), null)?.takeIf { it.isNotBlank() },
+			)
+		}
+	}
+
+	/** Saves (or, for a blank [domain], clears) a provider's address and applies it to the loaded plugin right away. */
+	@Synchronized
+	fun setProviderDomain(internalName: String, provider: String, domain: String?) {
+		val key = domainKey(internalName, provider)
+		val value = domain?.trim()?.trimEnd('/')?.takeIf { it.isNotEmpty() }
+		prefs.edit().apply { if (value == null) remove(key) else putString(key, value) }.apply()
+		loaded[File(pluginsDir, "$internalName.cs3").absolutePath]?.let { applyDomains(internalName, it) }
+	}
+
 	// --- install / uninstall ---------------------------------------------------------------------
 
 	/** Version of the installed plugin [internalName], or null when it is not installed or did not load. */
@@ -433,6 +484,13 @@ class CloudstreamRuntime @Inject constructor(
 				.onFailure { failures[repo] = it.message ?: it.javaClass.simpleName }
 		}
 		plugins.distinctBy { it.internalName to it.repoUrl } to failures
+	}
+
+	/** Re-reads every repository into [available]; returns the repositories that failed, with the reason. */
+	suspend fun refreshAvailable(): Map<String, String> {
+		val (plugins, failures) = fetchAvailable()
+		_available.value = plugins
+		return failures
 	}
 
 	private fun fetchRepo(repoUrl: String): List<CloudstreamRepoPlugin> {

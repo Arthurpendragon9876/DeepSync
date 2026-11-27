@@ -1,10 +1,6 @@
 package org.koitharu.kotatsu.cloudstream
 
 import android.net.Uri
-import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.View
-import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,48 +41,22 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.anime.AnimeExtensionManager
 import org.koitharu.kotatsu.settings.compose.ActionSettingsItem
-import org.koitharu.kotatsu.settings.compose.BaseComposeSettingsFragment
-import org.koitharu.kotatsu.settings.compose.DropSauceTheme
 import org.koitharu.kotatsu.settings.compose.PlainInfoSettingsItem
 import org.koitharu.kotatsu.settings.compose.SettingsGroup
 import org.koitharu.kotatsu.settings.compose.SettingsScaffold
-import javax.inject.Inject
 
-/** Manage Cloudstream (.cs3) plugins: repositories, installing, updating and removing. */
-@AndroidEntryPoint
-class CloudstreamSettingsFragment : BaseComposeSettingsFragment(R.string.cloudstream_plugins) {
-
-	@Inject
-	lateinit var runtime: CloudstreamRuntime
-
-	@Inject
-	lateinit var animeExtensions: AnimeExtensionManager
-
-	override fun onCreateView(
-		inflater: LayoutInflater,
-		container: ViewGroup?,
-		savedInstanceState: Bundle?,
-	): View = ComposeView(requireContext()).apply {
-		setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
-		setContent {
-			DropSauceTheme {
-				CloudstreamScreen(runtime, animeExtensions)
-			}
-		}
-	}
-}
-
+/**
+ * The Cloudstream (.cs3) plugin page: installed plugins, repositories, installing and removing. It lives in the
+ * "Cloudstream" tab of Extension stores; [refreshKey] changes whenever the toolbar's refresh button is pressed there.
+ */
 private sealed interface Dialog {
 	data object AddRepo : Dialog
 	data object InstallUrl : Dialog
@@ -95,7 +65,11 @@ private sealed interface Dialog {
 }
 
 @Composable
-private fun CloudstreamScreen(runtime: CloudstreamRuntime, animeExtensions: AnimeExtensionManager) {
+internal fun CloudstreamPluginsScreen(
+	runtime: CloudstreamRuntime,
+	animeExtensions: AnimeExtensionManager,
+	refreshKey: Int = 0,
+) {
 	val context = LocalContext.current
 	val scope = rememberCoroutineScope()
 	val installed by runtime.installed.collectAsState()
@@ -152,8 +126,8 @@ private fun CloudstreamScreen(runtime: CloudstreamRuntime, animeExtensions: Anim
 	}
 
 	// A plugin that wanted an Activity while loading at start-up gets one here: this screen is in front.
-	LaunchedEffect(Unit) { runCatching { animeExtensions.reload() } }
-	LaunchedEffect(repos) {
+	LaunchedEffect(refreshKey) { runCatching { animeExtensions.reload() } }
+	LaunchedEffect(repos, refreshKey) {
 		if (repos.isEmpty()) {
 			available = emptyList()
 			return@LaunchedEffect
@@ -242,11 +216,23 @@ private fun CloudstreamScreen(runtime: CloudstreamRuntime, animeExtensions: Anim
 									val pkg = CloudstreamRuntime.PACKAGE_PREFIX + plugin.internalName
 									val isTv = pkg in tvMoviesPackages
 									val description = stringResource(if (isTv) R.string.ds_untag_tv_movies else R.string.ds_tag_tv_movies)
-									IconButton(onClick = { animeExtensions.setTvMovies(pkg, !isTv) }) {
-										Icon(
-											painter = painterResource(if (isTv) R.drawable.ic_streaming else R.drawable.ic_tv),
-											contentDescription = description,
-										)
+									Row(verticalAlignment = Alignment.CenterVertically) {
+										IconButton(
+											onClick = {
+												showCloudstreamDomainDialog(context, runtime, plugin.internalName, plugin.displayName)
+											},
+										) {
+											Icon(
+												painter = painterResource(R.drawable.ic_extension_settings),
+												contentDescription = stringResource(R.string.settings),
+											)
+										}
+										IconButton(onClick = { animeExtensions.setTvMovies(pkg, !isTv) }) {
+											Icon(
+												painter = painterResource(if (isTv) R.drawable.ic_streaming else R.drawable.ic_tv),
+												contentDescription = description,
+											)
+										}
 									}
 								}
 							} else {

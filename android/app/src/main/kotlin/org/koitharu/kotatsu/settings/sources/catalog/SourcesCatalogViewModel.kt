@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.plus
 import org.koitharu.kotatsu.R
+import org.koitharu.kotatsu.cloudstream.CloudstreamRepoPlugin
+import org.koitharu.kotatsu.cloudstream.CloudstreamRuntime
 import org.koitharu.kotatsu.core.LocalizedAppContext
 import org.koitharu.kotatsu.core.db.MangaDatabase
 import org.koitharu.kotatsu.core.prefs.AppSettings
@@ -52,6 +54,7 @@ class SourcesCatalogViewModel @Inject constructor(
 	private val mangaDatabase: MangaDatabase,
 	private val lnPluginManager: LnPluginManager,
 	private val animeManager: AnimeExtensionManager,
+	private val cloudstream: CloudstreamRuntime,
 ) : BaseViewModel() {
 
 	private val appContext = context
@@ -75,6 +78,18 @@ class SourcesCatalogViewModel @Inject constructor(
 
 	/** Which tab is showing: anime, manga or novel extensions. */
 	val activeKind = MutableStateFlow(ExtensionKind.MANGA)
+
+	/** Streaming only: show Aniyomi extensions, Cloudstream plugins, or both. */
+	val engineFilter = MutableStateFlow(StreamingEngine.ALL)
+
+	/** [engineFilter] while the Streaming tab is showing; null elsewhere, where the engine chip does not exist. */
+	val engineChip: StateFlow<StreamingEngine?> = combine(engineFilter, activeKind) { engine, kind ->
+		if (kind == ExtensionKind.ANIME) engine else null
+	}.stateIn(viewModelScope + Dispatchers.Default, SharingStarted.Eagerly, null)
+
+	fun cycleEngineFilter() {
+		engineFilter.value = engineFilter.value.next()
+	}
 	private val refreshTrigger = MutableStateFlow(0)
 	val isRefreshing = MutableStateFlow(false)
 	val contentFilter = settings.observeAsFlow(AppSettings.KEY_CONTENT_FILTER) { contentFilter }
@@ -93,12 +108,18 @@ class SourcesCatalogViewModel @Inject constructor(
 
 	/** Source name of a freshly installed extension, so the caller can offer to open it. */
 	val onExtensionInstalled = MutableEventFlow<String>()
-	val pages: StateFlow<List<ExtensionCatalogPage>> = combine(storeManager.states, activeKind) { states, kind ->
+	val pages: StateFlow<List<ExtensionCatalogPage>> = combine(storeManager.states, activeKind, engineFilter, cloudstream.repos) { states, kind, engine, csRepos ->
+		val streaming = kind == ExtensionKind.ANIME
 		// A store whose catalog has loaded and holds nothing of this kind has no tab here. One still
 		// loading (or unreachable) keeps its tab, so it can show its progress or error.
-		buildExtensionCatalogPages(
-			states.filter { it.catalog.isEmpty() || it.catalog.any { entry -> entry.kind == kind } }.map { it.store },
-		)
+		val stores = if (streaming && engine == StreamingEngine.CLOUDSTREAM) {
+			emptyList()
+		} else {
+			states.filter { it.catalog.isEmpty() || it.catalog.any { entry -> entry.kind == kind } }.map { it.store }
+		}
+		// Cloudstream repositories are tabs of the Streaming kind, after the Aniyomi stores.
+		val repos = if (streaming && engine != StreamingEngine.ANIYOMI) csRepos else emptyList()
+		buildExtensionCatalogPages(stores, repos)
 	}.stateIn(
 		viewModelScope + Dispatchers.Default,
 		SharingStarted.Eagerly,
@@ -106,15 +127,16 @@ class SourcesCatalogViewModel @Inject constructor(
 	)
 
 	val locales: StateFlow<Set<String?>> = combine(
-		appliedFilter,
+		cloudstream.available,
 		mihonSources,
 		availableRepoEntries,
 		activeKind,
 		animeManager.extensions,
-	) { _, sources, repoEntries, kind, animeExtensions ->
+	) { csPlugins, sources, repoEntries, kind, animeExtensions ->
 		val localeSet = LinkedHashSet<String?>()
 		if (kind == ExtensionKind.ANIME) {
 			animeExtensions.mapTo(localeSet) { it.lang }
+			csPlugins.mapNotNullTo(localeSet) { it.language }
 		} else {
 			sources.mapTo(localeSet) { it.language }
 		}
@@ -142,6 +164,9 @@ class SourcesCatalogViewModel @Inject constructor(
 		animeManager.hidden,
 		animeManager.tvMovies,
 		collapsedSections,
+		cloudstream.available,
+		cloudstream.repos,
+		engineFilter,
 	) { args ->
 		val q = args[0] as String?
 		val f = args[1] as SourcesCatalogFilter
@@ -170,6 +195,10 @@ class SourcesCatalogViewModel @Inject constructor(
 		launchJob(Dispatchers.Default) {
 			storeManager.initialize()
 			migrateLegacyAnimeRepos()
+		}
+		// Cloudstream repositories are read again whenever one is added or removed.
+		launchJob(Dispatchers.IO) {
+			cloudstream.repos.collect { cloudstream.refreshAvailable() }
 		}
 	}
 
@@ -208,6 +237,7 @@ class SourcesCatalogViewModel @Inject constructor(
 				repository.reloadMihonSources()
 				animeManager.reload()
 				storeManager.refresh(forceRefresh = true)
+				cloudstream.refreshAvailable()
 			} finally {
 				refreshTrigger.value++
 			}
@@ -331,7 +361,8 @@ class SourcesCatalogViewModel @Inject constructor(
 					storeId = owner.id,
 					mode = mode,
 				)
-			} + collectNovelUpdateRequests(statesById, mode) + collectAnimeUpdateRequests(statesById)
+			} + collectNovelUpdateRequests(statesById, mode) + collectAnimeUpdateRequests(statesById) +
+				collectCloudstreamUpdateRequests()
 			if (requests.isEmpty()) {
 				onShowMessage.call(R.string.nothing_found)
 				return@launchJob
@@ -391,7 +422,42 @@ class SourcesCatalogViewModel @Inject constructor(
 		null
 	}
 
+	/** Installed Cloudstream plugins that a repository now offers in a newer version. */
+	private fun collectCloudstreamUpdateRequests(): List<InstallRequest> {
+		val available = cloudstream.available.value
+		return animeManager.extensions.value.mapNotNull { local ->
+			if (!CloudstreamRuntime.isCloudstreamPackage(local.pkg)) return@mapNotNull null
+			val plugin = cloudstreamUpdateFor(
+				available,
+				local.pkg.removePrefix(CloudstreamRuntime.PACKAGE_PREFIX),
+				local.versionCode,
+			) ?: return@mapNotNull null
+			InstallRequest(
+				packageName = local.pkg,
+				url = plugin.url,
+				storeId = plugin.repoUrl,
+				mode = ExtensionInstallMode.SANDBOX,
+			)
+		}
+	}
+
 	private fun createInstallRequest(item: SourceCatalogItem.Extension): InstallRequest? {
+		if (CloudstreamRuntime.isCloudstreamPackage(item.packageName)) {
+			// A Cloudstream plugin is a .cs3 downloaded into our own storage; its repository (not a store) is the owner.
+			val name = item.packageName.removePrefix(CloudstreamRuntime.PACKAGE_PREFIX)
+			val candidates = cloudstream.available.value.filter { it.internalName == name }
+			val plugin = candidates.firstOrNull { it.repoUrl == item.storeId } ?: candidates.maxByOrNull { it.version }
+			if (plugin == null) {
+				onShowMessage.call(R.string.nothing_found)
+				return null
+			}
+			return InstallRequest(
+				packageName = item.packageName,
+				url = plugin.url,
+				storeId = plugin.repoUrl,
+				mode = ExtensionInstallMode.SANDBOX,
+			)
+		}
 		val store = item.storeId?.let { id -> storeManager.stores().firstOrNull { it.id == id } }
 		if (store == null) {
 			onShowMessage.call(R.string.extensions_repo_required)
@@ -644,6 +710,9 @@ class SourcesCatalogViewModel @Inject constructor(
 			),
 		)
 		else -> {
+			if (pageId.startsWith(CLOUDSTREAM_PAGE_PREFIX)) {
+				return buildCloudstreamRepoList(pageId.removePrefix(CLOUDSTREAM_PAGE_PREFIX), filter, query)
+			}
 			val storeState = storeStates.firstOrNull { it.store.id == pageId }
 				?: return listOf(LoadingState)
 			when {
@@ -1063,14 +1132,62 @@ class SourcesCatalogViewModel @Inject constructor(
 		val inProgress = installingPackages.value
 		val hidden = animeManager.hidden.value
 		val tvMovies = animeManager.tvMovies.value
+		val engine = engineFilter.value
+		val csAvailable = cloudstream.available.value
 		val updates = ArrayList<SourceCatalogItem.Extension>()
 		val installed = ArrayList<SourceCatalogItem.Extension>()
 		for (local in animeManager.extensions.value) {
 			val ownerId = animeManager.ownerOf(local.pkg)
 			if (onlyStoreId != null && ownerId != onlyStoreId) continue
+			val isCloudstream = CloudstreamRuntime.isCloudstreamPackage(local.pkg)
+			if (engine == StreamingEngine.ANIYOMI && isCloudstream) continue
+			if (engine == StreamingEngine.CLOUDSTREAM && !isCloudstream) continue
 			if (local.contentWarning > contentFilter.value) continue
 			if (filter.locale != null && local.lang != filter.locale) continue
 			if (!matchesExtensionQuery(query, local.name, local.pkg)) continue
+			if (isCloudstream) {
+				// A plugin's repository is its only catalog: updates and the icon come from the repository entries.
+				val internalName = local.pkg.removePrefix(CloudstreamRuntime.PACKAGE_PREFIX)
+				val csUpdate = cloudstreamUpdateFor(csAvailable, internalName, local.versionCode)
+				val csIcon = csAvailable.firstOrNull { it.internalName == internalName && it.iconUrl != null }?.iconUrl
+				val csSourceName = animeManager.firstSourceName(local.pkg)
+				val csSubtitle = buildString {
+					append(getExternalExtensionLanguageDisplayName(local.lang))
+					append(" • ").append(local.versionName)
+					append(local.contentWarning.descriptionSuffix(appContext))
+				}
+				if (csUpdate != null) {
+					updates += SourceCatalogItem.Extension(
+						packageName = local.pkg,
+						title = extensionDisplayName(local.name),
+						subtitle = getExternalExtensionLanguageDisplayName(local.lang) + " • cs3-" + csUpdate.version +
+							local.contentWarning.descriptionSuffix(appContext),
+						action = SourceCatalogItem.Extension.Action.UPDATE,
+						isInProgress = local.pkg in inProgress,
+						iconUrl = csUpdate.iconUrl ?: csIcon,
+						sourceName = csSourceName,
+						storeId = csUpdate.repoUrl,
+						isHidden = local.pkg in hidden,
+						isTvMovies = local.pkg in tvMovies,
+						isPrivateMode = true,
+						badge = BADGE_CLOUDSTREAM,
+					)
+				}
+				installed += SourceCatalogItem.Extension(
+					packageName = local.pkg,
+					title = extensionDisplayName(local.name),
+					subtitle = csSubtitle,
+					action = SourceCatalogItem.Extension.Action.UNINSTALL,
+					isInProgress = local.pkg in inProgress,
+					iconUrl = csIcon,
+					sourceName = csSourceName,
+					isHidden = local.pkg in hidden,
+					isTvMovies = local.pkg in tvMovies,
+					isPrivateMode = true,
+					badge = BADGE_CLOUDSTREAM,
+				)
+				continue
+			}
 			val ownerState = ownerId?.let { statesById[it] }
 			val candidates = listOfNotNull(ownerState) + statesById.values.filter { it !== ownerState }
 			var newer: ExternalExtensionRepoEntry? = null
@@ -1107,6 +1224,7 @@ class SourcesCatalogViewModel @Inject constructor(
 					isHidden = local.pkg in hidden,
 					isTvMovies = local.pkg in tvMovies,
 					isPrivateMode = true,
+					badge = BADGE_ANIYOMI,
 				)
 			}
 			installed += SourceCatalogItem.Extension(
@@ -1126,6 +1244,7 @@ class SourcesCatalogViewModel @Inject constructor(
 				isHidden = local.pkg in hidden,
 				isTvMovies = local.pkg in tvMovies,
 				isPrivateMode = true,
+				badge = BADGE_ANIYOMI,
 			)
 		}
 		val byTitle = compareBy<SourceCatalogItem.Extension> { it.title.lowercase() }
@@ -1244,6 +1363,7 @@ class SourcesCatalogViewModel @Inject constructor(
 				iconUrl = entry.iconUrl ?: externalRepoRepository.resolveIconUrl(store.indexUrl, entry.packageName),
 				storeId = store.id,
 				isPrivateMode = true,
+				badge = BADGE_ANIYOMI,
 			)
 		}
 		availableRows.sortWith(compareBy { it.title.lowercase() })
@@ -1266,6 +1386,71 @@ class SourcesCatalogViewModel @Inject constructor(
 			}
 			if (isEmpty()) {
 				add(SourceCatalogItem.Hint(R.drawable.ic_empty_feed, R.string.nothing_found, R.string.no_extensions_for_kind))
+			}
+		}
+	}
+
+	/** A Cloudstream repository tab: its plugins that are installed (updatable ones as updates), then the rest. */
+	private fun buildCloudstreamRepoList(
+		repoUrl: String,
+		filter: SourcesCatalogFilter,
+		query: String?,
+	): List<ListModel> {
+		val q = query?.takeIf { it.isNotBlank() }
+		val inProgress = installingPackages.value
+		val hidden = animeManager.hidden.value
+		val tvMovies = animeManager.tvMovies.value
+		val localByName = animeManager.extensions.value
+			.filter { CloudstreamRuntime.isCloudstreamPackage(it.pkg) }
+			.associateBy { it.pkg.removePrefix(CloudstreamRuntime.PACKAGE_PREFIX) }
+		val installedRows = ArrayList<SourceCatalogItem.Extension>()
+		val availableRows = ArrayList<SourceCatalogItem.Extension>()
+		for (plugin in cloudstream.available.value) {
+			if (plugin.repoUrl != repoUrl) continue
+			val warning = if (plugin.types.any { it.equals("NSFW", ignoreCase = true) }) ContentWarning.NSFW else ContentWarning.SAFE
+			if (warning > contentFilter.value) continue
+			if (filter.locale != null && plugin.language != filter.locale) continue
+			if (!matchesExtensionQuery(q, plugin.name, plugin.internalName)) continue
+			val pkg = CloudstreamRuntime.PACKAGE_PREFIX + plugin.internalName
+			val local = localByName[plugin.internalName]
+			val subtitle = buildString {
+				plugin.language?.let { append(getExternalExtensionLanguageDisplayName(it)).append(" • ") }
+				append("cs3-").append(plugin.version)
+				if (plugin.status == 0) append(" • ").append(appContext.getString(R.string.cloudstream_repo_down))
+				append(warning.descriptionSuffix(appContext))
+			}
+			val row = SourceCatalogItem.Extension(
+				packageName = pkg,
+				title = extensionDisplayName(plugin.name),
+				subtitle = subtitle,
+				action = when {
+					local == null -> SourceCatalogItem.Extension.Action.INSTALL
+					plugin.version > local.versionCode -> SourceCatalogItem.Extension.Action.UPDATE
+					else -> SourceCatalogItem.Extension.Action.UNINSTALL
+				},
+				isInProgress = pkg in inProgress,
+				iconUrl = plugin.iconUrl,
+				sourceName = local?.let { animeManager.firstSourceName(pkg) },
+				storeId = repoUrl,
+				isHidden = pkg in hidden,
+				isTvMovies = pkg in tvMovies,
+				isPrivateMode = true,
+				badge = BADGE_CLOUDSTREAM,
+			)
+			if (local != null) installedRows += row else availableRows += row
+		}
+		val byTitle = compareBy<SourceCatalogItem.Extension> { it.title.lowercase() }
+		return buildList {
+			if (installedRows.isNotEmpty()) {
+				add(ListHeader(R.string.installed))
+				addAll(streamingSections(installedRows.sortedWith(byTitle)))
+			}
+			if (availableRows.isNotEmpty()) {
+				add(ListHeader(R.string.available_to_install))
+				addAll(availableRows.sortedWith(byTitle))
+			}
+			if (isEmpty()) {
+				add(SourceCatalogItem.Hint(R.drawable.ic_empty_feed, R.string.nothing_found, R.string.cloudstream_no_available))
 			}
 		}
 	}
@@ -1384,6 +1569,18 @@ private const val LN_SOURCE_PREFIX = "LN_"
 
 /** Library key of an Aniyomi anime source, see AnimeMangaSource.name. */
 private const val ANIME_SOURCE_PREFIX = "ANIME_"
+
+private const val BADGE_CLOUDSTREAM = "CS3"
+private const val BADGE_ANIYOMI = "APK"
+
+/** The newest repository entry of plugin [internalName] that is ahead of the installed [installedVersion], if any. */
+internal fun cloudstreamUpdateFor(
+	available: List<CloudstreamRepoPlugin>,
+	internalName: String,
+	installedVersion: Long,
+): CloudstreamRepoPlugin? = available
+	.filter { it.internalName == internalName && it.version > installedVersion }
+	.maxByOrNull { it.version }
 
 private const val SECTION_ANIME = "section_anime"
 private const val SECTION_TV_MOVIES = "section_tv_movies"

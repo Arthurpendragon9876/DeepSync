@@ -337,6 +337,14 @@ class AppRouter private constructor(
 
     fun openExtensionStores() = startActivity(ExtensionStoresActivity::class.java)
 
+    /** Extension stores, opened on its Cloudstream tab (plugins, installing from a file or a link, repositories). */
+    fun openCloudstreamStore() {
+        val context = contextOrNull() ?: return
+        startActivity(
+            Intent(context, ExtensionStoresActivity::class.java).putExtra(KEY_EXTENSION_STORES_CLOUDSTREAM, true),
+        )
+    }
+
     fun openDownloads() = startActivity(DownloadsActivity::class.java)
 
     fun openDirectoriesSettings() = startActivity(MangaDirectoriesActivity::class.java)
@@ -1057,6 +1065,7 @@ class AppRouter private constructor(
         const val KEY_SORT_ORDER = "sort_order"
         const val KEY_SOURCE_CATALOG_AUTO_MIGRATE = "source_catalog_auto_migrate"
         const val KEY_EXTENSION_KIND = "extension_kind"
+        const val KEY_EXTENSION_STORES_CLOUDSTREAM = "extension_stores_cloudstream"
         const val KEY_SOURCE = "source"
         const val KEY_SCROLL_TO_LANGUAGE = "scroll_to_language"
         const val KEY_AUTO_DOWNLOAD = "auto_download"

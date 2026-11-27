@@ -33,6 +33,8 @@ import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import org.koitharu.kotatsu.anime.AnimeExtensionManager
+import org.koitharu.kotatsu.cloudstream.CloudstreamRuntime
+import org.koitharu.kotatsu.cloudstream.showCloudstreamDomainDialog
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -106,6 +108,9 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 
 	@Inject
 	lateinit var animeExtensionManager: AnimeExtensionManager
+
+	@Inject
+	lateinit var cloudstreamRuntime: CloudstreamRuntime
 
 	@Inject
 	@BaseHttpClient
@@ -206,6 +211,12 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 						tab.view.setBackgroundResource(R.drawable.bg_extension_store_tab_separator)
 					}
 				}
+				is ExtensionCatalogPage.Cloudstream -> {
+					tab.text = page.title
+					if (shouldShowStoreTabDivider(position, page)) {
+						tab.view.setBackgroundResource(R.drawable.bg_extension_store_tab_separator)
+					}
+				}
 				null -> tab.text = ""
 			}
 		}.attach()
@@ -292,10 +303,11 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 			viewModel.contentTypes,
 			viewModel.locales,
 			viewModel.contentFilter,
-		) { filter, contentTypes, locales, contentFilter ->
-			CatalogUiState(filter, contentTypes, locales, contentFilter)
+			viewModel.engineChip,
+		) { filter, contentTypes, locales, contentFilter, engine ->
+			CatalogUiState(filter, contentTypes, locales, contentFilter, engine)
 		}.observe(this) {
-			updateFilers(it.filter, it.contentTypes, it.locales, it.contentFilter)
+			updateFilers(it.filter, it.contentTypes, it.locales, it.contentFilter, it.engine)
 		}
 		addMenuProvider(SourcesCatalogMenuProvider(this, viewModel, this))
 		if (!settings.isShizukuInstallerEnabled && !settings.isPrivateInstallEnabled) {
@@ -387,6 +399,7 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 		when (data) {
 			is ContentType -> viewModel.setContentType(data, !chip.isChecked)
 			FilterChip.CONTENT -> viewModel.cycleContentFilter()
+			FilterChip.ENGINE -> viewModel.cycleEngineFilter()
 			FilterChip.LOCALE -> showLocalesMenu(chip)
 			else -> Unit
 		}
@@ -402,6 +415,16 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 	}
 
 	override fun onExtensionSettingsClick(item: SourceCatalogItem.Extension) {
+		if (CloudstreamRuntime.isCloudstreamPackage(item.packageName)) {
+			// A Cloudstream plugin has no source settings page; its settings are the provider addresses.
+			showCloudstreamDomainDialog(
+				context = this,
+				runtime = cloudstreamRuntime,
+				internalName = item.packageName.removePrefix(CloudstreamRuntime.PACKAGE_PREFIX),
+				title = item.title,
+			)
+			return
+		}
 		val sourceName = item.sourceName ?: return
 		router.openSourceSettings(MangaSource(sourceName))
 	}
@@ -451,8 +474,23 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 		contentTypes: List<ContentType>,
 		locales: Set<String?>,
 		contentFilter: ContentWarning,
+		engine: StreamingEngine?,
 	) {
-		val chips = ArrayList<ChipModel>(contentTypes.size + 2)
+		val chips = ArrayList<ChipModel>(contentTypes.size + 3)
+		// Streaming only: All engines -> Aniyomi -> Cloudstream; it reads as active whenever one engine is hidden
+		if (engine != null) {
+			chips += ChipModel(
+				titleResId = when (engine) {
+					StreamingEngine.ALL -> R.string.engine_all
+					StreamingEngine.ANIYOMI -> R.string.engine_aniyomi
+					StreamingEngine.CLOUDSTREAM -> R.string.engine_cloudstream
+				},
+				icon = R.drawable.ic_extension_settings,
+				isChecked = engine != StreamingEngine.ALL,
+				isCheckedIconVisible = false,
+				data = FilterChip.ENGINE,
+			)
+		}
 		if (locales.size > 1) {
 			chips += ChipModel(
 				title = appliedFilter.locale?.let(::getExternalExtensionLanguageLabel)
@@ -499,7 +537,12 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 	}
 
 	fun onManageRepoRequested() {
-		router.openExtensionStores()
+		// On a Cloudstream repository tab the stores screen opens on its Cloudstream tab, where repositories are managed.
+		if (selectedPageId.startsWith(CLOUDSTREAM_PAGE_PREFIX) || viewModel.engineFilter.value == StreamingEngine.CLOUDSTREAM) {
+			router.openCloudstreamStore()
+		} else {
+			router.openExtensionStores()
+		}
 	}
 
 	private data class CatalogUiState(
@@ -507,11 +550,13 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 		val contentTypes: List<ContentType>,
 		val locales: Set<String?>,
 		val contentFilter: ContentWarning,
+		val engine: StreamingEngine?,
 	)
 
 	private enum class FilterChip {
 		LOCALE,
 		CONTENT,
+		ENGINE,
 	}
 
 	private fun updateScrollToTopVisibility() {
@@ -587,7 +632,8 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 	private fun processInstallQueue() {
 		// A novel plugin is written into our own filesDir, so neither the install-packages permission
 		// nor legacy external storage applies — asking for either would be a prompt for nothing.
-		val isNovelNext = pendingInstallQueue.firstOrNull()?.let { it.isNovelPlugin || it.isAnimeExtension } == true
+		val isNovelNext = pendingInstallQueue.firstOrNull()
+			?.let { it.isNovelPlugin || it.isAnimeExtension || it.isCloudstreamPlugin } == true
 		if (!isNovelNext && !settings.isPrivateInstallEnabled && !settings.isShizukuInstallerEnabled &&
 			!canInstallPackages()
 		) {
@@ -603,6 +649,11 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 		// A novel plugin is plain javascript we evaluate and store ourselves — no apk, no installer.
 		if (requestModel.isNovelPlugin) {
 			installNovelPlugin(requestModel)
+			return
+		}
+		// A Cloudstream plugin is a .cs3 in our own storage: no package installer either.
+		if (requestModel.isCloudstreamPlugin) {
+			installCloudstreamPlugin(requestModel)
 			return
 		}
 		// An anime extension is loaded from our own storage, so it skips the package installer too.
@@ -664,6 +715,37 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 			} else {
 				Toast.makeText(this@SourcesCatalogActivity, R.string.extension_download_failed, Toast.LENGTH_LONG).show()
 			}
+		}
+		processInstallQueue()
+	}
+
+	private fun installCloudstreamPlugin(requestModel: SourcesCatalogViewModel.InstallRequest) {
+		Toast.makeText(this, R.string.download_started, Toast.LENGTH_SHORT).show()
+		lifecycleScope.launch {
+			val result = runCatching {
+				cloudstreamRuntime.installFromUrl(
+					requestModel.url,
+					requestModel.packageName.removePrefix(CloudstreamRuntime.PACKAGE_PREFIX),
+				)
+				animeExtensionManager.reload()
+			}
+			viewModel.clearExtensionInProgress(requestModel.packageName)
+			result.fold(
+				onSuccess = {
+					viewModel.onPrivateExtensionChanged()
+					viewModel.notifyExtensionInstalled(requestModel.packageName)
+				},
+				onFailure = { error ->
+					// The causes say what went wrong; the outermost message is often just a class name.
+					val reason = generateSequence<Throwable>(error) { it.cause }.take(3)
+						.joinToString(" <- ") { "${it.javaClass.simpleName}: ${it.message}" }
+						.take(300)
+					MaterialAlertDialogBuilder(this@SourcesCatalogActivity)
+						.setMessage(getString(R.string.cloudstream_failed_toast, reason))
+						.setPositiveButton(android.R.string.ok, null)
+						.show()
+				},
+			)
 		}
 		processInstallQueue()
 	}
@@ -1103,5 +1185,9 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 		/** Anime extensions are APKs too, but ones we keep in our own storage and load ourselves. */
 		val SourcesCatalogViewModel.InstallRequest.isAnimeExtension: Boolean
 			get() = packageName.startsWith(ANIME_EXTENSION_PACKAGE_PREFIX)
+
+		/** Cloudstream plugins are `.cs3` archives kept in our own storage. */
+		val SourcesCatalogViewModel.InstallRequest.isCloudstreamPlugin: Boolean
+			get() = CloudstreamRuntime.isCloudstreamPackage(packageName)
 	}
 }

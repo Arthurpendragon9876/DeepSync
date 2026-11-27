@@ -9,8 +9,12 @@ import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AlertDialog
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.graphics.Insets
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.lifecycle.Lifecycle
@@ -19,24 +23,47 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.tabs.TabLayout
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import org.koitharu.kotatsu.R
+import org.koitharu.kotatsu.anime.AnimeExtensionManager
+import org.koitharu.kotatsu.cloudstream.CloudstreamPluginsScreen
+import org.koitharu.kotatsu.cloudstream.CloudstreamRuntime
+import org.koitharu.kotatsu.core.nav.AppRouter
 import org.koitharu.kotatsu.core.util.ext.roundTopCorners
 import org.koitharu.kotatsu.core.nav.router
 import org.koitharu.kotatsu.core.ui.BaseActivity
 import org.koitharu.kotatsu.core.ui.dialog.setEditText
 import org.koitharu.kotatsu.core.util.ext.copyToClipboard
 import org.koitharu.kotatsu.databinding.ActivityExtensionStoresBinding
+import org.koitharu.kotatsu.settings.compose.DropSauceTheme
 import org.koitharu.kotatsu.settings.sources.catalog.ExtensionStoreState
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class ExtensionStoresActivity : BaseActivity<ActivityExtensionStoresBinding>(),
 	ExtensionStoresAdapter.Listener {
 
+	@Inject
+	lateinit var cloudstreamRuntime: CloudstreamRuntime
+
+	@Inject
+	lateinit var animeExtensions: AnimeExtensionManager
+
 	private val viewModel by viewModels<ExtensionStoresViewModel>()
 	private lateinit var adapter: ExtensionStoresAdapter
 	private lateinit var reorderHelper: ItemTouchHelper
+
+	/** Which tab is showing: [TAB_STORES] or [TAB_CLOUDSTREAM]. */
+	private var currentTab = TAB_STORES
+
+	/** Bumped by the toolbar's refresh button on the Cloudstream tab; the plugin page reloads when it changes. */
+	private val cloudstreamRefresh = MutableStateFlow(0)
+
+	/** The plugin page only composes (and so only loads plugins and fetches repositories) once its tab was opened. */
+	private val cloudstreamOpened = MutableStateFlow(false)
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
@@ -53,6 +80,17 @@ class ExtensionStoresActivity : BaseActivity<ActivityExtensionStoresBinding>(),
 			it.attachToRecyclerView(viewBinding.recyclerView)
 		}
 		viewBinding.fabAdd.setOnClickListener { showStoreDialog(null) }
+		viewBinding.composeCloudstream.apply {
+			setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+			setContent {
+				DropSauceTheme {
+					val opened by cloudstreamOpened.collectAsState()
+					val refreshKey by cloudstreamRefresh.collectAsState()
+					if (opened) CloudstreamPluginsScreen(cloudstreamRuntime, animeExtensions, refreshKey)
+				}
+			}
+		}
+		setupTabs(savedInstanceState)
 		lifecycleScope.launch {
 			repeatOnLifecycle(Lifecycle.State.STARTED) {
 				viewModel.stores.collect(adapter::submitList)
@@ -64,7 +102,47 @@ class ExtensionStoresActivity : BaseActivity<ActivityExtensionStoresBinding>(),
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)
 		setIntent(intent)
+		if (intent.getBooleanExtra(AppRouter.KEY_EXTENSION_STORES_CLOUDSTREAM, false)) {
+			viewBinding.tabsStoreType.getTabAt(TAB_CLOUDSTREAM)?.select()
+		}
 		handleAddStoreIntent(intent)
+	}
+
+	override fun onSaveInstanceState(outState: Bundle) {
+		super.onSaveInstanceState(outState)
+		outState.putInt(KEY_TAB, currentTab)
+	}
+
+	/** Stores | Cloudstream. A recreated activity keeps its tab; a fresh one honours the caller. */
+	private fun setupTabs(savedInstanceState: Bundle?) {
+		val tabs = viewBinding.tabsStoreType
+		tabs.addTab(tabs.newTab().setText(R.string.extension_stores_tab_stores))
+		tabs.addTab(tabs.newTab().setText(R.string.extension_stores_tab_cloudstream))
+		val initial = when {
+			savedInstanceState != null -> savedInstanceState.getInt(KEY_TAB, TAB_STORES)
+			intent?.getBooleanExtra(AppRouter.KEY_EXTENSION_STORES_CLOUDSTREAM, false) == true -> TAB_CLOUDSTREAM
+			intent?.scheme.equals("cloudstreamrepo", ignoreCase = true) -> TAB_CLOUDSTREAM
+			else -> TAB_STORES
+		}
+		tabs.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+			override fun onTabSelected(tab: TabLayout.Tab) = showTab(tab.position)
+
+			override fun onTabUnselected(tab: TabLayout.Tab) = Unit
+
+			override fun onTabReselected(tab: TabLayout.Tab) = Unit
+		})
+		tabs.getTabAt(initial)?.select()
+		showTab(initial)
+	}
+
+	private fun showTab(position: Int) {
+		currentTab = position
+		val isStores = position == TAB_STORES
+		viewBinding.recyclerView.isVisible = isStores
+		viewBinding.composeCloudstream.isVisible = !isStores
+		if (!isStores) cloudstreamOpened.value = true
+		// The Cloudstream page has its own "Add repository" action, so the store FAB only belongs to the first tab.
+		if (isStores) viewBinding.fabAdd.show() else viewBinding.fabAdd.hide()
 	}
 
 	override fun onApplyWindowInsets(v: View, insets: WindowInsetsCompat): WindowInsetsCompat {
@@ -87,7 +165,11 @@ class ExtensionStoresActivity : BaseActivity<ActivityExtensionStoresBinding>(),
 
 	override fun onOptionsItemSelected(item: MenuItem): Boolean {
 		if (item.itemId == R.id.action_refresh) {
-			lifecycleScope.launch { viewModel.retry() }
+			if (currentTab == TAB_CLOUDSTREAM) {
+				cloudstreamRefresh.value++
+			} else {
+				lifecycleScope.launch { viewModel.retry() }
+			}
 			return true
 		}
 		return super.onOptionsItemSelected(item)
@@ -161,6 +243,13 @@ class ExtensionStoresActivity : BaseActivity<ActivityExtensionStoresBinding>(),
 
 	private fun handleAddStoreIntent(intent: Intent?) {
 		val data = intent?.data ?: return
+		// A cloudstreamrepo:// link adds a Cloudstream repository, which the Cloudstream tab then lists.
+		if (data.scheme.equals("cloudstreamrepo", ignoreCase = true)) {
+			runCatching { cloudstreamRuntime.addRepo(data.toString()) }
+				.onSuccess { viewBinding.tabsStoreType.getTabAt(TAB_CLOUDSTREAM)?.select() }
+				.onFailure { Toast.makeText(this, it.message ?: getString(R.string.invalid_url), Toast.LENGTH_LONG).show() }
+			return
+		}
 		val isAddStore = when {
 			data.scheme == "mihon" && data.host == "extension-store" -> true
 			data.host == "add-repo" && data.scheme in setOf("kotatsu", "tachiyomi") -> true
@@ -193,6 +282,12 @@ class ExtensionStoresActivity : BaseActivity<ActivityExtensionStoresBinding>(),
 	private fun setDialogBusy(dialog: AlertDialog, busy: Boolean) {
 		dialog.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled = !busy
 		dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = !busy
+	}
+
+	private companion object {
+		const val KEY_TAB = "store_tab"
+		const val TAB_STORES = 0
+		const val TAB_CLOUDSTREAM = 1
 	}
 
 	private inner class ReorderCallback : ItemTouchHelper.SimpleCallback(

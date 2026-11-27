@@ -170,6 +170,63 @@ class ExtensionCatalogPagesTest {
 		assertEquals(true, updated)
 	}
 
+	@Test
+	fun `cloudstream repositories follow the stores as tabs`() {
+		val pages = buildExtensionCatalogPages(
+			listOf(store("first", "First")),
+			listOf("https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/master/repo.json"),
+		)
+
+		assertEquals(
+			listOf(
+				ExtensionCatalogPage.Available,
+				ExtensionCatalogPage.Store("first", "First"),
+				ExtensionCatalogPage.Cloudstream(
+					"https://raw.githubusercontent.com/phisher98/cloudstream-extensions-phisher/master/repo.json",
+					"phisher98",
+				),
+			),
+			pages,
+		)
+		assertTrue(pages.last().id.startsWith(CLOUDSTREAM_PAGE_PREFIX))
+		assertTrue(shouldShowStoreTabDivider(1, pages.last()))
+	}
+
+	@Test
+	fun `cloudstream repository label falls back to the host`() {
+		assertEquals("example.com", cloudstreamRepoLabel("https://www.example.com/repo.json"))
+		assertEquals("not a url", cloudstreamRepoLabel("not a url"))
+	}
+
+	@Test
+	fun `engine filter cycles through every engine`() {
+		assertEquals(StreamingEngine.ANIYOMI, StreamingEngine.ALL.next())
+		assertEquals(StreamingEngine.CLOUDSTREAM, StreamingEngine.ANIYOMI.next())
+		assertEquals(StreamingEngine.ALL, StreamingEngine.CLOUDSTREAM.next())
+	}
+
+	@Test
+	fun `cloudstream update picks the newest version ahead of the installed one`() {
+		val available = listOf(plugin("Foo", 3), plugin("Foo", 5), plugin("Bar", 9))
+
+		assertEquals(5, cloudstreamUpdateFor(available, "Foo", 3)?.version)
+		assertEquals(null, cloudstreamUpdateFor(available, "Foo", 5))
+		assertEquals(null, cloudstreamUpdateFor(available, "Missing", 0))
+	}
+
+	private fun plugin(name: String, version: Int) = org.koitharu.kotatsu.cloudstream.CloudstreamRepoPlugin(
+		internalName = name,
+		name = name,
+		url = "https://example.com/$name-$version.cs3",
+		version = version,
+		language = "en",
+		description = null,
+		types = emptyList(),
+		iconUrl = null,
+		status = 1,
+		repoUrl = "https://example.com/repo.json",
+	)
+
 	private fun repoEntry(pkg: String, apk: String, isNovel: Boolean = false) = ExternalExtensionRepoEntry(
 		name = pkg.substringAfterLast('.'),
 		packageName = pkg,

@@ -430,7 +430,7 @@
     <string name="history_cleared">History cleared</string>
     <string name="manage">Manage</string>
     <string name="extension_stores">Extension stores</string>
-    <string name="manage_stores_summary">Add, edit, remove, and refresh extension stores</string>
+    <string name="manage_stores_summary">Add, edit, remove, and refresh extension stores and Cloudstream plugins</string>
     <string name="add_store">Add store</string>
     <string name="edit_store">Edit store</string>
     <string name="remove_store">Remove store</string>

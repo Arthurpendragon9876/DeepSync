@@ -26,6 +26,15 @@
 
 		</com.google.android.material.appbar.CollapsingToolbarLayout>
 
+		<!-- Stores | Cloudstream: the Cloudstream plugin page lives in the second tab -->
+		<com.google.android.material.tabs.TabLayout
+			android:id="@+id/tabs_store_type"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:background="@null"
+			app:tabGravity="fill"
+			app:tabMode="fixed" />
+
 	</com.google.android.material.appbar.AppBarLayout>
 
 	<LinearLayout
@@ -43,6 +52,13 @@
 			android:clipToPadding="false"
 			android:paddingVertical="@dimen/margin_small"
 			app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+
+		<androidx.compose.ui.platform.ComposeView
+			android:id="@+id/compose_cloudstream"
+			android:layout_width="match_parent"
+			android:layout_height="0dp"
+			android:layout_weight="1"
+			android:visibility="gone" />
 
 	</LinearLayout>
 

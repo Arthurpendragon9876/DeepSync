@@ -24,6 +24,8 @@ sealed interface SourceCatalogItem : ListModel {
 		val isTvMovies: Boolean = false,
 		/** True when the extension list is in private mode (controls icon layout). */
 		val isPrivateMode: Boolean = false,
+		/** Streaming rows say which engine they come from: "CS3" for a Cloudstream plugin, "APK" for an Aniyomi extension. */
+		val badge: String? = null,
 	) : SourceCatalogItem {
 
 		enum class Action(

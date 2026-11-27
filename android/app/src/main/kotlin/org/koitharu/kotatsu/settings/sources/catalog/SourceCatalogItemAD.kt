@@ -77,8 +77,10 @@ fun sourceCatalogItemExtensionAD(
 			item.action != SourceCatalogItem.Extension.Action.INSTALL
 		}
 		val isAnime = item.packageName.startsWith(ANIME_EXTENSION_PACKAGE_PREFIX)
-		// Anime sources have no settings screen yet, so the button would lead nowhere.
-		binding.imageViewSettings.isVisible = isInstalled && item.sourceName != null && !isAnime
+		val isCloudstream = CloudstreamRuntime.isCloudstreamPackage(item.packageName)
+		// Anime sources have no settings screen yet, so the button would lead nowhere. A Cloudstream plugin's
+		// settings are its provider addresses, which it always has.
+		binding.imageViewSettings.isVisible = isInstalled && (isCloudstream || (item.sourceName != null && !isAnime))
 		binding.imageViewSettings.isEnabled = !isInProgress
 		binding.imageViewSettings.alpha = if (isInProgress) 0.45f else 1f
 		// Only anime-family extensions (Aniyomi and Cloudstream) can be tagged; it is the metadata that keeps Anime
@@ -118,6 +120,8 @@ fun sourceCatalogItemExtensionAD(
 		binding.imageViewAdd.contentDescription = actionDescription
 		TooltipCompat.setTooltipText(binding.imageViewAdd, actionDescription)
 		binding.textViewTitle.text = item.title
+		binding.textViewBadge.text = item.badge
+		binding.textViewBadge.isVisible = item.badge != null
 		binding.textViewDescription.text = item.subtitle
 		binding.textViewDescription.drawableStart = null
 		binding.imageViewIcon.applyExternalSourceStyle(true)
