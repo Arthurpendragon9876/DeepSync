@@ -1,0 +1,94 @@
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/backup/MihonBackupManager.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/backup/MihonBackupManager.kt
+index 3f97e7b..255fef2 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/backup/MihonBackupManager.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/backup/MihonBackupManager.kt
+@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.withContext
+ import kotlinx.serialization.SerializationException
+ import kotlinx.serialization.protobuf.ProtoBuf
++import okio.Buffer
++import okio.BufferedSource
+ import okio.buffer
+ import okio.gzip
+ import okio.source
+@@ -245,14 +247,26 @@ class MihonBackupManager @Inject constructor(
+     )
+   }
+ 
++    /**
++     * Reads the whole payload but gives up past [limit] bytes, so a huge or maliciously compressed
++     * backup fails with a clear error instead of an OutOfMemoryError.
++     */
++    private fun BufferedSource.readBounded(limit: Long): ByteArray {
++        val out = Buffer()
++        while (out.size <= limit) {
++            if (read(out, READ_CHUNK_BYTES) == -1L) return out.readByteArray()
++        }
++        throw BadBackupFormatException(java.io.IOException("Backup is larger than $limit bytes"))
++    }
++
+     private fun decode(uri: Uri): MihonBackup {
+         val payload = context.contentResolver.openInputStream(uri)?.use { input ->
+             val source = input.source().buffer()
+             val peeked = source.peek().apply { require(2) }
+             val signature = peeked.readShort().toInt()
+             when (signature) {
+-                0x1f8b -> source.gzip().buffer().readByteArray()
+-                else -> source.readByteArray()
++                0x1f8b -> source.gzip().buffer().readBounded(MAX_BACKUP_BYTES)
++                else -> source.readBounded(MAX_BACKUP_BYTES)
+             }
+         } ?: throw BadBackupFormatException(null)
+ 
+@@ -639,6 +653,10 @@ class MihonBackupManager @Inject constructor(
+ 
+   private companion object {
+     const val DEFAULT_CATEGORY_TITLE = "Default"
++
++    /** Decompressed size cap for one backup; real libraries are a small fraction of this. */
++    const val MAX_BACKUP_BYTES = 256L * 1024 * 1024
++    const val READ_CHUNK_BYTES = 8192L
+   }
+ }
+ 
+diff --git a/android/app/src/main/kotlin/tachiyomi/core/common/preference/InMemoryPreferenceStore.kt b/android/app/src/main/kotlin/tachiyomi/core/common/preference/InMemoryPreferenceStore.kt
+index 29a29b5..b4fa713 100644
+--- a/android/app/src/main/kotlin/tachiyomi/core/common/preference/InMemoryPreferenceStore.kt
++++ b/android/app/src/main/kotlin/tachiyomi/core/common/preference/InMemoryPreferenceStore.kt
+@@ -47,8 +47,11 @@ class InMemoryPreferenceStore(
+ 		return if (data == null) default else InMemoryPreference(key, data, defaultValue)
+ 	}
+ 
++	@Suppress("UNCHECKED_CAST")
+ 	override fun getStringSet(key: String, defaultValue: Set<String>): Preference<Set<String>> {
+-		TODO("Not yet implemented")
++		val default = InMemoryPreference(key, null, defaultValue)
++		val data: Set<String>? = preferences[key]?.get() as? Set<String>
++		return if (data == null) default else InMemoryPreference(key, data, defaultValue)
+ 	}
+ 
+ 	@Suppress("UNCHECKED_CAST")
+diff --git a/android/app/src/test/kotlin/org/koitharu/kotatsu/search/ui/GlobalSearchScopeTest.kt b/android/app/src/test/kotlin/org/koitharu/kotatsu/search/ui/GlobalSearchScopeTest.kt
+index ebca054..129e049 100644
+--- a/android/app/src/test/kotlin/org/koitharu/kotatsu/search/ui/GlobalSearchScopeTest.kt
++++ b/android/app/src/test/kotlin/org/koitharu/kotatsu/search/ui/GlobalSearchScopeTest.kt
+@@ -34,9 +34,16 @@ class GlobalSearchScopeTest {
+ 	fun `global results use the Explore source classification everywhere`() {
+ 		val search = source("search/ui/multi/SearchViewModel.kt")
+ 
+-		assertTrue(search.contains(".filter{it.isNovelSource==isNovelScope}"))
+-		assertTrue(search.contains(".filter{it.source.isNovelSource==isNovelScope}"))
+-		assertTrue(search.contains("searchLocal():SearchResultsListModel?=if(isNovelScope){null}"))
++		// Global search follows the 3-way HomeMode (Manga / Novel / Anime), not the old novel boolean.
++		assertTrue(search.contains("get()=settings.homeMode"))
++		assertTrue(search.contains(".filter{it.isInMode(mode,settings.streamingKind)}"))
++		assertTrue(search.contains(".filter{it.source.isInMode(mode,settings.streamingKind)}"))
++		// The local library only holds manga, so it is searched in Manga mode only.
++		assertTrue(
++			search.contains(
++				"searchLocal():SearchResultsListModel?=if(mode!=org.koitharu.kotatsu.home.ui.model.HomeMode.MANGA){null}",
++			),
++		)
+ 	}
+ 
+ 	private fun resource(relativePath: String): String {
