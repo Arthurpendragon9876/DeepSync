@@ -36,6 +36,8 @@ import org.koitharu.kotatsu.core.util.ext.printStackTraceDebug
 import org.koitharu.kotatsu.core.util.ext.trySetForeground
 import org.koitharu.kotatsu.core.util.progress.Progress
 import org.koitharu.kotatsu.settings.work.PeriodicWorkScheduler
+import org.koitharu.kotatsu.webhook.WebhookDispatcher
+import org.koitharu.kotatsu.webhook.WebhookEvent
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipOutputStream
 import javax.inject.Inject
@@ -47,6 +49,7 @@ class PeriodicalBackupWorker @AssistedInject constructor(
 	private val repository: LocalBackupRepository,
 	private val externalBackupStorage: ExternalBackupStorage,
 	private val settings: AppSettings,
+	private val webhooks: WebhookDispatcher,
 ) : CoroutineWorker(context, workerParams) {
 
 	private val notificationManager by lazy { NotificationManagerCompat.from(applicationContext) }
@@ -67,11 +70,13 @@ class PeriodicalBackupWorker @AssistedInject constructor(
 			e.printStackTraceDebug()
 			tempFile.delete()
 			postErrorNotification(e)
+			webhooks.dispatch(WebhookEvent.backupFailed())
 			return Result.failure()
 		}
 		tempFile.delete()
 		externalBackupStorage.trim(settings.periodicalBackupMaxCount)
 		postCompletionNotification(outputUri)
+		webhooks.dispatch(WebhookEvent.backupCompleted())
 		return Result.success()
 	}
 

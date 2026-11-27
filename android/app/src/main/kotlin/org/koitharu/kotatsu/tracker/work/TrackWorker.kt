@@ -65,6 +65,8 @@ import org.koitharu.kotatsu.tracker.domain.CheckNewChaptersUseCase
 import org.koitharu.kotatsu.tracker.domain.GetTracksUseCase
 import org.koitharu.kotatsu.tracker.domain.model.MangaTracking
 import org.koitharu.kotatsu.tracker.domain.model.MangaUpdates
+import org.koitharu.kotatsu.webhook.WebhookDispatcher
+import org.koitharu.kotatsu.webhook.WebhookEvent
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Provider
@@ -83,6 +85,7 @@ class TrackWorker @AssistedInject constructor(
 	private val workManager: WorkManager,
 	private val favouritesRepository: FavouritesRepository,
 	private val downloadSchedulerLazy: Lazy<DownloadWorker.Scheduler>,
+	private val webhooks: WebhookDispatcher,
 ) : CoroutineWorker(context, workerParams) {
 
 	private val notificationManager by lazy { NotificationManagerCompat.from(applicationContext) }
@@ -125,6 +128,7 @@ class TrackWorker @AssistedInject constructor(
 		var hasAlerted = false
 		var failedChecks = 0
 		var isCancelled = false
+		val updatedForWebhook = ArrayList<WebhookEvent.Item>()
 
 		try {
 			channelFlow {
@@ -168,6 +172,9 @@ class TrackWorker @AssistedInject constructor(
 
 					is MangaUpdates.Success -> {
 						processDownload(it)
+						if (it.isValid && it.isNotEmpty()) {
+							updatedForWebhook += WebhookEvent.Item(it.manga.title, it.newChapters.size)
+						}
 
 						// Shown right away, grouped with the others; only the check's first one rings
 						if (it.isValid && it.isNotEmpty() &&
@@ -178,7 +185,10 @@ class TrackWorker @AssistedInject constructor(
 					}
 				}
 			}.collect()
-
+			// One summary per run, not one message per title: a full run can touch hundreds of them.
+			if (updatedForWebhook.isNotEmpty()) {
+				webhooks.dispatch(WebhookEvent.libraryUpdate(updatedForWebhook))
+			}
 		} catch (e: CancellationException) {
 			isCancelled = true
 			e.printStackTraceDebug()

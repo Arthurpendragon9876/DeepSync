@@ -1648,6 +1648,18 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		get() = prefs.getString(KEY_DISCORD_TOKEN, null)?.trim()?.nullIfEmpty()
 		set(value) = prefs.edit { putString(KEY_DISCORD_TOKEN, value?.nullIfEmpty()) }
 
+	val isWebhooksEnabled: Boolean
+		get() = prefs.getBoolean(KEY_WEBHOOKS_ENABLED, false)
+
+	/** A Discord webhook URL carries its own token, so treat it as a secret (see [SENSITIVE_BACKUP_KEYS]). */
+	val webhookDiscordUrl: String?
+		get() = prefs.getString(KEY_WEBHOOK_DISCORD_URL, null)?.trim()?.nullIfEmpty()
+
+	val webhookJsonUrl: String?
+		get() = prefs.getString(KEY_WEBHOOK_JSON_URL, null)?.trim()?.nullIfEmpty()
+
+	fun isWebhookEventEnabled(key: String): Boolean = prefs.getBoolean(key, true)
+
 	var isVerboseLoggingEnabled: Boolean
 		get() = prefs.getBoolean(KEY_VERBOSE_LOGGING, false)
 		set(value) = prefs.edit { putBoolean(KEY_VERBOSE_LOGGING, value) }
@@ -2167,6 +2179,12 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_DISCORD_RPC = "discord_rpc"
 		const val KEY_DISCORD_RPC_SKIP_NSFW = "discord_rpc_skip_nsfw"
 		const val KEY_DISCORD_TOKEN = "discord_token"
+		const val KEY_WEBHOOKS_ENABLED = "webhooks_enabled"
+		const val KEY_WEBHOOK_DISCORD_URL = "webhook_discord_url"
+		const val KEY_WEBHOOK_JSON_URL = "webhook_json_url"
+		const val KEY_WEBHOOK_EVENT_LIBRARY = "webhook_event_library"
+		const val KEY_WEBHOOK_EVENT_SYNC = "webhook_event_sync"
+		const val KEY_WEBHOOK_EVENT_BACKUP = "webhook_event_backup"
 		const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
 		const val KEY_ONBOARDING_INSTALL_ID = "onboarding_install_id"
 
@@ -2186,6 +2204,13 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 			KEY_INCOGNITO_MODE,
 			KEY_ONBOARDING_COMPLETED,
 			KEY_ONBOARDING_INSTALL_ID,
+			// Webhook URLs are secrets and stay on this device: never in a backup or in cloud sync.
+			KEY_WEBHOOKS_ENABLED,
+			KEY_WEBHOOK_DISCORD_URL,
+			KEY_WEBHOOK_JSON_URL,
+			KEY_WEBHOOK_EVENT_LIBRARY,
+			KEY_WEBHOOK_EVENT_SYNC,
+			KEY_WEBHOOK_EVENT_BACKUP,
 		)
 
 		/**

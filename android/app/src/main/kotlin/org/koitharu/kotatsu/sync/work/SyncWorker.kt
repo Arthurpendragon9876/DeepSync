@@ -32,6 +32,8 @@ import org.koitharu.kotatsu.settings.work.PeriodicWorkScheduler
 import org.koitharu.kotatsu.sync.data.SyncSettings
 import org.koitharu.kotatsu.sync.domain.SyncRepository
 import org.koitharu.kotatsu.sync.domain.SyncResult
+import org.koitharu.kotatsu.webhook.WebhookDispatcher
+import org.koitharu.kotatsu.webhook.WebhookEvent
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -42,19 +44,28 @@ class SyncWorker @AssistedInject constructor(
 	@Assisted workerParams: WorkerParameters,
 	private val repository: SyncRepository,
 	private val syncSettings: SyncSettings,
+	private val webhooks: WebhookDispatcher,
 ) : CoroutineWorker(context, workerParams) {
 
 	override suspend fun doWork(): Result {
 		// Waits for a sync the app may still be running, so changes made right before leaving it go out.
 		return when (val result = repository.sync(force = true)) {
-			is SyncResult.Success -> Result.success()
+			is SyncResult.Success -> {
+				webhooks.dispatch(WebhookEvent.syncCompleted())
+				Result.success()
+			}
 			is SyncResult.SignInRequired -> {
 				// Background sync is dead until the user re-consents — say so instead of failing forever.
 				if (syncSettings.isSignedIn) showSignInRequiredNotification()
 				Result.failure()
 			}
 
-			is SyncResult.Error -> if (result.retryable && runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+			is SyncResult.Error -> if (result.retryable && runAttemptCount < MAX_ATTEMPTS) {
+				Result.retry()
+			} else {
+				webhooks.dispatch(WebhookEvent.syncFailed())
+				Result.failure()
+			}
 		}
 	}
 

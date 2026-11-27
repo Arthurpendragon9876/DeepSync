@@ -1338,6 +1338,24 @@
     <string name="discord_token_summary">Enter your Discord Token to enable Rich Presence</string>
     <string name="discord_token_description">Enter your Discord Token or click %s to get it using browser</string>
     <string name="discord_token_hint">Paste your Discord Token here</string>
+    <string name="webhooks">Webhooks</string>
+    <string name="webhooks_summary">Post library updates, sync and backup results to Discord or your own server</string>
+    <string name="webhook_destinations">Destinations</string>
+    <string name="webhook_discord_url" translatable="false">Discord webhook URL</string>
+    <string name="webhook_json_url">JSON webhook URL</string>
+    <string name="webhook_configured">Configured</string>
+    <string name="webhook_not_set">Not set</string>
+    <string name="webhook_url_hint">Paste the full URL. It is stored on this device only and is never included in backups or sync.</string>
+    <string name="webhook_url_invalid">Enter a valid URL</string>
+    <string name="webhook_events">Events</string>
+    <string name="webhook_event_library">Library updates</string>
+    <string name="webhook_event_sync">Sync results</string>
+    <string name="webhook_event_backup">Backup results</string>
+    <string name="webhook_send_test">Send test webhook</string>
+    <string name="webhook_send_test_summary">Sends a test message to every configured destination</string>
+    <string name="webhook_test_sent">Test webhook sent</string>
+    <string name="webhook_test_no_url">Add a webhook URL first</string>
+    <string name="webhook_test_failed">Webhook failed: %s</string>
     <string name="discord_rpc_summary">Show your reading status on Discord</string>
     <string name="discord_rpc_description">Reading manga on Deepsync - a manga reader app</string>
     <string name="reading_s">Reading %s</string>
