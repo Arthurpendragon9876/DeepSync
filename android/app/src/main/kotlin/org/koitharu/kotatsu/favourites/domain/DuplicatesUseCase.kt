@@ -63,7 +63,7 @@ class DuplicatesUseCase @Inject constructor(
 			}
 		}
 		val normalizedTitles = titles.mapNotNullTo(HashSet()) {
-			it.normalizeTitle().takeIf { s -> s.length >= MIN_NORMALIZED_LENGTH }
+			it.toTitleKey().takeIf { s -> s.length >= MIN_NORMALIZED_LENGTH }
 		}
 		val matched = HashMap<Long, List<FavouriteManga>>(found.size)
 		for ((id, rows) in found) {
@@ -122,7 +122,7 @@ class DuplicatesUseCase @Inject constructor(
 
 	private fun Manga.matchesAnyOf(normalizedTitles: Set<String>): Boolean {
 		for (candidate in allTitles()) {
-			val normalized = candidate.normalizeTitle()
+			val normalized = candidate.toTitleKey()
 			if (normalized.length < MIN_NORMALIZED_LENGTH) {
 				continue
 			}
@@ -137,14 +137,6 @@ class DuplicatesUseCase @Inject constructor(
 		add(title)
 		addAll(altTitles)
 	}.filter { it.isNotBlank() }
-
-	private fun String.normalizeTitle() = buildString(length) {
-		for (c in this@normalizeTitle) {
-			if (c.isLetterOrDigit()) {
-				append(c.lowercaseChar())
-			}
-		}
-	}
 
 	private companion object {
 

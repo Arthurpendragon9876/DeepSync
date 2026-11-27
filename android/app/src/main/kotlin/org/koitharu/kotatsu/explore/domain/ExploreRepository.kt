@@ -10,6 +10,8 @@ import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.util.ext.asArrayList
 import org.koitharu.kotatsu.core.util.ext.printStackTraceDebug
 import org.koitharu.kotatsu.explore.data.MangaSourcesRepository
+import org.koitharu.kotatsu.favourites.domain.collapseDuplicates
+import org.koitharu.kotatsu.favourites.domain.duplicateKey
 import org.koitharu.kotatsu.history.data.HistoryRepository
 import org.koitharu.kotatsu.parsers.model.Manga
 import org.koitharu.kotatsu.parsers.model.MangaListFilter
@@ -193,7 +195,8 @@ class ExploreRepository @Inject constructor(
 			perSource.forEach { list -> list.getOrNull(index)?.let(merged::add) }
 			index++
 		}
-		merged.distinctBy { it.id }.take(limit)
+		// Same id is the same entry; same title from another source is collapsed too, keeping the first (interleaved) one
+		merged.distinctBy { it.id }.collapseDuplicates({ it.duplicateKey() }, Comparator { _, _ -> 0 }).take(limit)
 	}
 
 	/** Titles only count as excluded or missing a genre when the source actually reported tags. */

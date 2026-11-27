@@ -32,6 +32,8 @@ import org.koitharu.kotatsu.list.domain.MangaListMapper
 import org.koitharu.kotatsu.list.domain.QuickFilterListener
 import org.koitharu.kotatsu.list.ui.model.EmptyState
 import org.koitharu.kotatsu.list.ui.model.ListHeader
+import org.koitharu.kotatsu.favourites.domain.collapseDuplicates
+import org.koitharu.kotatsu.favourites.domain.duplicateKey
 import org.koitharu.kotatsu.list.ui.model.ListModel
 import org.koitharu.kotatsu.list.ui.model.LoadingState
 import org.koitharu.kotatsu.list.ui.model.QuickFilter
@@ -239,6 +241,8 @@ class FeedViewModel @Inject constructor(
 		// The feed is kept apart per mode: manga, novels and anime each show only their own updates.
 		// The mode is chosen before the page is cut, so the page is filled with this mode's entries.
 		val feedItems = (if (settings.isFeedAllModes) this else filter { it.manga.source.isInMode(mode, kind) })
+			// The same title from two sources is one feed entry: keep the unread one, then the newest
+			.collapseDuplicates({ it.manga.duplicateKey() }, compareBy<TrackingLogItem>({ it.isNew }, { it.createdAt }))
 			.take(pageLimit)
 			.map { it to mangaListMapper.toFeedItem(it) }
 			.filter { !isUnreadOnly || it.second.isNew }
