@@ -315,6 +315,12 @@ function createApi({ store, zipUrl, proxyUrl, streamUrl = (u) => u, dialogs = {}
       return { byDay, byMode, total: store.activity.length, streak, titles: titles.length, favourites: Object.keys(store.favourites.items).length, top: titles.sort((a, b) => (b.count || 0) - (a.count || 0)).slice(0, 5) }
     },
     'backup:export': async () => ({ settings: store.publicSettings(), progress: store.progress, links: store.links, favourites: store.favourites, history: store.history, activity: store.activity, exportedAt: new Date().toISOString() }),
+    'backup:importAndroid': async ({ b64 }) => {
+      const { convertBuffer } = require('./android-backup')
+      const { favourites, history, report } = await convertBuffer(Buffer.from(String(b64 || ''), 'base64'))
+      await h['backup:import']({ data: { favourites, history } })
+      return report
+    },
     'backup:import': async ({ data }) => {
       if (data.progress) Object.assign(store.progress, data.progress)
       if (data.links) Object.assign(store.links, data.links)

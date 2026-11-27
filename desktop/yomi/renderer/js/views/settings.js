@@ -230,11 +230,14 @@ const panes = {
   },
   data() {
     const file = h('input', { type: 'file', accept: '.json', class: 'hidden', onchange: async (e) => { try { await api('backup:import', { data: JSON.parse(await e.target.files[0].text()) }); toast('Backup imported'); window.dispatchEvent(new Event('ds:boot')) } catch (er) { toast('Invalid backup file: ' + er.message, true) } } })
+    const toB64 = (buf) => { let s = ''; const u = new Uint8Array(buf); for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s) }
+    const androidFile = h('input', { type: 'file', accept: '.zip', class: 'hidden', onchange: async (e) => { try { const f = e.target.files[0]; if (!f) return; const r = await api('backup:importAndroid', { b64: toB64(await f.arrayBuffer()) }); toast(`Imported ${r.favourites} favourites, ${r.history} history entries` + (r.unmatched.length ? ` (${r.unmatched.length} skipped: not linked to AniList)` : '')); window.dispatchEvent(new Event('ds:boot')) } catch (er) { toast('Cannot read Android backup: ' + er.message, true) } e.target.value = '' } })
     return [row('Export backup', 'Settings, progress, library links, favourites, history and stats as a JSON file. Tracker tokens are never included.', h('button', { class: 'btn', onclick: async () => {
       const blob = new Blob([JSON.stringify(await api('backup:export'), null, 2)], { type: 'application/json' })
       const a = h('a', { href: URL.createObjectURL(blob), download: 'yomi-backup.json' }); document.body.append(a); a.click(); a.remove()
     } }, icon('download', 18), 'Export')),
     row('Import backup', 'Merges a previously exported file', h('button', { class: 'btn', onclick: () => file.click() }, 'Import')), file,
+    row('Import Android backup', 'Reads a .bk.zip from the Android app. Only titles tracked with AniList there can be brought over (favourites, categories, history).', h('button', { class: 'btn', onclick: () => androidFile.click() }, 'Import')), androidFile,
     row('Clear cache', 'Forget cached AniList responses', h('button', { class: 'btn', onclick: async () => { await api('cache:clear'); toast('Cache cleared') } }, 'Clear')),
     row('Data folder', 'Where settings and progress are stored', h('button', { class: 'btn', onclick: () => api('app:openDataDir') }, icon('folder', 18), 'Open'))]
   },
