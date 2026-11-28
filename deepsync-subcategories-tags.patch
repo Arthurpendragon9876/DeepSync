@@ -1,0 +1,1316 @@
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/backup/local/data/model/BackupModels.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/backup/local/data/model/BackupModels.kt
+index 234bb30..89ebb6b 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/backup/local/data/model/BackupModels.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/backup/local/data/model/BackupModels.kt
+@@ -188,6 +188,9 @@ class CategoryBackup(
+ 	@SerialName("show_in_lib") val isVisibleInLibrary: Boolean = true,
+ 	/** Cross-device category identity used by Drive sync; restoring it keeps the category the same one. */
+ 	@SerialName("uid") val uid: String? = null,
++	@SerialName("parent_id") val parentId: Int? = null,
++	@SerialName("update_interval") val updateInterval: String? = null,
++	@SerialName("media_tag") val mediaTag: String? = null,
+ ) {
+ 
+ 	constructor(entity: FavouriteCategoryEntity, uid: String? = null) : this(
+@@ -200,6 +203,9 @@ class CategoryBackup(
+ 		downloadNewChapters = entity.downloadNewChapters,
+ 		isVisibleInLibrary = entity.isVisibleInLibrary,
+ 		uid = uid,
++		parentId = entity.parentId,
++		updateInterval = entity.updateInterval,
++		mediaTag = entity.mediaTag,
+ 	)
+ 
+ 	fun toEntity() = FavouriteCategoryEntity(
+@@ -212,6 +218,9 @@ class CategoryBackup(
+ 		downloadNewChapters = downloadNewChapters,
+ 		isVisibleInLibrary = isVisibleInLibrary,
+ 		deletedAt = 0L,
++		parentId = parentId,
++		updateInterval = updateInterval,
++		mediaTag = mediaTag,
+ 	)
+ }
+ 
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/db/MangaDatabase.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/db/MangaDatabase.kt
+index ce22bad..db6b19f 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/db/MangaDatabase.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/db/MangaDatabase.kt
+@@ -55,6 +55,7 @@ import org.koitharu.kotatsu.core.db.migrations.Migration35To36
+ import org.koitharu.kotatsu.core.db.migrations.Migration36To37
+ import org.koitharu.kotatsu.core.db.migrations.Migration37To38
+ import org.koitharu.kotatsu.core.db.migrations.Migration38To39
++import org.koitharu.kotatsu.core.db.migrations.Migration39To40
+ import org.koitharu.kotatsu.core.db.migrations.Migration2To3
+ import org.koitharu.kotatsu.core.db.migrations.Migration3To4
+ import org.koitharu.kotatsu.core.db.migrations.Migration4To5
+@@ -86,7 +87,7 @@ import org.koitharu.kotatsu.tracker.data.TrackEntity
+ import org.koitharu.kotatsu.tracker.data.TrackLogEntity
+ import org.koitharu.kotatsu.tracker.data.TracksDao
+ 
+-const val DATABASE_VERSION = 39
++const val DATABASE_VERSION = 40
+ 
+ @Database(
+ 	entities = [
+@@ -172,6 +173,7 @@ fun getDatabaseMigrations(context: Context): Array<Migration> = arrayOf(
+ 	Migration36To37(),
+ 	Migration37To38(),
+ 	Migration38To39(),
++	Migration39To40(),
+ )
+ 
+ fun MangaDatabase(context: Context): MangaDatabase = Room
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/db/migrations/Migration39To40.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/db/migrations/Migration39To40.kt
+new file mode 100644
+index 0000000..ebce1fa
+--- /dev/null
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/db/migrations/Migration39To40.kt
+@@ -0,0 +1,21 @@
++package org.koitharu.kotatsu.core.db.migrations
++
++import androidx.room.migration.Migration
++import androidx.sqlite.db.SupportSQLiteDatabase
++
++/**
++ * Library subcategories, per-category update interval and per-category content tag.
++ *
++ * All three columns are nullable with no default, so every existing category keeps its old behaviour: top level,
++ * global update schedule, tag chosen automatically.
++ */
++class Migration39To40 : Migration(39, 40) {
++
++	override fun migrate(db: SupportSQLiteDatabase) {
++		db.execSQL("ALTER TABLE favourite_categories ADD COLUMN parent_id INTEGER")
++		db.execSQL("ALTER TABLE favourite_categories ADD COLUMN update_interval TEXT")
++		db.execSQL("ALTER TABLE favourite_categories ADD COLUMN media_tag TEXT")
++		// The sync update trigger lists the columns it watches; drop it so onOpen re-creates it with the new ones.
++		db.execSQL("DROP TRIGGER IF EXISTS sync_favourite_categories_upd")
++	}
++}
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/model/FavouriteCategory.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/model/FavouriteCategory.kt
+index deb0785..61fa132 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/core/model/FavouriteCategory.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/core/model/FavouriteCategory.kt
+@@ -2,6 +2,8 @@ package org.koitharu.kotatsu.core.model
+ 
+ import android.os.Parcelable
+ import kotlinx.parcelize.Parcelize
++import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag
++import org.koitharu.kotatsu.favourites.domain.CategoryUpdateInterval
+ import org.koitharu.kotatsu.list.domain.ListSortOrder
+ import org.koitharu.kotatsu.list.ui.ListModelDiffCallback
+ import org.koitharu.kotatsu.list.ui.model.ListModel
+@@ -17,6 +19,12 @@ data class FavouriteCategory(
+ 	val isTrackingEnabled: Boolean,
+ 	val isNewChaptersDownloadEnabled: Boolean,
+ 	val isVisibleInLibrary: Boolean,
++	/** Category this one is nested under; null = top level. */
++	val parentId: Long? = null,
++	/** How often the background check looks at this category; null = use the global schedule. */
++	val updateInterval: CategoryUpdateInterval? = null,
++	/** What the category is for; null = auto (follows its titles). Resolve with the repository. */
++	val mediaTag: CategoryMediaTag? = null,
+ ) : Parcelable, ListModel {
+ 
+ 	override fun areItemsTheSame(other: ListModel): Boolean {
+@@ -30,7 +38,9 @@ data class FavouriteCategory(
+ 		return if (
+ 			isTrackingEnabled != previousState.isTrackingEnabled ||
+ 			isNewChaptersDownloadEnabled != previousState.isNewChaptersDownloadEnabled ||
+-			isVisibleInLibrary != previousState.isVisibleInLibrary
++			isVisibleInLibrary != previousState.isVisibleInLibrary ||
++			updateInterval != previousState.updateInterval ||
++			mediaTag != previousState.mediaTag
+ 		) {
+ 			ListModelDiffCallback.PAYLOAD_CHECKED_CHANGED
+ 		} else {
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/EntityMapping.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/EntityMapping.kt
+index d328a0b..b4af957 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/EntityMapping.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/EntityMapping.kt
+@@ -3,6 +3,8 @@ package org.koitharu.kotatsu.favourites.data
+ import org.koitharu.kotatsu.core.db.entity.toManga
+ import org.koitharu.kotatsu.core.db.entity.toMangaTags
+ import org.koitharu.kotatsu.core.model.FavouriteCategory
++import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag
++import org.koitharu.kotatsu.favourites.domain.CategoryUpdateInterval
+ import org.koitharu.kotatsu.list.domain.ListSortOrder
+ import java.time.Instant
+ 
+@@ -15,6 +17,9 @@ fun FavouriteCategoryEntity.toFavouriteCategory(id: Long = categoryId.toLong())
+ 	isTrackingEnabled = track,
+ 	isNewChaptersDownloadEnabled = downloadNewChapters,
+ 	isVisibleInLibrary = isVisibleInLibrary,
++	parentId = parentId?.toLong(),
++	updateInterval = CategoryUpdateInterval.of(updateInterval),
++	mediaTag = CategoryMediaTag.of(mediaTag),
+ )
+ 
+ fun FavouriteManga.toManga() = manga.toManga(tags.toMangaTags(), null)
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/FavouriteCategoriesDao.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/FavouriteCategoriesDao.kt
+index 7c75c77..dcc85b2 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/FavouriteCategoriesDao.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/FavouriteCategoriesDao.kt
+@@ -39,7 +39,11 @@ abstract class FavouriteCategoriesDao {
+ 
+ 	suspend fun delete(id: Long) = setDeletedAt(id, System.currentTimeMillis())
+ 
+-	@Query("UPDATE favourite_categories SET title = :title, `order` = :order, `track` = :tracker, download_new_chapters = :downloadNewChapters, `show_in_lib` = :onShelf WHERE category_id = :id")
++	@Query(
++		"UPDATE favourite_categories SET title = :title, `order` = :order, `track` = :tracker, " +
++			"download_new_chapters = :downloadNewChapters, `show_in_lib` = :onShelf, parent_id = :parentId, " +
++			"update_interval = :updateInterval, media_tag = :mediaTag WHERE category_id = :id",
++	)
+ 	abstract suspend fun update(
+ 		id: Long,
+ 		title: String,
+@@ -47,8 +51,18 @@ abstract class FavouriteCategoriesDao {
+ 		tracker: Boolean,
+ 		downloadNewChapters: Boolean,
+ 		onShelf: Boolean,
++		parentId: Int?,
++		updateInterval: String?,
++		mediaTag: String?,
+ 	)
+ 
++	@Query("UPDATE favourite_categories SET parent_id = :parentId WHERE category_id = :id")
++	abstract suspend fun updateParent(id: Long, parentId: Int?)
++
++	/** Subcategories of a deleted category go back to the top level instead of disappearing with it. */
++	@Query("UPDATE favourite_categories SET parent_id = NULL WHERE parent_id = :parentId")
++	abstract suspend fun detachChildren(parentId: Long)
++
+ 	@Query("UPDATE favourite_categories SET `order` = :order WHERE category_id = :id")
+ 	abstract suspend fun updateOrder(id: Long, order: String)
+ 
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/FavouriteCategoryEntity.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/FavouriteCategoryEntity.kt
+index ba13942..2e6c8f3 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/FavouriteCategoryEntity.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/data/FavouriteCategoryEntity.kt
+@@ -17,6 +17,12 @@ data class FavouriteCategoryEntity(
+ 	@ColumnInfo(name = "download_new_chapters") val downloadNewChapters: Boolean,
+ 	@ColumnInfo(name = "show_in_lib") val isVisibleInLibrary: Boolean,
+ 	@ColumnInfo(name = "deleted_at") val deletedAt: Long,
++	/** Local id of the category this one is nested under; null = top level. */
++	@ColumnInfo(name = "parent_id") val parentId: Int? = null,
++	/** [org.koitharu.kotatsu.favourites.domain.CategoryUpdateInterval.key]; null = use the global schedule. */
++	@ColumnInfo(name = "update_interval") val updateInterval: String? = null,
++	/** [org.koitharu.kotatsu.favourites.domain.CategoryMediaTag] name; null = auto. */
++	@ColumnInfo(name = "media_tag") val mediaTag: String? = null,
+ ) {
+ 
+ 	override fun equals(other: Any?): Boolean {
+@@ -32,6 +38,9 @@ data class FavouriteCategoryEntity(
+ 		if (order != other.order) return false
+ 		if (track != other.track) return false
+ 		if (downloadNewChapters != other.downloadNewChapters) return false
++		if (parentId != other.parentId) return false
++		if (updateInterval != other.updateInterval) return false
++		if (mediaTag != other.mediaTag) return false
+ 		return isVisibleInLibrary == other.isVisibleInLibrary
+ 	}
+ 
+@@ -44,6 +53,9 @@ data class FavouriteCategoryEntity(
+ 		result = 31 * result + track.hashCode()
+ 		result = 31 * result + downloadNewChapters.hashCode()
+ 		result = 31 * result + isVisibleInLibrary.hashCode()
++		result = 31 * result + (parentId ?: 0)
++		result = 31 * result + (updateInterval?.hashCode() ?: 0)
++		result = 31 * result + (mediaTag?.hashCode() ?: 0)
+ 		return result
+ 	}
+ }
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/CategoryMediaTags.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/CategoryMediaTags.kt
+new file mode 100644
+index 0000000..0a135d9
+--- /dev/null
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/CategoryMediaTags.kt
+@@ -0,0 +1,16 @@
++package org.koitharu.kotatsu.favourites.domain
++
++import org.koitharu.kotatsu.core.model.contentMode
++import org.koitharu.kotatsu.core.model.isTvMoviesSource
++import org.koitharu.kotatsu.home.ui.model.HomeMode
++import org.koitharu.kotatsu.parsers.model.MangaSource
++
++/**
++ * Which kind of title a source produces, in the terms category tags use. Streaming is one app mode, but it has
++ * two kinds of source (anime, TV & Movies), and a category can be limited to either.
++ */
++fun MangaSource.mediaTag(): CategoryMediaTag = when (contentMode) {
++	HomeMode.MANGA -> CategoryMediaTag.MANGA
++	HomeMode.NOVEL -> CategoryMediaTag.NOVEL
++	HomeMode.ANIME -> if (isTvMoviesSource) CategoryMediaTag.TV_MOVIES else CategoryMediaTag.ANIME
++}
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/CategoryRules.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/CategoryRules.kt
+new file mode 100644
+index 0000000..61fa310
+--- /dev/null
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/CategoryRules.kt
+@@ -0,0 +1,97 @@
++package org.koitharu.kotatsu.favourites.domain
++
++/** How often the background check looks at a category's titles. No value (null) means the global schedule. */
++enum class CategoryUpdateInterval(val key: String, val periodMs: Long?) {
++
++	DAILY("daily", DAY_MS),
++	WEEKLY("weekly", 7 * DAY_MS),
++
++	/** Never checked in the background; titles can still be refreshed by hand. */
++	PAUSED("paused", null);
++
++	companion object {
++
++		fun of(key: String?): CategoryUpdateInterval? = entries.firstOrNull { it.key == key }
++	}
++}
++
++/**
++ * What a category is for. [ANY] is a universal category. A category with no tag at all (null) is *Auto*: it follows
++ * its titles, see [CategoryRules.resolveTag].
++ */
++enum class CategoryMediaTag {
++
++	ANY, MANGA, NOVEL, ANIME, TV_MOVIES;
++
++	companion object {
++
++		fun of(name: String?): CategoryMediaTag? = entries.firstOrNull { it.name == name }
++	}
++}
++
++private const val DAY_MS = 24L * 60 * 60 * 1000
++
++/** Pure rules behind subcategories, tags and update intervals; no Android types so they stay unit-testable. */
++object CategoryRules {
++
++	data class Node<T>(val item: T, val depth: Int)
++
++	/**
++	 * Orders [items] so each subcategory follows its parent, keeping the given order inside every group.
++	 * Only one level of nesting exists: a category whose parent is missing, is itself, or is already a child
++	 * (e.g. after a sync conflict or a parent cycle) is shown as a top-level one rather than being hidden.
++	 */
++	fun <T> hierarchy(items: List<T>, id: (T) -> Long, parent: (T) -> Long?): List<Node<T>> {
++		val byId = items.associateBy(id)
++		fun isTop(item: T): Boolean {
++			val p = parent(item) ?: return true
++			return p == id(item) || byId[p] == null
++		}
++		val tops = items.filter { isTop(it) || !isTop(byId.getValue(parent(it)!!)) }
++		val topIds = tops.mapTo(HashSet(tops.size)) { id(it) }
++		val children = items.filter { id(it) !in topIds }.groupBy { parent(it)!! }
++		val result = ArrayList<Node<T>>(items.size)
++		for (top in tops) {
++			result += Node(top, 0)
++			children[id(top)]?.forEach { result += Node(it, 1) }
++		}
++		return result
++	}
++
++	/**
++	 * Categories [self] may be nested under: top-level ones other than itself. A category that already has
++	 * subcategories cannot become one (only one level of nesting). [self] is null for a new category.
++	 */
++	fun <T> parentCandidates(all: List<T>, self: Long?, id: (T) -> Long, parent: (T) -> Long?): List<T> {
++		if (self != null && all.any { parent(it) == self }) return emptyList()
++		val ids = all.mapTo(HashSet(all.size)) { id(it) }
++		return all.filter { c ->
++			val p = parent(c)
++			id(c) != self && (p == null || p == id(c) || p !in ids)
++		}
++	}
++
++	fun displayTitle(title: String, parentTitle: String?): String =
++		if (parentTitle.isNullOrBlank()) title else "$parentTitle › $title"
++
++	/** The tag a category effectively has: its own choice, else what all of its titles are, else universal. */
++	fun resolveTag(explicit: CategoryMediaTag?, titleTags: Collection<CategoryMediaTag>): CategoryMediaTag {
++		if (explicit != null) return explicit
++		val distinct = titleTags.toSet()
++		return if (distinct.size == 1) distinct.first() else CategoryMediaTag.ANY
++	}
++
++	/**
++	 * Whether a category with [tag] is offered for titles of kinds [titleTags]. Universal categories always are,
++	 * and with a mixed selection a category is offered when it fits any of them.
++	 */
++	fun accepts(tag: CategoryMediaTag, titleTags: Set<CategoryMediaTag>): Boolean =
++		tag == CategoryMediaTag.ANY || titleTags.isEmpty() || tag in titleTags
++
++	/** Whether the title last checked at [lastCheck] is due for another check at [now] under [interval]. */
++	fun isDue(interval: CategoryUpdateInterval?, lastCheck: Long, now: Long): Boolean {
++		if (interval == null) return true
++		val period = interval.periodMs ?: return false
++		return now - lastCheck >= period
++	}
++}
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/FavouritesRepository.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/FavouritesRepository.kt
+index 9d5d1b9..81ceca4 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/FavouritesRepository.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/domain/FavouritesRepository.kt
+@@ -193,6 +193,9 @@ class FavouritesRepository @Inject constructor(
+ 		isTrackerEnabled: Boolean,
+ 		isNewChaptersDownloadEnabled: Boolean,
+ 		isVisibleOnShelf: Boolean,
++		parentId: Long? = null,
++		updateInterval: CategoryUpdateInterval? = null,
++		mediaTag: CategoryMediaTag? = null,
+ 	): FavouriteCategory {
+ 		val entity = FavouriteCategoryEntity(
+ 			title = title,
+@@ -204,6 +207,9 @@ class FavouritesRepository @Inject constructor(
+ 			downloadNewChapters = isNewChaptersDownloadEnabled,
+ 			deletedAt = 0L,
+ 			isVisibleInLibrary = isVisibleOnShelf,
++			parentId = parentId?.toInt(),
++			updateInterval = updateInterval?.key,
++			mediaTag = mediaTag?.name,
+ 		)
+ 		val id = db.getFavouriteCategoriesDao().insert(entity)
+ 		val category = entity.toFavouriteCategory(id)
+@@ -217,6 +223,9 @@ class FavouritesRepository @Inject constructor(
+ 		isTrackerEnabled: Boolean,
+ 		isNewChaptersDownloadEnabled: Boolean,
+ 		isVisibleOnShelf: Boolean,
++		parentId: Long? = null,
++		updateInterval: CategoryUpdateInterval? = null,
++		mediaTag: CategoryMediaTag? = null,
+ 	) {
+ 		db.getFavouriteCategoriesDao().update(
+ 			id = id,
+@@ -225,9 +234,21 @@ class FavouritesRepository @Inject constructor(
+ 			tracker = isTrackerEnabled,
+ 			downloadNewChapters = isNewChaptersDownloadEnabled,
+ 			onShelf = isVisibleOnShelf,
++			parentId = parentId?.toInt(),
++			updateInterval = updateInterval?.key,
++			mediaTag = mediaTag?.name,
+ 		)
+ 	}
+ 
++	/**
++	 * The tag [category] effectively has: its own choice, or for *Auto* what its titles are. Costs one query,
++	 * so call it per category on demand rather than for whole lists in a hot path.
++	 */
++	suspend fun resolveMediaTag(category: FavouriteCategory): CategoryMediaTag {
++		category.mediaTag?.let { return it }
++		return CategoryRules.resolveTag(null, findSources(category.id).map { it.mediaTag() })
++	}
++
+ 	suspend fun updateCategory(id: Long, isVisibleInLibrary: Boolean) {
+ 		db.getFavouriteCategoriesDao().updateVisibility(id, isVisibleInLibrary)
+ 	}
+@@ -259,6 +280,7 @@ class FavouritesRepository @Inject constructor(
+ 			for (id in ids) {
+ 				db.getFavouritesDao().deleteAll(id)
+ 				db.getFavouriteCategoriesDao().delete(id)
++				db.getFavouriteCategoriesDao().detachChildren(id)
+ 			}
+ 			db.getChaptersDao().gc()
+ 		}
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/FavouritesCategoriesViewModel.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/FavouritesCategoriesViewModel.kt
+index 81a715d..559d9bb 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/FavouritesCategoriesViewModel.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/FavouritesCategoriesViewModel.kt
+@@ -21,6 +21,7 @@ import org.koitharu.kotatsu.core.ui.BaseViewModel
+ import org.koitharu.kotatsu.core.util.ext.MutableEventFlow
+ import org.koitharu.kotatsu.core.util.ext.call
+ import org.koitharu.kotatsu.core.util.ext.requireValue
++import org.koitharu.kotatsu.favourites.domain.CategoryRules
+ import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
+ import org.koitharu.kotatsu.favourites.domain.model.CategoriesOrder
+ import org.koitharu.kotatsu.favourites.domain.model.Cover
+@@ -130,13 +131,15 @@ class FavouritesCategoriesViewModel @Inject constructor(
+ 				isActionsEnabled = hasActions,
+ 			),
+ 		)
+-		mapTo(result) { (category, covers) ->
++		CategoryRules.hierarchy(this, { it.first.id }, { it.first.parentId }).mapTo(result) { (item, depth) ->
++			val (category, covers) = item
+ 			CategoryListModel(
+ 				mangaCount = covers.size,
+ 				covers = covers.take(3),
+ 				category = category,
+ 				isActionsEnabled = hasActions,
+ 				isTrackerEnabled = settings.isTrackerEnabled && AppSettings.TRACK_FAVOURITES in settings.trackSources,
++				depth = depth,
+ 			)
+ 		}
+ 		return result
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/adapter/CategoryAD.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/adapter/CategoryAD.kt
+index 1501246..c3fb414 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/adapter/CategoryAD.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/adapter/CategoryAD.kt
+@@ -6,6 +6,7 @@ import android.view.View
+ import android.view.View.OnClickListener
+ import android.view.View.OnLongClickListener
+ import android.view.View.OnTouchListener
++import android.view.ViewGroup
+ import androidx.core.view.isGone
+ import androidx.core.view.isVisible
+ import com.hannesdorfmann.adapterdelegates4.dsl.adapterDelegateViewBinding
+@@ -40,7 +41,18 @@ fun categoryAD(
+ 	binding.imageViewEdit.setOnClickListener(eventListener)
+ 	binding.imageViewHandle.setOnTouchListener(eventListener)
+ 
++	// Subcategories are indented by moving the tile's start margin on top of whatever the layout gives it.
++	val baseMarginStart = (itemView.layoutParams as? ViewGroup.MarginLayoutParams)?.marginStart ?: 0
++	val indentStep = (INDENT_DP * context.resources.displayMetrics.density).toInt()
++
+ 	bind {
++		(itemView.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
++			val target = baseMarginStart + item.depth * indentStep
++			if (lp.marginStart != target) {
++				lp.marginStart = target
++				itemView.layoutParams = lp
++			}
++		}
+ 		binding.imageViewHandle.isVisible = item.isActionsEnabled
+ 		binding.imageViewEdit.isVisible = item.isActionsEnabled
+ 		binding.textViewTitle.text = item.category.title
+@@ -60,6 +72,8 @@ fun categoryAD(
+ 	}
+ }
+ 
++private const val INDENT_DP = 20
++
+ fun allCategoriesAD(
+ 	clickListener: FavouriteCategoriesListListener,
+ ) = adapterDelegateViewBinding<AllCategoriesListModel, ListModel, ItemCategoriesAllBinding>(
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/adapter/CategoryListModel.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/adapter/CategoryListModel.kt
+index 7066449..479da92 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/adapter/CategoryListModel.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/adapter/CategoryListModel.kt
+@@ -11,6 +11,8 @@ class CategoryListModel(
+ 	val category: FavouriteCategory,
+ 	val isTrackerEnabled: Boolean,
+ 	val isActionsEnabled: Boolean,
++	/** 1 for a subcategory (drawn indented under its parent), 0 otherwise. */
++	val depth: Int = 0,
+ ) : ListModel {
+ 
+ 	override fun areItemsTheSame(other: ListModel): Boolean {
+@@ -32,6 +34,7 @@ class CategoryListModel(
+ 		if (mangaCount != other.mangaCount) return false
+ 		if (isTrackerEnabled != other.isTrackerEnabled) return false
+ 		if (isActionsEnabled != other.isActionsEnabled) return false
++		if (depth != other.depth) return false
+ 		if (covers != other.covers) return false
+ 		if (category.id != other.category.id) return false
+ 		if (category.title != other.category.title) return false
+@@ -40,6 +43,9 @@ class CategoryListModel(
+ 		if (category.createdAt != other.category.createdAt) return false
+ 		if (category.isTrackingEnabled != other.category.isTrackingEnabled) return false
+ 		if (category.isNewChaptersDownloadEnabled != other.category.isNewChaptersDownloadEnabled) return false
++		if (category.parentId != other.category.parentId) return false
++		if (category.updateInterval != other.category.updateInterval) return false
++		if (category.mediaTag != other.category.mediaTag) return false
+ 		return category.isVisibleInLibrary == other.category.isVisibleInLibrary
+ 	}
+ 
+@@ -47,6 +53,7 @@ class CategoryListModel(
+ 		var result = mangaCount
+ 		result = 31 * result + isTrackerEnabled.hashCode()
+ 		result = 31 * result + isActionsEnabled.hashCode()
++		result = 31 * result + depth
+ 		result = 31 * result + covers.hashCode()
+ 		result = 31 * result + category.id.hashCode()
+ 		result = 31 * result + category.title.hashCode()
+@@ -56,6 +63,9 @@ class CategoryListModel(
+ 		result = 31 * result + category.isTrackingEnabled.hashCode()
+ 		result = 31 * result + category.isNewChaptersDownloadEnabled.hashCode()
+ 		result = 31 * result + category.isVisibleInLibrary.hashCode()
++		result = 31 * result + (category.parentId?.hashCode() ?: 0)
++		result = 31 * result + (category.updateInterval?.hashCode() ?: 0)
++		result = 31 * result + (category.mediaTag?.hashCode() ?: 0)
+ 		return result
+ 	}
+ 
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditActivity.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditActivity.kt
+index 18fc41d..1feafc4 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditActivity.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditActivity.kt
+@@ -21,6 +21,8 @@ import org.koitharu.kotatsu.core.util.ext.observe
+ import org.koitharu.kotatsu.core.util.ext.observeEvent
+ import org.koitharu.kotatsu.core.util.ext.systemBarsInsets
+ import org.koitharu.kotatsu.databinding.ActivityCategoryEditBinding
++import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag
++import org.koitharu.kotatsu.favourites.domain.CategoryUpdateInterval
+ import org.koitharu.kotatsu.list.domain.ListSortOrder
+ import org.koitharu.kotatsu.settings.compose.DropSauceTheme
+ 
+@@ -41,6 +43,9 @@ class FavouritesCategoryEditActivity :
+ 	private val isTrackerEnabled = mutableStateOf(true)
+ 	private val isDownloadEnabled = mutableStateOf(false)
+ 	private val isShelfEnabled = mutableStateOf(true)
++	private val parentId = mutableStateOf<Long?>(null)
++	private val updateInterval = mutableStateOf<CategoryUpdateInterval?>(null)
++	private val mediaTag = mutableStateOf<CategoryMediaTag?>(null)
+ 	private val error = mutableStateOf<String?>(null)
+ 	private val bottomInset = mutableIntStateOf(0)
+ 
+@@ -68,6 +73,7 @@ class FavouritesCategoryEditActivity :
+ 				val density = LocalDensity.current
+ 				val isLoading by viewModel.isLoading.collectAsState()
+ 				val isTrackerSectionVisible by viewModel.isTrackerEnabled.collectAsState()
++				val parentOptions by viewModel.parentOptions.collectAsState()
+ 
+ 				FavouritesCategoryEditScreen(
+ 					name = name.value,
+@@ -96,6 +102,22 @@ class FavouritesCategoryEditActivity :
+ 						isShelfEnabled.value = it
+ 						updateDoneButton()
+ 					},
++					parentOptions = parentOptions,
++					parentId = parentId.value,
++					onParentChange = {
++						parentId.value = it
++						updateDoneButton()
++					},
++					updateInterval = updateInterval.value,
++					onUpdateIntervalChange = {
++						updateInterval.value = it
++						updateDoneButton()
++					},
++					mediaTag = mediaTag.value,
++					onMediaTagChange = {
++						mediaTag.value = it
++						updateDoneButton()
++					},
+ 					error = error.value,
+ 					enabled = !isLoading,
+ 					bottomInset = with(density) { bottomInset.intValue.toDp() },
+@@ -129,6 +151,9 @@ class FavouritesCategoryEditActivity :
+ 		outState.putBoolean(KEY_TRACKER, isTrackerEnabled.value)
+ 		outState.putBoolean(KEY_DOWNLOAD, isDownloadEnabled.value)
+ 		outState.putBoolean(KEY_SHELF, isShelfEnabled.value)
++		outState.putLong(KEY_PARENT, parentId.value ?: NO_ID)
++		outState.putString(KEY_INTERVAL, updateInterval.value?.key)
++		outState.putString(KEY_TAG, mediaTag.value?.name)
+ 	}
+ 
+ 	override fun onRestoreInstanceState(savedInstanceState: Bundle) {
+@@ -140,6 +165,9 @@ class FavouritesCategoryEditActivity :
+ 		isTrackerEnabled.value = savedInstanceState.getBoolean(KEY_TRACKER, true)
+ 		isDownloadEnabled.value = savedInstanceState.getBoolean(KEY_DOWNLOAD, false)
+ 		isShelfEnabled.value = savedInstanceState.getBoolean(KEY_SHELF, true)
++		parentId.value = savedInstanceState.getLong(KEY_PARENT, NO_ID).takeIf { it != NO_ID }
++		updateInterval.value = CategoryUpdateInterval.of(savedInstanceState.getString(KEY_INTERVAL))
++		mediaTag.value = CategoryMediaTag.of(savedInstanceState.getString(KEY_TAG))
+ 		isSeeded = true
+ 		updateDoneButton()
+ 	}
+@@ -153,6 +181,9 @@ class FavouritesCategoryEditActivity :
+ 				// A category that is not tracked can never produce new chapters to download.
+ 				isNewChaptersDownloadEnabled = isDownloadEnabled.value && isTrackerEnabled.value,
+ 				isVisibleOnShelf = isShelfEnabled.value,
++				parentId = parentId.value,
++				updateInterval = updateInterval.value,
++				mediaTag = mediaTag.value,
+ 			)
+ 		}
+ 	}
+@@ -170,6 +201,9 @@ class FavouritesCategoryEditActivity :
+ 			isTrackerEnabled = category.isTrackingEnabled,
+ 			isDownloadEnabled = category.isNewChaptersDownloadEnabled,
+ 			isShelfEnabled = category.isVisibleInLibrary,
++			parentId = category.parentId,
++			updateInterval = category.updateInterval,
++			mediaTag = category.mediaTag,
+ 		)
+ 		if (!isSeeded) {
+ 			isSeeded = true
+@@ -178,6 +212,9 @@ class FavouritesCategoryEditActivity :
+ 			isTrackerEnabled.value = baseline.isTrackerEnabled
+ 			isDownloadEnabled.value = baseline.isDownloadEnabled
+ 			isShelfEnabled.value = baseline.isShelfEnabled
++			parentId.value = baseline.parentId
++			updateInterval.value = baseline.updateInterval
++			mediaTag.value = baseline.mediaTag
+ 		}
+ 		updateDoneButton()
+ 	}
+@@ -188,6 +225,9 @@ class FavouritesCategoryEditActivity :
+ 		isTrackerEnabled = isTrackerEnabled.value,
+ 		isDownloadEnabled = isDownloadEnabled.value,
+ 		isShelfEnabled = isShelfEnabled.value,
++		parentId = parentId.value,
++		updateInterval = updateInterval.value,
++		mediaTag = mediaTag.value,
+ 	)
+ 
+ 	private fun updateDoneButton() {
+@@ -203,6 +243,9 @@ class FavouritesCategoryEditActivity :
+ 		val isTrackerEnabled: Boolean = true,
+ 		val isDownloadEnabled: Boolean = false,
+ 		val isShelfEnabled: Boolean = true,
++		val parentId: Long? = null,
++		val updateInterval: CategoryUpdateInterval? = null,
++		val mediaTag: CategoryMediaTag? = null,
+ 	)
+ 
+ 	companion object {
+@@ -213,5 +256,8 @@ class FavouritesCategoryEditActivity :
+ 		private const val KEY_TRACKER = "tracker"
+ 		private const val KEY_DOWNLOAD = "download"
+ 		private const val KEY_SHELF = "shelf"
++		private const val KEY_PARENT = "parent"
++		private const val KEY_INTERVAL = "interval"
++		private const val KEY_TAG = "tag"
+ 	}
+ }
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditScreen.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditScreen.kt
+index 60fbb38..e119807 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditScreen.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditScreen.kt
+@@ -28,6 +28,9 @@ import androidx.compose.ui.text.input.ImeAction
+ import androidx.compose.ui.unit.Dp
+ import androidx.compose.ui.unit.dp
+ import org.koitharu.kotatsu.R
++import org.koitharu.kotatsu.core.model.FavouriteCategory
++import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag
++import org.koitharu.kotatsu.favourites.domain.CategoryUpdateInterval
+ import org.koitharu.kotatsu.list.domain.ListSortOrder
+ import org.koitharu.kotatsu.list.ui.sort.SortRow
+ import org.koitharu.kotatsu.settings.compose.SettingsGroup
+@@ -52,11 +55,21 @@ fun FavouritesCategoryEditScreen(
+ 	onDownloadChange: (Boolean) -> Unit,
+ 	isShelfEnabled: Boolean,
+ 	onShelfChange: (Boolean) -> Unit,
++	parentOptions: List<FavouriteCategory>,
++	parentId: Long?,
++	onParentChange: (Long?) -> Unit,
++	updateInterval: CategoryUpdateInterval?,
++	onUpdateIntervalChange: (CategoryUpdateInterval?) -> Unit,
++	mediaTag: CategoryMediaTag?,
++	onMediaTagChange: (CategoryMediaTag?) -> Unit,
+ 	error: String?,
+ 	enabled: Boolean,
+ 	bottomInset: Dp,
+ ) {
+ 	var isSortSheetVisible by rememberSaveable { mutableStateOf(false) }
++	var isParentSheetVisible by rememberSaveable { mutableStateOf(false) }
++	var isIntervalSheetVisible by rememberSaveable { mutableStateOf(false) }
++	var isTagSheetVisible by rememberSaveable { mutableStateOf(false) }
+ 
+ 	Column(
+ 		modifier = Modifier
+@@ -86,6 +99,38 @@ fun FavouritesCategoryEditScreen(
+ 			onClick = { isSortSheetVisible = true },
+ 		)
+ 		Spacer(Modifier.height(8.dp))
++		SettingsGroup(
++			modifier = Modifier.fillMaxWidth(),
++			title = stringResource(R.string.category_media_tag),
++		) {
++			item { position ->
++				SettingsItem(
++					title = stringResource(R.string.category_media_tag),
++					subtitle = mediaTag.label(),
++					icon = R.drawable.ic_label,
++					shape = position.shape,
++					enabled = enabled,
++					modifier = Modifier.fillMaxWidth(),
++					onClick = { isTagSheetVisible = true },
++				)
++			}
++			// A category that already has subcategories cannot be nested itself, so it offers no parents.
++			if (parentOptions.isNotEmpty() || parentId != null) {
++				item { position ->
++					SettingsItem(
++						title = stringResource(R.string.category_parent),
++						subtitle = parentOptions.firstOrNull { it.id == parentId }?.title
++							?: stringResource(R.string.category_parent_none),
++						icon = R.drawable.ic_folder_file,
++						shape = position.shape,
++						enabled = enabled,
++						modifier = Modifier.fillMaxWidth(),
++						onClick = { isParentSheetVisible = true },
++					)
++				}
++			}
++		}
++		Spacer(Modifier.height(8.dp))
+ 		SettingsGroup(
+ 			modifier = Modifier.fillMaxWidth(),
+ 			title = stringResource(R.string.options),
+@@ -117,6 +162,20 @@ fun FavouritesCategoryEditScreen(
+ 					)
+ 				}
+ 			}
++			if (isTrackerSectionVisible) {
++				item { position ->
++					SettingsItem(
++						title = stringResource(R.string.category_update_interval),
++						subtitle = updateInterval.label(),
++						icon = R.drawable.ic_timer,
++						shape = position.shape,
++						// Nothing is checked for an untracked category, so there is no schedule to pick.
++						enabled = enabled && isTrackerEnabled,
++						modifier = Modifier.fillMaxWidth(),
++						onClick = { isIntervalSheetVisible = true },
++					)
++				}
++			}
+ 			item { position ->
+ 				SwitchSettingsItem(
+ 					title = stringResource(R.string.show_on_shelf),
+@@ -140,6 +199,38 @@ fun FavouritesCategoryEditScreen(
+ 		}
+ 	}
+ 
++	if (isTagSheetVisible) {
++		ChoiceSheet(
++			title = stringResource(R.string.category_media_tag),
++			options = listOf<CategoryMediaTag?>(null) + CategoryMediaTag.entries,
++			label = { it.label() },
++			selected = mediaTag,
++			onSelect = onMediaTagChange,
++			onDismiss = { isTagSheetVisible = false },
++		)
++	}
++	if (isIntervalSheetVisible) {
++		ChoiceSheet(
++			title = stringResource(R.string.category_update_interval),
++			options = listOf<CategoryUpdateInterval?>(null) + CategoryUpdateInterval.entries,
++			label = { it.label() },
++			selected = updateInterval,
++			onSelect = onUpdateIntervalChange,
++			onDismiss = { isIntervalSheetVisible = false },
++		)
++	}
++	if (isParentSheetVisible) {
++		ChoiceSheet(
++			title = stringResource(R.string.category_parent),
++			options = listOf<Long?>(null) + parentOptions.map { it.id },
++			label = { id ->
++				parentOptions.firstOrNull { it.id == id }?.title ?: stringResource(R.string.category_parent_none)
++			},
++			selected = parentId,
++			onSelect = onParentChange,
++			onDismiss = { isParentSheetVisible = false },
++		)
++	}
+ 	if (isSortSheetVisible) {
+ 		SortOrderSheet(
+ 			current = sortOrder,
+@@ -185,6 +276,72 @@ private fun SortOrderSheet(
+ 	}
+ }
+ 
++/** A single-choice bottom sheet; the chosen row is highlighted and picking one closes the sheet. */
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++private fun <T> ChoiceSheet(
++	title: String,
++	options: List<T>,
++	label: @Composable (T) -> String,
++	selected: T,
++	onSelect: (T) -> Unit,
++	onDismiss: () -> Unit,
++) {
++	ModalBottomSheet(
++		onDismissRequest = onDismiss,
++		sheetState = rememberBottomSheetState(SheetValue.Hidden, setOf(SheetValue.Hidden, SheetValue.Expanded)),
++		shape = RoundedCornerShape(topStart = SHEET_CORNER, topEnd = SHEET_CORNER),
++		containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
++	) {
++		Column(
++			Modifier
++				.verticalScroll(rememberScrollState())
++				.padding(bottom = 24.dp),
++		) {
++			Text(
++				text = title,
++				style = MaterialTheme.typography.headlineSmall,
++				fontWeight = FontWeight.SemiBold,
++				modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
++			)
++			options.forEach { option ->
++				SortRow(
++					title = label(option),
++					isSelected = option == selected,
++					isAscending = true,
++					hasDirection = false,
++					onClick = {
++						onSelect(option)
++						onDismiss()
++					},
++				)
++			}
++		}
++	}
++}
++
++@Composable
++private fun CategoryMediaTag?.label(): String = stringResource(
++	when (this) {
++		null -> R.string.category_tag_auto
++		CategoryMediaTag.ANY -> R.string.category_tag_any
++		CategoryMediaTag.MANGA -> R.string.category_tag_manga
++		CategoryMediaTag.NOVEL -> R.string.category_tag_novel
++		CategoryMediaTag.ANIME -> R.string.category_tag_anime
++		CategoryMediaTag.TV_MOVIES -> R.string.category_tag_tv_movies
++	},
++)
++
++@Composable
++private fun CategoryUpdateInterval?.label(): String = stringResource(
++	when (this) {
++		null -> R.string.update_interval_global
++		CategoryUpdateInterval.DAILY -> R.string.update_interval_daily
++		CategoryUpdateInterval.WEEKLY -> R.string.update_interval_weekly
++		CategoryUpdateInterval.PAUSED -> R.string.update_interval_paused
++	},
++)
++
+ /** "Date added (descending)" — the direction has to be spelled out wherever the arrow isn't shown. */
+ @Composable
+ private fun ListSortOrder.displayLabel(): String = stringResource(
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditViewModel.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditViewModel.kt
+index a0e3a1f..076339e 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditViewModel.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/edit/FavouritesCategoryEditViewModel.kt
+@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.SharingStarted
++import kotlinx.coroutines.flow.first
+ import kotlinx.coroutines.flow.flow
+ import kotlinx.coroutines.flow.stateIn
+ import kotlinx.coroutines.plus
+@@ -15,6 +16,9 @@ import org.koitharu.kotatsu.core.prefs.AppSettings
+ import org.koitharu.kotatsu.core.ui.BaseViewModel
+ import org.koitharu.kotatsu.core.util.ext.MutableEventFlow
+ import org.koitharu.kotatsu.core.util.ext.call
++import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag
++import org.koitharu.kotatsu.favourites.domain.CategoryRules
++import org.koitharu.kotatsu.favourites.domain.CategoryUpdateInterval
+ import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
+ import org.koitharu.kotatsu.favourites.ui.categories.edit.FavouritesCategoryEditActivity.Companion.NO_ID
+ import org.koitharu.kotatsu.list.domain.ListSortOrder
+@@ -35,6 +39,9 @@ class FavouritesCategoryEditViewModel @Inject constructor(
+ 	val onSaved = MutableEventFlow<Unit>()
+ 	val category = MutableStateFlow<FavouriteCategory?>(null)
+ 
++	/** Categories this one may be nested under (top-level ones other than itself); empty if it has children. */
++	val parentOptions = MutableStateFlow<List<FavouriteCategory>>(emptyList())
++
+ 	val isTrackerEnabled = flow {
+ 		emit(settings.isTrackerEnabled && AppSettings.TRACK_FAVOURITES in settings.trackSources)
+ 	}.stateIn(viewModelScope + Dispatchers.Default, SharingStarted.Eagerly, false)
+@@ -46,6 +53,13 @@ class FavouritesCategoryEditViewModel @Inject constructor(
+ 			} else {
+ 				null
+ 			}
++			val all = repository.observeCategories().first()
++			parentOptions.value = CategoryRules.parentCandidates(
++				all = all,
++				self = categoryId.takeIf { it != NO_ID },
++				id = { it.id },
++				parent = { it.parentId },
++			)
+ 		}
+ 	}
+ 
+@@ -55,6 +69,9 @@ class FavouritesCategoryEditViewModel @Inject constructor(
+ 		isTrackerEnabled: Boolean,
+ 		isNewChaptersDownloadEnabled: Boolean,
+ 		isVisibleOnShelf: Boolean,
++		parentId: Long?,
++		updateInterval: CategoryUpdateInterval?,
++		mediaTag: CategoryMediaTag?,
+ 	) {
+ 		launchLoadingJob(Dispatchers.Default) {
+ 			check(title.isNotEmpty())
+@@ -65,6 +82,9 @@ class FavouritesCategoryEditViewModel @Inject constructor(
+ 					isTrackerEnabled = isTrackerEnabled,
+ 					isNewChaptersDownloadEnabled = isNewChaptersDownloadEnabled,
+ 					isVisibleOnShelf = isVisibleOnShelf,
++					parentId = parentId,
++					updateInterval = updateInterval,
++					mediaTag = mediaTag,
+ 				)
+ 			} else {
+ 				repository.updateCategory(
+@@ -74,6 +94,9 @@ class FavouritesCategoryEditViewModel @Inject constructor(
+ 					isTrackerEnabled = isTrackerEnabled,
+ 					isNewChaptersDownloadEnabled = isNewChaptersDownloadEnabled,
+ 					isVisibleOnShelf = isVisibleOnShelf,
++					parentId = parentId,
++					updateInterval = updateInterval,
++					mediaTag = mediaTag,
+ 				)
+ 			}
+ 			onSaved.call(Unit)
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/FavoriteDialog.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/FavoriteDialog.kt
+index ba1f9fd..103569f 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/FavoriteDialog.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/FavoriteDialog.kt
+@@ -121,7 +121,7 @@ class FavoriteDialog : ComposeAlertDialogFragment() {
+ 			onClick = {
+ 				viewModel.setChecked(item.category.id, item.checkedState != MaterialCheckBox.STATE_CHECKED)
+ 			},
+-			label = { Text(item.category.title) },
++			label = { Text(item.title) },
+ 			leadingIcon = if (item.checkedState == MaterialCheckBox.STATE_INDETERMINATE) {
+ 				{ ChipIcon(R.drawable.ic_partly_selected) }
+ 			} else {
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/FavoriteDialogViewModel.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/FavoriteDialogViewModel.kt
+index a922d99..df752dd 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/FavoriteDialogViewModel.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/FavoriteDialogViewModel.kt
+@@ -21,7 +21,9 @@ import org.koitharu.kotatsu.core.prefs.AppSettings
+ import org.koitharu.kotatsu.core.prefs.observeAsFlow
+ import org.koitharu.kotatsu.core.ui.BaseViewModel
+ import org.koitharu.kotatsu.core.util.ext.require
++import org.koitharu.kotatsu.favourites.domain.CategoryRules
+ import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
++import org.koitharu.kotatsu.favourites.domain.mediaTag
+ import org.koitharu.kotatsu.favourites.ui.categories.select.model.MangaCategoryItem
+ import org.koitharu.kotatsu.list.ui.model.EmptyState
+ import org.koitharu.kotatsu.list.ui.model.ListModel
+@@ -77,16 +79,38 @@ class FavoriteDialogViewModel @Inject constructor(
+ 			val ids = favouritesRepository.getCategoriesIds(m.id)
+ 			ids.forEach { id -> cats[id]?.add(m.id) }
+ 		}
+-		return categories.map { cat ->
++		val titleById = categories.associate { it.id to it.title }
++		// A tagged category is only offered for titles of its kind; untagged ones that hold titles of a single
++		// kind count as tagged. A category the title is already in always stays, so it can still be removed.
++		val titleTags = manga.mapTo(HashSet()) { it.source.mediaTag() }
++		val items = CategoryRules.hierarchy(categories, { it.id }, { it.parentId }).mapNotNull { (cat, depth) ->
++			val checkedState = when (cats[cat.id]?.size ?: 0) {
++				0 -> MaterialCheckBox.STATE_UNCHECKED
++				manga.size -> MaterialCheckBox.STATE_CHECKED
++				else -> MaterialCheckBox.STATE_INDETERMINATE
++			}
++			if (checkedState == MaterialCheckBox.STATE_UNCHECKED &&
++				!CategoryRules.accepts(favouritesRepository.resolveMediaTag(cat), titleTags)
++			) {
++				return@mapNotNull null
++			}
+ 			MangaCategoryItem(
+ 				category = cat,
+-				checkedState = when (cats[cat.id]?.size ?: 0) {
+-					0 -> MaterialCheckBox.STATE_UNCHECKED
+-					manga.size -> MaterialCheckBox.STATE_CHECKED
+-					else -> MaterialCheckBox.STATE_INDETERMINATE
+-				},
++				checkedState = checkedState,
+ 				isTrackerEnabled = tracker,
++				title = CategoryRules.displayTitle(cat.title, if (depth > 0) titleById[cat.parentId] else null),
++			)
++		}
++		if (items.isEmpty()) {
++			return listOf(
++				EmptyState(
++					icon = 0,
++					textPrimary = R.string.empty_favourite_categories,
++					textSecondary = 0,
++					actionStringRes = 0,
++				),
+ 			)
+ 		}
++		return items
+ 	}
+ }
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/model/MangaCategoryItem.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/model/MangaCategoryItem.kt
+index 1022004..2c981ec 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/model/MangaCategoryItem.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/categories/select/model/MangaCategoryItem.kt
+@@ -9,6 +9,8 @@ data class MangaCategoryItem(
+ 	val category: FavouriteCategory,
+ 	@CheckedState val checkedState: Int,
+ 	val isTrackerEnabled: Boolean,
++	/** What the chip shows: the category title, led by its parent's title for a subcategory. */
++	val title: String = category.title,
+ ) : ListModel {
+ 
+ 	override fun areItemsTheSame(other: ListModel): Boolean {
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/container/FavouritesContainerViewModel.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/container/FavouritesContainerViewModel.kt
+index 72efdf7..f54909c 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/container/FavouritesContainerViewModel.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/favourites/ui/container/FavouritesContainerViewModel.kt
+@@ -21,6 +21,7 @@ import org.koitharu.kotatsu.core.ui.util.ReversibleAction
+ import org.koitharu.kotatsu.core.ui.util.ReversibleHandle
+ import org.koitharu.kotatsu.core.util.ext.MutableEventFlow
+ import org.koitharu.kotatsu.core.util.ext.call
++import org.koitharu.kotatsu.favourites.domain.CategoryRules
+ import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
+ import org.koitharu.kotatsu.favourites.ui.list.FavouritesListFragment.Companion.NO_ID
+ import javax.inject.Inject
+@@ -79,7 +80,10 @@ class FavouritesContainerViewModel @Inject constructor(
+ 		if (showAll) {
+ 			result.add(FavouriteTabModel(NO_ID, null))
+ 		}
+-		mapTo(result) { FavouriteTabModel(it.id, it.title) }
++		val titles = categoriesStateFlow.value.orEmpty().associate { it.id to it.title }
++		CategoryRules.hierarchy(this, { it.id }, { it.parentId }).mapTo(result) { (category, _) ->
++			FavouriteTabModel(category.id, CategoryRules.displayTitle(category.title, titles[category.parentId]))
++		}
+ 		return result
+ 	}
+ 
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/data/db/SyncTriggers.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/data/db/SyncTriggers.kt
+index 95bcaa0..4c5fb5b 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/data/db/SyncTriggers.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/data/db/SyncTriggers.kt
+@@ -50,7 +50,7 @@ object SyncTriggers {
+ 			pk = "%.category_id",
+ 			columns = listOf(
+ 				"created_at", "sort_key", "title", "`order`", "track", "download_new_chapters", "show_in_lib",
+-				"deleted_at",
++				"deleted_at", "parent_id", "update_interval", "media_tag",
+ 			),
+ 			isSoftDelete = true,
+ 			// Title-derived so the same category created on two devices (or restored from a backup) is
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/data/model/ReplicaModels.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/data/model/ReplicaModels.kt
+index 9fd32fa..1f5e0b1 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/data/model/ReplicaModels.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/data/model/ReplicaModels.kt
+@@ -51,6 +51,10 @@ data class RCategory(
+ 	@SerialName("created_at") val createdAt: Long,
+ 	@SerialName("deleted_at") val deletedAt: Long,
+ 	@SerialName("v") override val v: Long,
++	/** Cross-device uid of the parent category; absent from older replicas, which means top level. */
++	@SerialName("parent_uid") val parentUid: String? = null,
++	@SerialName("update_interval") val updateInterval: String? = null,
++	@SerialName("media_tag") val mediaTag: String? = null,
+ ) : SyncRecord {
+ 	override val key get() = uid
+ }
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/domain/ReplicaApplier.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/domain/ReplicaApplier.kt
+index 7310178..4ae7137 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/domain/ReplicaApplier.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/domain/ReplicaApplier.kt
+@@ -97,6 +97,7 @@ class ReplicaApplier @Inject constructor(
+ 
+ 		// Categories first: favourites refer to them.
+ 		val categoryIds = categoryUids.entries.associateTo(HashMap()) { it.value to it.key }
++		val appliedCategories = ArrayList<Pair<Int, RCategory>>()
+ 		inChunks(changes.categories.upserts) { c ->
+ 			val existing = categoryIds[c.uid]
+ 			if (existing == null && c.deletedAt != 0L) return@inChunks // nothing here to delete
+@@ -111,6 +112,9 @@ class ReplicaApplier @Inject constructor(
+ 				downloadNewChapters = c.downloadNewChapters,
+ 				isVisibleInLibrary = c.isVisibleInLibrary,
+ 				deletedAt = c.deletedAt,
++				parentId = c.parentUid?.let { categoryIds[it] },
++				updateInterval = c.updateInterval,
++				mediaTag = c.mediaTag,
+ 			)
+ 			val id = if (existing != null) {
+ 				database.getFavouriteCategoriesDao().upsert(entity)
+@@ -120,6 +124,14 @@ class ReplicaApplier @Inject constructor(
+ 			}
+ 			categoryIds[c.uid] = id
+ 			stamp(SyncTriggers.CATEGORIES, id.toString(), c.v, c.uid)
++			appliedCategories += id to c
++		}
++		// Parents can arrive after their children in the same batch, so links are resolved once every uid is known.
++		// The write fires the sync trigger, so the remote version is stamped again afterwards.
++		inChunks(appliedCategories) { (id, c) ->
++			val parent = c.parentUid?.let { categoryIds[it] }?.takeIf { it != id }
++			database.getFavouriteCategoriesDao().updateParent(id.toLong(), parent)
++			stamp(SyncTriggers.CATEGORIES, id.toString(), c.v, c.uid)
+ 		}
+ 		inChunks(changes.categories.deletes) { t ->
+ 			val id = categoryIds[t.recordKey] ?: return@inChunks
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/domain/ReplicaBuilder.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/domain/ReplicaBuilder.kt
+index 1065e72..d890e6b 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/domain/ReplicaBuilder.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/sync/domain/ReplicaBuilder.kt
+@@ -116,6 +116,9 @@ class ReplicaBuilder @Inject constructor(
+ 					createdAt = c.createdAt,
+ 					deletedAt = c.deletedAt,
+ 					v = v[c.categoryId.toString()]?.version ?: 0L,
++					parentUid = c.parentId?.let { categoryUids[it] },
++					updateInterval = c.updateInterval,
++					mediaTag = c.mediaTag,
+ 				)
+ 			}
+ 			val fv = versions(SyncTriggers.FAVOURITES)
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/tracker/data/TracksDao.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/tracker/data/TracksDao.kt
+index 9597697..3b20dd1 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/tracker/data/TracksDao.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/tracker/data/TracksDao.kt
+@@ -26,13 +26,21 @@ abstract class TracksDao : MangaQueryBuilder.ConditionCallback {
+ 	 * The smart-update rules (`skip*`) are part of this query on purpose: filtering in Kotlin after
+ 	 * LIMIT would let skipped rows sit at the head of the `last_check_time ASC` queue forever and
+ 	 * starve everything else out of the batch.
++	 *
++	 * The same goes for category update intervals: a favourite is only eligible through a tracked category
++	 * that is due. No interval means always due; `paused` is never due; `daily` / `weekly` are due once that
++	 * much time has passed since the title's last check (the periods match `CategoryUpdateInterval`).
++	 * Titles tracked through history are not tied to a category and are unaffected.
+ 	 */
+ 	@Transaction
+ 	@Query(
+ 		"SELECT * FROM tracks WHERE " +
+ 			"((:trackHistory AND manga_id IN (SELECT manga_id FROM history WHERE deleted_at = 0)) " +
+ 			"OR (:trackFavourites AND manga_id IN (SELECT DISTINCT manga_id FROM favourites WHERE deleted_at = 0 " +
+-			"AND category_id IN (SELECT category_id FROM favourite_categories WHERE (`track` = 1 OR download_new_chapters = 1) AND deleted_at = 0)))) " +
++			"AND category_id IN (SELECT category_id FROM favourite_categories WHERE (`track` = 1 OR download_new_chapters = 1) AND deleted_at = 0 " +
++			"AND (update_interval IS NULL " +
++			"OR (update_interval = 'daily' AND :now - tracks.last_check_time >= 86400000) " +
++			"OR (update_interval = 'weekly' AND :now - tracks.last_check_time >= 604800000)))))) " +
+ 			"AND (NOT :skipCompleted OR manga_id NOT IN (SELECT manga_id FROM manga WHERE state = 'FINISHED')) " +
+ 			"AND (NOT :skipUnstarted OR manga_id IN (SELECT manga_id FROM history WHERE deleted_at = 0 AND percent > 0)) " +
+ 			"AND (NOT :skipUnread OR IFNULL(chapters_new, 0) = 0) " +
+@@ -44,6 +52,7 @@ abstract class TracksDao : MangaQueryBuilder.ConditionCallback {
+ 		skipCompleted: Boolean,
+ 		skipUnstarted: Boolean,
+ 		skipUnread: Boolean,
++		now: Long,
+ 		offset: Int,
+ 		limit: Int,
+ 	): List<TrackWithManga>
+diff --git a/android/app/src/main/kotlin/org/koitharu/kotatsu/tracker/domain/TrackingRepository.kt b/android/app/src/main/kotlin/org/koitharu/kotatsu/tracker/domain/TrackingRepository.kt
+index a94aae0..430241c 100644
+--- a/android/app/src/main/kotlin/org/koitharu/kotatsu/tracker/domain/TrackingRepository.kt
++++ b/android/app/src/main/kotlin/org/koitharu/kotatsu/tracker/domain/TrackingRepository.kt
+@@ -77,6 +77,7 @@ class TrackingRepository @Inject constructor(
+ 			skipCompleted = AppSettings.SMART_UPDATE_SKIP_COMPLETED in smartUpdateRules,
+ 			skipUnstarted = AppSettings.SMART_UPDATE_SKIP_UNSTARTED in smartUpdateRules,
+ 			skipUnread = AppSettings.SMART_UPDATE_SKIP_UNREAD in smartUpdateRules,
++			now = System.currentTimeMillis(),
+ 			offset = offset,
+ 			limit = limit,
+ 		).map {
+diff --git a/android/app/src/main/res/values/strings.xml b/android/app/src/main/res/values/strings.xml
+index 1d2512e..e6bd672 100644
+--- a/android/app/src/main/res/values/strings.xml
++++ b/android/app/src/main/res/values/strings.xml
+@@ -633,6 +633,23 @@
+ 	<string name="epub_tools_tab">Tools</string>
+     <string name="speed">Speed</string>
+     <string name="interval">Interval</string>
++    <string name="category_parent">Parent category</string>
++    <string name="category_parent_none">None (top level)</string>
++    <string name="category_parent_summary">Nest this category under another one in the library</string>
++    <string name="category_update_interval">Update schedule</string>
++    <string name="category_update_interval_summary">How often this category is checked for new chapters</string>
++    <string name="update_interval_global">Use global schedule</string>
++    <string name="update_interval_daily">Daily</string>
++    <string name="update_interval_weekly">Weekly</string>
++    <string name="update_interval_paused">Paused</string>
++    <string name="category_media_tag">Category type</string>
++    <string name="category_media_tag_summary">Only offered for matching titles when you tap Favourite</string>
++    <string name="category_tag_auto">Auto (follows its titles)</string>
++    <string name="category_tag_any">Any (offered for every title)</string>
++    <string name="category_tag_manga">Manga</string>
++    <string name="category_tag_novel">Novel</string>
++    <string name="category_tag_anime">Anime</string>
++    <string name="category_tag_tv_movies">TV &amp; Movies</string>
+     <string name="show_on_shelf">Show on the Shelf</string>
+     <string name="category_tracker_summary">Include this category when checking sources for new chapters</string>
+     <string name="category_download_summary">Save new chapters to your device as soon as they are found</string>
+diff --git a/android/app/src/test/kotlin/org/koitharu/kotatsu/favourites/domain/CategoryRulesTest.kt b/android/app/src/test/kotlin/org/koitharu/kotatsu/favourites/domain/CategoryRulesTest.kt
+new file mode 100644
+index 0000000..b8ec820
+--- /dev/null
++++ b/android/app/src/test/kotlin/org/koitharu/kotatsu/favourites/domain/CategoryRulesTest.kt
+@@ -0,0 +1,100 @@
++package org.koitharu.kotatsu.favourites.domain
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Test
++import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag.ANIME
++import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag.ANY
++import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag.MANGA
++import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag.NOVEL
++import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag.TV_MOVIES
++
++class CategoryRulesTest {
++
++	private data class Cat(val id: Long, val parent: Long? = null)
++
++	private fun order(vararg cats: Cat) =
++		CategoryRules.hierarchy(cats.toList(), { it.id }, { it.parent }).map { it.item.id to it.depth }
++
++	@Test
++	fun `children follow their parent in the users order`() {
++		val result = order(Cat(1), Cat(2, parent = 3), Cat(3), Cat(4, parent = 1), Cat(5, parent = 3))
++		assertEquals(listOf(1L to 0, 4L to 1, 3L to 0, 2L to 1, 5L to 1), result)
++	}
++
++	@Test
++	fun `a missing, self or nested parent never hides a category`() {
++		val result = order(Cat(1), Cat(2, parent = 99), Cat(3, parent = 3), Cat(4, parent = 1), Cat(5, parent = 4))
++		assertEquals(setOf(1L, 2L, 3L, 4L, 5L), result.map { it.first }.toSet())
++		assertEquals(5, result.size)
++		assertEquals(0, result.first { it.first == 5L }.second)
++		assertEquals(1, result.first { it.first == 4L }.second)
++	}
++
++	@Test
++	fun `a parent cycle still shows both categories`() {
++		val result = order(Cat(1, parent = 2), Cat(2, parent = 1))
++		assertEquals(setOf(1L, 2L), result.map { it.first }.toSet())
++		assertEquals(listOf(0, 0), result.map { it.second })
++	}
++
++	@Test
++	fun `parent candidates are top level, not self, and none for a category with children`() {
++		val all = listOf(Cat(1), Cat(2, parent = 1), Cat(3), Cat(4))
++		fun candidates(self: Long?) =
++			CategoryRules.parentCandidates(all, self, { it.id }, { it.parent }).map { it.id }
++		assertEquals(listOf(1L, 3L, 4L), candidates(null))
++		assertEquals(listOf(1L, 4L), candidates(3))
++		assertEquals(emptyList<Long>(), candidates(1))
++		assertEquals(listOf(1L, 3L, 4L), candidates(2))
++	}
++
++	@Test
++	fun `display title joins parent and child`() {
++		assertEquals("Manga › Seinen", CategoryRules.displayTitle("Seinen", "Manga"))
++		assertEquals("Seinen", CategoryRules.displayTitle("Seinen", null))
++		assertEquals("Seinen", CategoryRules.displayTitle("Seinen", " "))
++	}
++
++	@Test
++	fun `auto tag follows the titles, an explicit tag wins`() {
++		assertEquals(MANGA, CategoryRules.resolveTag(null, listOf(MANGA, MANGA)))
++		assertEquals(ANY, CategoryRules.resolveTag(null, listOf(MANGA, NOVEL)))
++		assertEquals(ANY, CategoryRules.resolveTag(null, emptyList()))
++		assertEquals(ANIME, CategoryRules.resolveTag(null, listOf(ANIME, ANIME)))
++		assertEquals(ANY, CategoryRules.resolveTag(null, listOf(ANIME, TV_MOVIES)))
++		assertEquals(NOVEL, CategoryRules.resolveTag(NOVEL, listOf(MANGA)))
++		assertEquals(ANY, CategoryRules.resolveTag(ANY, listOf(MANGA)))
++	}
++
++	@Test
++	fun `a tagged category is only offered for matching titles`() {
++		assertTrue(CategoryRules.accepts(ANY, setOf(MANGA)))
++		assertTrue(CategoryRules.accepts(MANGA, setOf(MANGA)))
++		assertFalse(CategoryRules.accepts(MANGA, setOf(ANIME)))
++		assertTrue(CategoryRules.accepts(MANGA, setOf(ANIME, MANGA)))
++		assertTrue(CategoryRules.accepts(MANGA, emptySet()))
++	}
++
++	@Test
++	fun `update interval gates checks`() {
++		val day = 24L * 60 * 60 * 1000
++		assertTrue(CategoryRules.isDue(null, 0L, 1L))
++		assertFalse(CategoryRules.isDue(CategoryUpdateInterval.DAILY, 1000L, 1000L + day - 1))
++		assertTrue(CategoryRules.isDue(CategoryUpdateInterval.DAILY, 1000L, 1000L + day))
++		assertFalse(CategoryRules.isDue(CategoryUpdateInterval.WEEKLY, 0L, 6 * day))
++		assertTrue(CategoryRules.isDue(CategoryUpdateInterval.WEEKLY, 0L, 7 * day))
++		assertFalse(CategoryRules.isDue(CategoryUpdateInterval.PAUSED, 0L, Long.MAX_VALUE))
++	}
++
++	@Test
++	fun `keys parse and unknown values mean unset`() {
++		assertEquals(CategoryUpdateInterval.WEEKLY, CategoryUpdateInterval.of("weekly"))
++		assertNull(CategoryUpdateInterval.of("hourly"))
++		assertNull(CategoryUpdateInterval.of(null))
++		assertEquals(TV_MOVIES, CategoryMediaTag.of("TV_MOVIES"))
++		assertNull(CategoryMediaTag.of("COMICS"))
++	}
++}
