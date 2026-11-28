@@ -193,6 +193,9 @@ class FavouritesRepository @Inject constructor(
 		isTrackerEnabled: Boolean,
 		isNewChaptersDownloadEnabled: Boolean,
 		isVisibleOnShelf: Boolean,
+		parentId: Long? = null,
+		updateInterval: CategoryUpdateInterval? = null,
+		mediaTag: CategoryMediaTag? = null,
 	): FavouriteCategory {
 		val entity = FavouriteCategoryEntity(
 			title = title,
@@ -204,6 +207,9 @@ class FavouritesRepository @Inject constructor(
 			downloadNewChapters = isNewChaptersDownloadEnabled,
 			deletedAt = 0L,
 			isVisibleInLibrary = isVisibleOnShelf,
+			parentId = parentId?.toInt(),
+			updateInterval = updateInterval?.key,
+			mediaTag = mediaTag?.name,
 		)
 		val id = db.getFavouriteCategoriesDao().insert(entity)
 		val category = entity.toFavouriteCategory(id)
@@ -217,6 +223,9 @@ class FavouritesRepository @Inject constructor(
 		isTrackerEnabled: Boolean,
 		isNewChaptersDownloadEnabled: Boolean,
 		isVisibleOnShelf: Boolean,
+		parentId: Long? = null,
+		updateInterval: CategoryUpdateInterval? = null,
+		mediaTag: CategoryMediaTag? = null,
 	) {
 		db.getFavouriteCategoriesDao().update(
 			id = id,
@@ -225,7 +234,19 @@ class FavouritesRepository @Inject constructor(
 			tracker = isTrackerEnabled,
 			downloadNewChapters = isNewChaptersDownloadEnabled,
 			onShelf = isVisibleOnShelf,
+			parentId = parentId?.toInt(),
+			updateInterval = updateInterval?.key,
+			mediaTag = mediaTag?.name,
 		)
+	}
+
+	/**
+	 * The tag [category] effectively has: its own choice, or for *Auto* what its titles are. Costs one query,
+	 * so call it per category on demand rather than for whole lists in a hot path.
+	 */
+	suspend fun resolveMediaTag(category: FavouriteCategory): CategoryMediaTag {
+		category.mediaTag?.let { return it }
+		return CategoryRules.resolveTag(null, findSources(category.id).map { it.mediaTag() })
 	}
 
 	suspend fun updateCategory(id: Long, isVisibleInLibrary: Boolean) {
@@ -259,6 +280,7 @@ class FavouritesRepository @Inject constructor(
 			for (id in ids) {
 				db.getFavouritesDao().deleteAll(id)
 				db.getFavouriteCategoriesDao().delete(id)
+				db.getFavouriteCategoriesDao().detachChildren(id)
 			}
 			db.getChaptersDao().gc()
 		}

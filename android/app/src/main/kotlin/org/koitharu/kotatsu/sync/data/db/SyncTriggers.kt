@@ -50,7 +50,7 @@ object SyncTriggers {
 			pk = "%.category_id",
 			columns = listOf(
 				"created_at", "sort_key", "title", "`order`", "track", "download_new_chapters", "show_in_lib",
-				"deleted_at",
+				"deleted_at", "parent_id", "update_interval", "media_tag",
 			),
 			isSoftDelete = true,
 			// Title-derived so the same category created on two devices (or restored from a backup) is

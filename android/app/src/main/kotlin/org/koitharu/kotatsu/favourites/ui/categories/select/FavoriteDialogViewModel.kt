@@ -21,7 +21,9 @@ import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.prefs.observeAsFlow
 import org.koitharu.kotatsu.core.ui.BaseViewModel
 import org.koitharu.kotatsu.core.util.ext.require
+import org.koitharu.kotatsu.favourites.domain.CategoryRules
 import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
+import org.koitharu.kotatsu.favourites.domain.mediaTag
 import org.koitharu.kotatsu.favourites.ui.categories.select.model.MangaCategoryItem
 import org.koitharu.kotatsu.list.ui.model.EmptyState
 import org.koitharu.kotatsu.list.ui.model.ListModel
@@ -77,16 +79,38 @@ class FavoriteDialogViewModel @Inject constructor(
 			val ids = favouritesRepository.getCategoriesIds(m.id)
 			ids.forEach { id -> cats[id]?.add(m.id) }
 		}
-		return categories.map { cat ->
+		val titleById = categories.associate { it.id to it.title }
+		// A tagged category is only offered for titles of its kind; untagged ones that hold titles of a single
+		// kind count as tagged. A category the title is already in always stays, so it can still be removed.
+		val titleTags = manga.mapTo(HashSet()) { it.source.mediaTag() }
+		val items = CategoryRules.hierarchy(categories, { it.id }, { it.parentId }).mapNotNull { (cat, depth) ->
+			val checkedState = when (cats[cat.id]?.size ?: 0) {
+				0 -> MaterialCheckBox.STATE_UNCHECKED
+				manga.size -> MaterialCheckBox.STATE_CHECKED
+				else -> MaterialCheckBox.STATE_INDETERMINATE
+			}
+			if (checkedState == MaterialCheckBox.STATE_UNCHECKED &&
+				!CategoryRules.accepts(favouritesRepository.resolveMediaTag(cat), titleTags)
+			) {
+				return@mapNotNull null
+			}
 			MangaCategoryItem(
 				category = cat,
-				checkedState = when (cats[cat.id]?.size ?: 0) {
-					0 -> MaterialCheckBox.STATE_UNCHECKED
-					manga.size -> MaterialCheckBox.STATE_CHECKED
-					else -> MaterialCheckBox.STATE_INDETERMINATE
-				},
+				checkedState = checkedState,
 				isTrackerEnabled = tracker,
+				title = CategoryRules.displayTitle(cat.title, if (depth > 0) titleById[cat.parentId] else null),
 			)
 		}
+		if (items.isEmpty()) {
+			return listOf(
+				EmptyState(
+					icon = 0,
+					textPrimary = R.string.empty_favourite_categories,
+					textSecondary = 0,
+					actionStringRes = 0,
+				),
+			)
+		}
+		return items
 	}
 }

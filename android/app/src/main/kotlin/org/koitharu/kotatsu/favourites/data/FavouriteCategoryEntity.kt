@@ -17,6 +17,12 @@ data class FavouriteCategoryEntity(
 	@ColumnInfo(name = "download_new_chapters") val downloadNewChapters: Boolean,
 	@ColumnInfo(name = "show_in_lib") val isVisibleInLibrary: Boolean,
 	@ColumnInfo(name = "deleted_at") val deletedAt: Long,
+	/** Local id of the category this one is nested under; null = top level. */
+	@ColumnInfo(name = "parent_id") val parentId: Int? = null,
+	/** [org.koitharu.kotatsu.favourites.domain.CategoryUpdateInterval.key]; null = use the global schedule. */
+	@ColumnInfo(name = "update_interval") val updateInterval: String? = null,
+	/** [org.koitharu.kotatsu.favourites.domain.CategoryMediaTag] name; null = auto. */
+	@ColumnInfo(name = "media_tag") val mediaTag: String? = null,
 ) {
 
 	override fun equals(other: Any?): Boolean {
@@ -32,6 +38,9 @@ data class FavouriteCategoryEntity(
 		if (order != other.order) return false
 		if (track != other.track) return false
 		if (downloadNewChapters != other.downloadNewChapters) return false
+		if (parentId != other.parentId) return false
+		if (updateInterval != other.updateInterval) return false
+		if (mediaTag != other.mediaTag) return false
 		return isVisibleInLibrary == other.isVisibleInLibrary
 	}
 
@@ -44,6 +53,9 @@ data class FavouriteCategoryEntity(
 		result = 31 * result + track.hashCode()
 		result = 31 * result + downloadNewChapters.hashCode()
 		result = 31 * result + isVisibleInLibrary.hashCode()
+		result = 31 * result + (parentId ?: 0)
+		result = 31 * result + (updateInterval?.hashCode() ?: 0)
+		result = 31 * result + (mediaTag?.hashCode() ?: 0)
 		return result
 	}
 }

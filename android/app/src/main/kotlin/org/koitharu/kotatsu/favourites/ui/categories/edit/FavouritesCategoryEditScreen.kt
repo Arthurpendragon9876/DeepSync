@@ -28,6 +28,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import org.koitharu.kotatsu.R
+import org.koitharu.kotatsu.core.model.FavouriteCategory
+import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag
+import org.koitharu.kotatsu.favourites.domain.CategoryUpdateInterval
 import org.koitharu.kotatsu.list.domain.ListSortOrder
 import org.koitharu.kotatsu.list.ui.sort.SortRow
 import org.koitharu.kotatsu.settings.compose.SettingsGroup
@@ -52,11 +55,21 @@ fun FavouritesCategoryEditScreen(
 	onDownloadChange: (Boolean) -> Unit,
 	isShelfEnabled: Boolean,
 	onShelfChange: (Boolean) -> Unit,
+	parentOptions: List<FavouriteCategory>,
+	parentId: Long?,
+	onParentChange: (Long?) -> Unit,
+	updateInterval: CategoryUpdateInterval?,
+	onUpdateIntervalChange: (CategoryUpdateInterval?) -> Unit,
+	mediaTag: CategoryMediaTag?,
+	onMediaTagChange: (CategoryMediaTag?) -> Unit,
 	error: String?,
 	enabled: Boolean,
 	bottomInset: Dp,
 ) {
 	var isSortSheetVisible by rememberSaveable { mutableStateOf(false) }
+	var isParentSheetVisible by rememberSaveable { mutableStateOf(false) }
+	var isIntervalSheetVisible by rememberSaveable { mutableStateOf(false) }
+	var isTagSheetVisible by rememberSaveable { mutableStateOf(false) }
 
 	Column(
 		modifier = Modifier
@@ -85,6 +98,38 @@ fun FavouritesCategoryEditScreen(
 			modifier = Modifier.fillMaxWidth(),
 			onClick = { isSortSheetVisible = true },
 		)
+		Spacer(Modifier.height(8.dp))
+		SettingsGroup(
+			modifier = Modifier.fillMaxWidth(),
+			title = stringResource(R.string.category_media_tag),
+		) {
+			item { position ->
+				SettingsItem(
+					title = stringResource(R.string.category_media_tag),
+					subtitle = mediaTag.label(),
+					icon = R.drawable.ic_label,
+					shape = position.shape,
+					enabled = enabled,
+					modifier = Modifier.fillMaxWidth(),
+					onClick = { isTagSheetVisible = true },
+				)
+			}
+			// A category that already has subcategories cannot be nested itself, so it offers no parents.
+			if (parentOptions.isNotEmpty() || parentId != null) {
+				item { position ->
+					SettingsItem(
+						title = stringResource(R.string.category_parent),
+						subtitle = parentOptions.firstOrNull { it.id == parentId }?.title
+							?: stringResource(R.string.category_parent_none),
+						icon = R.drawable.ic_folder_file,
+						shape = position.shape,
+						enabled = enabled,
+						modifier = Modifier.fillMaxWidth(),
+						onClick = { isParentSheetVisible = true },
+					)
+				}
+			}
+		}
 		Spacer(Modifier.height(8.dp))
 		SettingsGroup(
 			modifier = Modifier.fillMaxWidth(),
@@ -117,6 +162,20 @@ fun FavouritesCategoryEditScreen(
 					)
 				}
 			}
+			if (isTrackerSectionVisible) {
+				item { position ->
+					SettingsItem(
+						title = stringResource(R.string.category_update_interval),
+						subtitle = updateInterval.label(),
+						icon = R.drawable.ic_timer,
+						shape = position.shape,
+						// Nothing is checked for an untracked category, so there is no schedule to pick.
+						enabled = enabled && isTrackerEnabled,
+						modifier = Modifier.fillMaxWidth(),
+						onClick = { isIntervalSheetVisible = true },
+					)
+				}
+			}
 			item { position ->
 				SwitchSettingsItem(
 					title = stringResource(R.string.show_on_shelf),
@@ -140,6 +199,38 @@ fun FavouritesCategoryEditScreen(
 		}
 	}
 
+	if (isTagSheetVisible) {
+		ChoiceSheet(
+			title = stringResource(R.string.category_media_tag),
+			options = listOf<CategoryMediaTag?>(null) + CategoryMediaTag.entries,
+			label = { it.label() },
+			selected = mediaTag,
+			onSelect = onMediaTagChange,
+			onDismiss = { isTagSheetVisible = false },
+		)
+	}
+	if (isIntervalSheetVisible) {
+		ChoiceSheet(
+			title = stringResource(R.string.category_update_interval),
+			options = listOf<CategoryUpdateInterval?>(null) + CategoryUpdateInterval.entries,
+			label = { it.label() },
+			selected = updateInterval,
+			onSelect = onUpdateIntervalChange,
+			onDismiss = { isIntervalSheetVisible = false },
+		)
+	}
+	if (isParentSheetVisible) {
+		ChoiceSheet(
+			title = stringResource(R.string.category_parent),
+			options = listOf<Long?>(null) + parentOptions.map { it.id },
+			label = { id ->
+				parentOptions.firstOrNull { it.id == id }?.title ?: stringResource(R.string.category_parent_none)
+			},
+			selected = parentId,
+			onSelect = onParentChange,
+			onDismiss = { isParentSheetVisible = false },
+		)
+	}
 	if (isSortSheetVisible) {
 		SortOrderSheet(
 			current = sortOrder,
@@ -184,6 +275,72 @@ private fun SortOrderSheet(
 		}
 	}
 }
+
+/** A single-choice bottom sheet; the chosen row is highlighted and picking one closes the sheet. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> ChoiceSheet(
+	title: String,
+	options: List<T>,
+	label: @Composable (T) -> String,
+	selected: T,
+	onSelect: (T) -> Unit,
+	onDismiss: () -> Unit,
+) {
+	ModalBottomSheet(
+		onDismissRequest = onDismiss,
+		sheetState = rememberBottomSheetState(SheetValue.Hidden, setOf(SheetValue.Hidden, SheetValue.Expanded)),
+		shape = RoundedCornerShape(topStart = SHEET_CORNER, topEnd = SHEET_CORNER),
+		containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+	) {
+		Column(
+			Modifier
+				.verticalScroll(rememberScrollState())
+				.padding(bottom = 24.dp),
+		) {
+			Text(
+				text = title,
+				style = MaterialTheme.typography.headlineSmall,
+				fontWeight = FontWeight.SemiBold,
+				modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
+			)
+			options.forEach { option ->
+				SortRow(
+					title = label(option),
+					isSelected = option == selected,
+					isAscending = true,
+					hasDirection = false,
+					onClick = {
+						onSelect(option)
+						onDismiss()
+					},
+				)
+			}
+		}
+	}
+}
+
+@Composable
+private fun CategoryMediaTag?.label(): String = stringResource(
+	when (this) {
+		null -> R.string.category_tag_auto
+		CategoryMediaTag.ANY -> R.string.category_tag_any
+		CategoryMediaTag.MANGA -> R.string.category_tag_manga
+		CategoryMediaTag.NOVEL -> R.string.category_tag_novel
+		CategoryMediaTag.ANIME -> R.string.category_tag_anime
+		CategoryMediaTag.TV_MOVIES -> R.string.category_tag_tv_movies
+	},
+)
+
+@Composable
+private fun CategoryUpdateInterval?.label(): String = stringResource(
+	when (this) {
+		null -> R.string.update_interval_global
+		CategoryUpdateInterval.DAILY -> R.string.update_interval_daily
+		CategoryUpdateInterval.WEEKLY -> R.string.update_interval_weekly
+		CategoryUpdateInterval.PAUSED -> R.string.update_interval_paused
+	},
+)
 
 /** "Date added (descending)" — the direction has to be spelled out wherever the arrow isn't shown. */
 @Composable

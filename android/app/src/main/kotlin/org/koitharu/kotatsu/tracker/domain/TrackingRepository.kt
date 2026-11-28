@@ -77,6 +77,7 @@ class TrackingRepository @Inject constructor(
 			skipCompleted = AppSettings.SMART_UPDATE_SKIP_COMPLETED in smartUpdateRules,
 			skipUnstarted = AppSettings.SMART_UPDATE_SKIP_UNSTARTED in smartUpdateRules,
 			skipUnread = AppSettings.SMART_UPDATE_SKIP_UNREAD in smartUpdateRules,
+			now = System.currentTimeMillis(),
 			offset = offset,
 			limit = limit,
 		).map {

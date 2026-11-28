@@ -116,6 +116,9 @@ class ReplicaBuilder @Inject constructor(
 					createdAt = c.createdAt,
 					deletedAt = c.deletedAt,
 					v = v[c.categoryId.toString()]?.version ?: 0L,
+					parentUid = c.parentId?.let { categoryUids[it] },
+					updateInterval = c.updateInterval,
+					mediaTag = c.mediaTag,
 				)
 			}
 			val fv = versions(SyncTriggers.FAVOURITES)

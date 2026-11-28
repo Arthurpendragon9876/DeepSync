@@ -39,7 +39,11 @@ abstract class FavouriteCategoriesDao {
 
 	suspend fun delete(id: Long) = setDeletedAt(id, System.currentTimeMillis())
 
-	@Query("UPDATE favourite_categories SET title = :title, `order` = :order, `track` = :tracker, download_new_chapters = :downloadNewChapters, `show_in_lib` = :onShelf WHERE category_id = :id")
+	@Query(
+		"UPDATE favourite_categories SET title = :title, `order` = :order, `track` = :tracker, " +
+			"download_new_chapters = :downloadNewChapters, `show_in_lib` = :onShelf, parent_id = :parentId, " +
+			"update_interval = :updateInterval, media_tag = :mediaTag WHERE category_id = :id",
+	)
 	abstract suspend fun update(
 		id: Long,
 		title: String,
@@ -47,7 +51,17 @@ abstract class FavouriteCategoriesDao {
 		tracker: Boolean,
 		downloadNewChapters: Boolean,
 		onShelf: Boolean,
+		parentId: Int?,
+		updateInterval: String?,
+		mediaTag: String?,
 	)
+
+	@Query("UPDATE favourite_categories SET parent_id = :parentId WHERE category_id = :id")
+	abstract suspend fun updateParent(id: Long, parentId: Int?)
+
+	/** Subcategories of a deleted category go back to the top level instead of disappearing with it. */
+	@Query("UPDATE favourite_categories SET parent_id = NULL WHERE parent_id = :parentId")
+	abstract suspend fun detachChildren(parentId: Long)
 
 	@Query("UPDATE favourite_categories SET `order` = :order WHERE category_id = :id")
 	abstract suspend fun updateOrder(id: Long, order: String)

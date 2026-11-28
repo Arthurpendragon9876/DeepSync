@@ -6,6 +6,7 @@ import android.view.View
 import android.view.View.OnClickListener
 import android.view.View.OnLongClickListener
 import android.view.View.OnTouchListener
+import android.view.ViewGroup
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import com.hannesdorfmann.adapterdelegates4.dsl.adapterDelegateViewBinding
@@ -40,7 +41,18 @@ fun categoryAD(
 	binding.imageViewEdit.setOnClickListener(eventListener)
 	binding.imageViewHandle.setOnTouchListener(eventListener)
 
+	// Subcategories are indented by moving the tile's start margin on top of whatever the layout gives it.
+	val baseMarginStart = (itemView.layoutParams as? ViewGroup.MarginLayoutParams)?.marginStart ?: 0
+	val indentStep = (INDENT_DP * context.resources.displayMetrics.density).toInt()
+
 	bind {
+		(itemView.layoutParams as? ViewGroup.MarginLayoutParams)?.let { lp ->
+			val target = baseMarginStart + item.depth * indentStep
+			if (lp.marginStart != target) {
+				lp.marginStart = target
+				itemView.layoutParams = lp
+			}
+		}
 		binding.imageViewHandle.isVisible = item.isActionsEnabled
 		binding.imageViewEdit.isVisible = item.isActionsEnabled
 		binding.textViewTitle.text = item.category.title
@@ -59,6 +71,8 @@ fun categoryAD(
 		binding.coversView.setCoversAsync(item.covers)
 	}
 }
+
+private const val INDENT_DP = 20
 
 fun allCategoriesAD(
 	clickListener: FavouriteCategoriesListListener,

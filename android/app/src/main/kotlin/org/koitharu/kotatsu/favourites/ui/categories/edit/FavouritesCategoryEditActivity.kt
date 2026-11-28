@@ -21,6 +21,8 @@ import org.koitharu.kotatsu.core.util.ext.observe
 import org.koitharu.kotatsu.core.util.ext.observeEvent
 import org.koitharu.kotatsu.core.util.ext.systemBarsInsets
 import org.koitharu.kotatsu.databinding.ActivityCategoryEditBinding
+import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag
+import org.koitharu.kotatsu.favourites.domain.CategoryUpdateInterval
 import org.koitharu.kotatsu.list.domain.ListSortOrder
 import org.koitharu.kotatsu.settings.compose.DropSauceTheme
 
@@ -41,6 +43,9 @@ class FavouritesCategoryEditActivity :
 	private val isTrackerEnabled = mutableStateOf(true)
 	private val isDownloadEnabled = mutableStateOf(false)
 	private val isShelfEnabled = mutableStateOf(true)
+	private val parentId = mutableStateOf<Long?>(null)
+	private val updateInterval = mutableStateOf<CategoryUpdateInterval?>(null)
+	private val mediaTag = mutableStateOf<CategoryMediaTag?>(null)
 	private val error = mutableStateOf<String?>(null)
 	private val bottomInset = mutableIntStateOf(0)
 
@@ -68,6 +73,7 @@ class FavouritesCategoryEditActivity :
 				val density = LocalDensity.current
 				val isLoading by viewModel.isLoading.collectAsState()
 				val isTrackerSectionVisible by viewModel.isTrackerEnabled.collectAsState()
+				val parentOptions by viewModel.parentOptions.collectAsState()
 
 				FavouritesCategoryEditScreen(
 					name = name.value,
@@ -94,6 +100,22 @@ class FavouritesCategoryEditActivity :
 					isShelfEnabled = isShelfEnabled.value,
 					onShelfChange = {
 						isShelfEnabled.value = it
+						updateDoneButton()
+					},
+					parentOptions = parentOptions,
+					parentId = parentId.value,
+					onParentChange = {
+						parentId.value = it
+						updateDoneButton()
+					},
+					updateInterval = updateInterval.value,
+					onUpdateIntervalChange = {
+						updateInterval.value = it
+						updateDoneButton()
+					},
+					mediaTag = mediaTag.value,
+					onMediaTagChange = {
+						mediaTag.value = it
 						updateDoneButton()
 					},
 					error = error.value,
@@ -129,6 +151,9 @@ class FavouritesCategoryEditActivity :
 		outState.putBoolean(KEY_TRACKER, isTrackerEnabled.value)
 		outState.putBoolean(KEY_DOWNLOAD, isDownloadEnabled.value)
 		outState.putBoolean(KEY_SHELF, isShelfEnabled.value)
+		outState.putLong(KEY_PARENT, parentId.value ?: NO_ID)
+		outState.putString(KEY_INTERVAL, updateInterval.value?.key)
+		outState.putString(KEY_TAG, mediaTag.value?.name)
 	}
 
 	override fun onRestoreInstanceState(savedInstanceState: Bundle) {
@@ -140,6 +165,9 @@ class FavouritesCategoryEditActivity :
 		isTrackerEnabled.value = savedInstanceState.getBoolean(KEY_TRACKER, true)
 		isDownloadEnabled.value = savedInstanceState.getBoolean(KEY_DOWNLOAD, false)
 		isShelfEnabled.value = savedInstanceState.getBoolean(KEY_SHELF, true)
+		parentId.value = savedInstanceState.getLong(KEY_PARENT, NO_ID).takeIf { it != NO_ID }
+		updateInterval.value = CategoryUpdateInterval.of(savedInstanceState.getString(KEY_INTERVAL))
+		mediaTag.value = CategoryMediaTag.of(savedInstanceState.getString(KEY_TAG))
 		isSeeded = true
 		updateDoneButton()
 	}
@@ -153,6 +181,9 @@ class FavouritesCategoryEditActivity :
 				// A category that is not tracked can never produce new chapters to download.
 				isNewChaptersDownloadEnabled = isDownloadEnabled.value && isTrackerEnabled.value,
 				isVisibleOnShelf = isShelfEnabled.value,
+				parentId = parentId.value,
+				updateInterval = updateInterval.value,
+				mediaTag = mediaTag.value,
 			)
 		}
 	}
@@ -170,6 +201,9 @@ class FavouritesCategoryEditActivity :
 			isTrackerEnabled = category.isTrackingEnabled,
 			isDownloadEnabled = category.isNewChaptersDownloadEnabled,
 			isShelfEnabled = category.isVisibleInLibrary,
+			parentId = category.parentId,
+			updateInterval = category.updateInterval,
+			mediaTag = category.mediaTag,
 		)
 		if (!isSeeded) {
 			isSeeded = true
@@ -178,6 +212,9 @@ class FavouritesCategoryEditActivity :
 			isTrackerEnabled.value = baseline.isTrackerEnabled
 			isDownloadEnabled.value = baseline.isDownloadEnabled
 			isShelfEnabled.value = baseline.isShelfEnabled
+			parentId.value = baseline.parentId
+			updateInterval.value = baseline.updateInterval
+			mediaTag.value = baseline.mediaTag
 		}
 		updateDoneButton()
 	}
@@ -188,6 +225,9 @@ class FavouritesCategoryEditActivity :
 		isTrackerEnabled = isTrackerEnabled.value,
 		isDownloadEnabled = isDownloadEnabled.value,
 		isShelfEnabled = isShelfEnabled.value,
+		parentId = parentId.value,
+		updateInterval = updateInterval.value,
+		mediaTag = mediaTag.value,
 	)
 
 	private fun updateDoneButton() {
@@ -203,6 +243,9 @@ class FavouritesCategoryEditActivity :
 		val isTrackerEnabled: Boolean = true,
 		val isDownloadEnabled: Boolean = false,
 		val isShelfEnabled: Boolean = true,
+		val parentId: Long? = null,
+		val updateInterval: CategoryUpdateInterval? = null,
+		val mediaTag: CategoryMediaTag? = null,
 	)
 
 	companion object {
@@ -213,5 +256,8 @@ class FavouritesCategoryEditActivity :
 		private const val KEY_TRACKER = "tracker"
 		private const val KEY_DOWNLOAD = "download"
 		private const val KEY_SHELF = "shelf"
+		private const val KEY_PARENT = "parent"
+		private const val KEY_INTERVAL = "interval"
+		private const val KEY_TAG = "tag"
 	}
 }

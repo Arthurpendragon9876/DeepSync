@@ -26,13 +26,21 @@ abstract class TracksDao : MangaQueryBuilder.ConditionCallback {
 	 * The smart-update rules (`skip*`) are part of this query on purpose: filtering in Kotlin after
 	 * LIMIT would let skipped rows sit at the head of the `last_check_time ASC` queue forever and
 	 * starve everything else out of the batch.
+	 *
+	 * The same goes for category update intervals: a favourite is only eligible through a tracked category
+	 * that is due. No interval means always due; `paused` is never due; `daily` / `weekly` are due once that
+	 * much time has passed since the title's last check (the periods match `CategoryUpdateInterval`).
+	 * Titles tracked through history are not tied to a category and are unaffected.
 	 */
 	@Transaction
 	@Query(
 		"SELECT * FROM tracks WHERE " +
 			"((:trackHistory AND manga_id IN (SELECT manga_id FROM history WHERE deleted_at = 0)) " +
 			"OR (:trackFavourites AND manga_id IN (SELECT DISTINCT manga_id FROM favourites WHERE deleted_at = 0 " +
-			"AND category_id IN (SELECT category_id FROM favourite_categories WHERE (`track` = 1 OR download_new_chapters = 1) AND deleted_at = 0)))) " +
+			"AND category_id IN (SELECT category_id FROM favourite_categories WHERE (`track` = 1 OR download_new_chapters = 1) AND deleted_at = 0 " +
+			"AND (update_interval IS NULL " +
+			"OR (update_interval = 'daily' AND :now - tracks.last_check_time >= 86400000) " +
+			"OR (update_interval = 'weekly' AND :now - tracks.last_check_time >= 604800000)))))) " +
 			"AND (NOT :skipCompleted OR manga_id NOT IN (SELECT manga_id FROM manga WHERE state = 'FINISHED')) " +
 			"AND (NOT :skipUnstarted OR manga_id IN (SELECT manga_id FROM history WHERE deleted_at = 0 AND percent > 0)) " +
 			"AND (NOT :skipUnread OR IFNULL(chapters_new, 0) = 0) " +
@@ -44,6 +52,7 @@ abstract class TracksDao : MangaQueryBuilder.ConditionCallback {
 		skipCompleted: Boolean,
 		skipUnstarted: Boolean,
 		skipUnread: Boolean,
+		now: Long,
 		offset: Int,
 		limit: Int,
 	): List<TrackWithManga>

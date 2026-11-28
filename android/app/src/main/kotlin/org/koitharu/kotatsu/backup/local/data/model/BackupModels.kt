@@ -188,6 +188,9 @@ class CategoryBackup(
 	@SerialName("show_in_lib") val isVisibleInLibrary: Boolean = true,
 	/** Cross-device category identity used by Drive sync; restoring it keeps the category the same one. */
 	@SerialName("uid") val uid: String? = null,
+	@SerialName("parent_id") val parentId: Int? = null,
+	@SerialName("update_interval") val updateInterval: String? = null,
+	@SerialName("media_tag") val mediaTag: String? = null,
 ) {
 
 	constructor(entity: FavouriteCategoryEntity, uid: String? = null) : this(
@@ -200,6 +203,9 @@ class CategoryBackup(
 		downloadNewChapters = entity.downloadNewChapters,
 		isVisibleInLibrary = entity.isVisibleInLibrary,
 		uid = uid,
+		parentId = entity.parentId,
+		updateInterval = entity.updateInterval,
+		mediaTag = entity.mediaTag,
 	)
 
 	fun toEntity() = FavouriteCategoryEntity(
@@ -212,6 +218,9 @@ class CategoryBackup(
 		downloadNewChapters = downloadNewChapters,
 		isVisibleInLibrary = isVisibleInLibrary,
 		deletedAt = 0L,
+		parentId = parentId,
+		updateInterval = updateInterval,
+		mediaTag = mediaTag,
 	)
 }
 

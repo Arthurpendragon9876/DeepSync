@@ -11,6 +11,8 @@ class CategoryListModel(
 	val category: FavouriteCategory,
 	val isTrackerEnabled: Boolean,
 	val isActionsEnabled: Boolean,
+	/** 1 for a subcategory (drawn indented under its parent), 0 otherwise. */
+	val depth: Int = 0,
 ) : ListModel {
 
 	override fun areItemsTheSame(other: ListModel): Boolean {
@@ -32,6 +34,7 @@ class CategoryListModel(
 		if (mangaCount != other.mangaCount) return false
 		if (isTrackerEnabled != other.isTrackerEnabled) return false
 		if (isActionsEnabled != other.isActionsEnabled) return false
+		if (depth != other.depth) return false
 		if (covers != other.covers) return false
 		if (category.id != other.category.id) return false
 		if (category.title != other.category.title) return false
@@ -40,6 +43,9 @@ class CategoryListModel(
 		if (category.createdAt != other.category.createdAt) return false
 		if (category.isTrackingEnabled != other.category.isTrackingEnabled) return false
 		if (category.isNewChaptersDownloadEnabled != other.category.isNewChaptersDownloadEnabled) return false
+		if (category.parentId != other.category.parentId) return false
+		if (category.updateInterval != other.category.updateInterval) return false
+		if (category.mediaTag != other.category.mediaTag) return false
 		return category.isVisibleInLibrary == other.category.isVisibleInLibrary
 	}
 
@@ -47,6 +53,7 @@ class CategoryListModel(
 		var result = mangaCount
 		result = 31 * result + isTrackerEnabled.hashCode()
 		result = 31 * result + isActionsEnabled.hashCode()
+		result = 31 * result + depth
 		result = 31 * result + covers.hashCode()
 		result = 31 * result + category.id.hashCode()
 		result = 31 * result + category.title.hashCode()
@@ -56,6 +63,9 @@ class CategoryListModel(
 		result = 31 * result + category.isTrackingEnabled.hashCode()
 		result = 31 * result + category.isNewChaptersDownloadEnabled.hashCode()
 		result = 31 * result + category.isVisibleInLibrary.hashCode()
+		result = 31 * result + (category.parentId?.hashCode() ?: 0)
+		result = 31 * result + (category.updateInterval?.hashCode() ?: 0)
+		result = 31 * result + (category.mediaTag?.hashCode() ?: 0)
 		return result
 	}
 

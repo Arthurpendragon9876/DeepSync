@@ -51,6 +51,10 @@ data class RCategory(
 	@SerialName("created_at") val createdAt: Long,
 	@SerialName("deleted_at") val deletedAt: Long,
 	@SerialName("v") override val v: Long,
+	/** Cross-device uid of the parent category; absent from older replicas, which means top level. */
+	@SerialName("parent_uid") val parentUid: String? = null,
+	@SerialName("update_interval") val updateInterval: String? = null,
+	@SerialName("media_tag") val mediaTag: String? = null,
 ) : SyncRecord {
 	override val key get() = uid
 }

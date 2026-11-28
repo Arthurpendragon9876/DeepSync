@@ -3,6 +3,8 @@ package org.koitharu.kotatsu.favourites.data
 import org.koitharu.kotatsu.core.db.entity.toManga
 import org.koitharu.kotatsu.core.db.entity.toMangaTags
 import org.koitharu.kotatsu.core.model.FavouriteCategory
+import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag
+import org.koitharu.kotatsu.favourites.domain.CategoryUpdateInterval
 import org.koitharu.kotatsu.list.domain.ListSortOrder
 import java.time.Instant
 
@@ -15,6 +17,9 @@ fun FavouriteCategoryEntity.toFavouriteCategory(id: Long = categoryId.toLong()) 
 	isTrackingEnabled = track,
 	isNewChaptersDownloadEnabled = downloadNewChapters,
 	isVisibleInLibrary = isVisibleInLibrary,
+	parentId = parentId?.toLong(),
+	updateInterval = CategoryUpdateInterval.of(updateInterval),
+	mediaTag = CategoryMediaTag.of(mediaTag),
 )
 
 fun FavouriteManga.toManga() = manga.toManga(tags.toMangaTags(), null)

@@ -121,7 +121,7 @@ class FavoriteDialog : ComposeAlertDialogFragment() {
 			onClick = {
 				viewModel.setChecked(item.category.id, item.checkedState != MaterialCheckBox.STATE_CHECKED)
 			},
-			label = { Text(item.category.title) },
+			label = { Text(item.title) },
 			leadingIcon = if (item.checkedState == MaterialCheckBox.STATE_INDETERMINATE) {
 				{ ChipIcon(R.drawable.ic_partly_selected) }
 			} else {

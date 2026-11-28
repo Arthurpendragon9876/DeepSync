@@ -9,6 +9,8 @@ data class MangaCategoryItem(
 	val category: FavouriteCategory,
 	@CheckedState val checkedState: Int,
 	val isTrackerEnabled: Boolean,
+	/** What the chip shows: the category title, led by its parent's title for a subcategory. */
+	val title: String = category.title,
 ) : ListModel {
 
 	override fun areItemsTheSame(other: ListModel): Boolean {

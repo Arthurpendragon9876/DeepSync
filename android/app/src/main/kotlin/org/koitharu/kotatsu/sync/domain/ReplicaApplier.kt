@@ -97,6 +97,7 @@ class ReplicaApplier @Inject constructor(
 
 		// Categories first: favourites refer to them.
 		val categoryIds = categoryUids.entries.associateTo(HashMap()) { it.value to it.key }
+		val appliedCategories = ArrayList<Pair<Int, RCategory>>()
 		inChunks(changes.categories.upserts) { c ->
 			val existing = categoryIds[c.uid]
 			if (existing == null && c.deletedAt != 0L) return@inChunks // nothing here to delete
@@ -111,6 +112,9 @@ class ReplicaApplier @Inject constructor(
 				downloadNewChapters = c.downloadNewChapters,
 				isVisibleInLibrary = c.isVisibleInLibrary,
 				deletedAt = c.deletedAt,
+				parentId = c.parentUid?.let { categoryIds[it] },
+				updateInterval = c.updateInterval,
+				mediaTag = c.mediaTag,
 			)
 			val id = if (existing != null) {
 				database.getFavouriteCategoriesDao().upsert(entity)
@@ -119,6 +123,14 @@ class ReplicaApplier @Inject constructor(
 				database.getFavouriteCategoriesDao().insert(entity).toInt()
 			}
 			categoryIds[c.uid] = id
+			stamp(SyncTriggers.CATEGORIES, id.toString(), c.v, c.uid)
+			appliedCategories += id to c
+		}
+		// Parents can arrive after their children in the same batch, so links are resolved once every uid is known.
+		// The write fires the sync trigger, so the remote version is stamped again afterwards.
+		inChunks(appliedCategories) { (id, c) ->
+			val parent = c.parentUid?.let { categoryIds[it] }?.takeIf { it != id }
+			database.getFavouriteCategoriesDao().updateParent(id.toLong(), parent)
 			stamp(SyncTriggers.CATEGORIES, id.toString(), c.v, c.uid)
 		}
 		inChunks(changes.categories.deletes) { t ->

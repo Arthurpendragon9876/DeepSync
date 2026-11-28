@@ -21,6 +21,7 @@ import org.koitharu.kotatsu.core.ui.BaseViewModel
 import org.koitharu.kotatsu.core.util.ext.MutableEventFlow
 import org.koitharu.kotatsu.core.util.ext.call
 import org.koitharu.kotatsu.core.util.ext.requireValue
+import org.koitharu.kotatsu.favourites.domain.CategoryRules
 import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
 import org.koitharu.kotatsu.favourites.domain.model.CategoriesOrder
 import org.koitharu.kotatsu.favourites.domain.model.Cover
@@ -130,13 +131,15 @@ class FavouritesCategoriesViewModel @Inject constructor(
 				isActionsEnabled = hasActions,
 			),
 		)
-		mapTo(result) { (category, covers) ->
+		CategoryRules.hierarchy(this, { it.first.id }, { it.first.parentId }).mapTo(result) { (item, depth) ->
+			val (category, covers) = item
 			CategoryListModel(
 				mangaCount = covers.size,
 				covers = covers.take(3),
 				category = category,
 				isActionsEnabled = hasActions,
 				isTrackerEnabled = settings.isTrackerEnabled && AppSettings.TRACK_FAVOURITES in settings.trackSources,
+				depth = depth,
 			)
 		}
 		return result

@@ -21,6 +21,7 @@ import org.koitharu.kotatsu.core.ui.util.ReversibleAction
 import org.koitharu.kotatsu.core.ui.util.ReversibleHandle
 import org.koitharu.kotatsu.core.util.ext.MutableEventFlow
 import org.koitharu.kotatsu.core.util.ext.call
+import org.koitharu.kotatsu.favourites.domain.CategoryRules
 import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
 import org.koitharu.kotatsu.favourites.ui.list.FavouritesListFragment.Companion.NO_ID
 import javax.inject.Inject
@@ -79,7 +80,10 @@ class FavouritesContainerViewModel @Inject constructor(
 		if (showAll) {
 			result.add(FavouriteTabModel(NO_ID, null))
 		}
-		mapTo(result) { FavouriteTabModel(it.id, it.title) }
+		val titles = categoriesStateFlow.value.orEmpty().associate { it.id to it.title }
+		CategoryRules.hierarchy(this, { it.id }, { it.parentId }).mapTo(result) { (category, _) ->
+			FavouriteTabModel(category.id, CategoryRules.displayTitle(category.title, titles[category.parentId]))
+		}
 		return result
 	}
 

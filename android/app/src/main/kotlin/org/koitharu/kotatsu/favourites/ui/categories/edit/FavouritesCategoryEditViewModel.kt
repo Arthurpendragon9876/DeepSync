@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.plus
@@ -15,6 +16,9 @@ import org.koitharu.kotatsu.core.prefs.AppSettings
 import org.koitharu.kotatsu.core.ui.BaseViewModel
 import org.koitharu.kotatsu.core.util.ext.MutableEventFlow
 import org.koitharu.kotatsu.core.util.ext.call
+import org.koitharu.kotatsu.favourites.domain.CategoryMediaTag
+import org.koitharu.kotatsu.favourites.domain.CategoryRules
+import org.koitharu.kotatsu.favourites.domain.CategoryUpdateInterval
 import org.koitharu.kotatsu.favourites.domain.FavouritesRepository
 import org.koitharu.kotatsu.favourites.ui.categories.edit.FavouritesCategoryEditActivity.Companion.NO_ID
 import org.koitharu.kotatsu.list.domain.ListSortOrder
@@ -35,6 +39,9 @@ class FavouritesCategoryEditViewModel @Inject constructor(
 	val onSaved = MutableEventFlow<Unit>()
 	val category = MutableStateFlow<FavouriteCategory?>(null)
 
+	/** Categories this one may be nested under (top-level ones other than itself); empty if it has children. */
+	val parentOptions = MutableStateFlow<List<FavouriteCategory>>(emptyList())
+
 	val isTrackerEnabled = flow {
 		emit(settings.isTrackerEnabled && AppSettings.TRACK_FAVOURITES in settings.trackSources)
 	}.stateIn(viewModelScope + Dispatchers.Default, SharingStarted.Eagerly, false)
@@ -46,6 +53,13 @@ class FavouritesCategoryEditViewModel @Inject constructor(
 			} else {
 				null
 			}
+			val all = repository.observeCategories().first()
+			parentOptions.value = CategoryRules.parentCandidates(
+				all = all,
+				self = categoryId.takeIf { it != NO_ID },
+				id = { it.id },
+				parent = { it.parentId },
+			)
 		}
 	}
 
@@ -55,6 +69,9 @@ class FavouritesCategoryEditViewModel @Inject constructor(
 		isTrackerEnabled: Boolean,
 		isNewChaptersDownloadEnabled: Boolean,
 		isVisibleOnShelf: Boolean,
+		parentId: Long?,
+		updateInterval: CategoryUpdateInterval?,
+		mediaTag: CategoryMediaTag?,
 	) {
 		launchLoadingJob(Dispatchers.Default) {
 			check(title.isNotEmpty())
@@ -65,6 +82,9 @@ class FavouritesCategoryEditViewModel @Inject constructor(
 					isTrackerEnabled = isTrackerEnabled,
 					isNewChaptersDownloadEnabled = isNewChaptersDownloadEnabled,
 					isVisibleOnShelf = isVisibleOnShelf,
+					parentId = parentId,
+					updateInterval = updateInterval,
+					mediaTag = mediaTag,
 				)
 			} else {
 				repository.updateCategory(
@@ -74,6 +94,9 @@ class FavouritesCategoryEditViewModel @Inject constructor(
 					isTrackerEnabled = isTrackerEnabled,
 					isNewChaptersDownloadEnabled = isNewChaptersDownloadEnabled,
 					isVisibleOnShelf = isVisibleOnShelf,
+					parentId = parentId,
+					updateInterval = updateInterval,
+					mediaTag = mediaTag,
 				)
 			}
 			onSaved.call(Unit)
