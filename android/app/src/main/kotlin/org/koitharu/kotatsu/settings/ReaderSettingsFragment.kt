@@ -147,7 +147,6 @@ private fun ReaderScreen(
 	var openExternalBrowser by rememberBooleanPref(AppSettings.KEY_OPEN_EXTERNAL_BROWSER, false)
 	var checkDuplicates by rememberBooleanPref(AppSettings.KEY_CHECK_DUPLICATES, true)
 	var skipDuplicateChapters by rememberBooleanPref(AppSettings.KEY_SKIP_DUPLICATE_CHAPTERS, false)
-	var skipDecimalChapters by rememberBooleanPref(AppSettings.KEY_SKIP_DECIMAL_CHAPTERS, false)
 
 	val isWebtoonMode = readerMode == ReaderMode.WEBTOON.name
 
@@ -217,20 +216,10 @@ private fun ReaderScreen(
 				item { pos ->
 					SwitchSettingsItem(
 						title = "Skip duplicate chapters",
-						subtitle = "When the same chapter number comes from two scanlators or sources, Next and Previous use only one copy",
+						subtitle = "Next and Previous go 1, 2, 3: one copy of each chapter, and 1.1, 1.2 are skipped when chapter 1 exists. A 2.1 with no chapter 2 is kept",
 						checked = skipDuplicateChapters,
 						onCheckedChange = { skipDuplicateChapters = it },
 						icon = R.drawable.ic_duplicate,
-						shape = pos.shape,
-					)
-				}
-				item { pos ->
-					SwitchSettingsItem(
-						title = "Skip in-between chapters",
-						subtitle = "Go 1, 2, 3 and skip 1.1, 1.5 and other decimal chapters",
-						checked = skipDecimalChapters,
-						onCheckedChange = { skipDecimalChapters = it },
-						icon = R.drawable.ic_arrow_forward,
 						shape = pos.shape,
 					)
 				}

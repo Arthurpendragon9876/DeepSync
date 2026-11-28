@@ -204,7 +204,7 @@ internal fun CloudstreamPluginsScreen(
 						PluginRow(
 							title = if (plugin.version > 0) "${plugin.displayName}  (v${plugin.version})" else plugin.displayName,
 							subtitle = plugin.error ?: plugin.providers.joinToString(", "),
-							iconUrl = iconByName[plugin.internalName],
+							iconUrl = iconByName[plugin.internalName] ?: runtime.savedIconUrl(plugin.internalName),
 							fallbackIcon = if (plugin.error == null) R.drawable.ic_extension_settings else R.drawable.ic_alert_outline,
 							shape = pos.shape,
 							enabled = true,
@@ -337,7 +337,7 @@ internal fun CloudstreamPluginsScreen(
 								fallbackIcon = if (isUpdate) R.drawable.ic_extension_update else R.drawable.ic_download,
 								shape = pos.shape,
 								enabled = busy == null,
-								onClick = { install(plugin.name) { runtime.installFromUrl(plugin.url, plugin.internalName) } },
+								onClick = { install(plugin.name) { runtime.installFromUrl(plugin.url, plugin.internalName, plugin.iconUrl) } },
 							)
 						}
 					}

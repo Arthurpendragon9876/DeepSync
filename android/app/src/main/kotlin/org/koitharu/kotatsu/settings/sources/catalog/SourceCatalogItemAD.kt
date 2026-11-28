@@ -133,7 +133,26 @@ fun sourceCatalogItemExtensionAD(
 		// the letter placeholder at random. Novel plugins are not packages (their icon only ever
 		// exists as a url), so they keep the url path.
 		val isLnPlugin = sourceIconName?.startsWith("LN_") == true || isAnime
-		if (isInstalled && !isLnPlugin) {
+		if (isCloudstream) {
+			// A Cloudstream plugin is a .cs3 in our own storage, not an installed package, so there is no APK icon to
+			// read (asking for one gave the generic puzzle piece). Its icon is the url its repository lists for it;
+			// without one the row gets the generated letter icon instead of a shared placeholder.
+			if (iconUrl != null) {
+				binding.imageViewIcon.setImageFromUrlAsync(
+					url = iconUrl,
+					fallbackName = item.title,
+				)
+			} else {
+				binding.imageViewIcon.disposeImage()
+				binding.imageViewIcon.setImageDrawable(
+					FaviconDrawable(
+						context = context,
+						styleResId = R.style.FaviconDrawable_Small,
+						name = item.title,
+					),
+				)
+			}
+		} else if (isInstalled && !isLnPlugin) {
 			binding.imageViewIcon.setImageFromUrlAsync(
 				url = extensionPackageFaviconUri(item.packageName),
 				fallbackName = item.title,

@@ -40,12 +40,11 @@ class ChaptersLoader @Inject constructor(
 		}
 	}
 
-	/** The chapters Next / Previous moves through: all of them, or fewer when the skip options are on. */
+	/** The chapters Next / Previous moves through: all of them, or fewer when chapter skipping is on. */
 	fun navigableChapters(manga: MangaDetails, currentId: Long): List<MangaChapter> = ChapterSkipper.navigable(
 		chapters = manga.allChapters,
 		currentId = currentId,
 		skipDuplicates = settings.isSkipDuplicateChaptersEnabled,
-		skipDecimals = settings.isSkipDecimalChaptersEnabled,
 	)
 
 	suspend fun loadPrevNextChapter(manga: MangaDetails, currentId: Long, isNext: Boolean): Boolean {

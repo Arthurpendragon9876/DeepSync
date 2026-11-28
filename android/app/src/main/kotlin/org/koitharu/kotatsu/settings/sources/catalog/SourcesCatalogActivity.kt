@@ -726,6 +726,7 @@ class SourcesCatalogActivity : BaseActivity<ActivitySourcesCatalogBinding>(),
 				cloudstreamRuntime.installFromUrl(
 					requestModel.url,
 					requestModel.packageName.removePrefix(CloudstreamRuntime.PACKAGE_PREFIX),
+					requestModel.iconUrl,
 				)
 				animeExtensionManager.reload()
 			}

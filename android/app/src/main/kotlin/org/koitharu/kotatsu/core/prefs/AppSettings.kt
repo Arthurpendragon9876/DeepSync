@@ -1683,13 +1683,12 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 	val isWatchStatsEnabled: Boolean
 		get() = prefs.getBoolean(areaReadKey(ModeOverrideArea.SERVICES, KEY_WATCH_STATS_ENABLED), true)
 
-	/** Reader Next / Previous passes over a chapter number that was already read from another scanlator or source. */
+	/**
+	 * Reader Next / Previous goes 1, 2, 3: one copy per chapter number, and in-between chapters (1.1, 1.2) are
+	 * skipped when their whole chapter exists. A 2.1 with no chapter 2 is kept.
+	 */
 	val isSkipDuplicateChaptersEnabled: Boolean
 		get() = prefs.getBoolean(KEY_SKIP_DUPLICATE_CHAPTERS, false)
-
-	/** Reader Next / Previous passes over in-between chapters (1.1, 1.5 ...) and goes 1, 2, 3. */
-	val isSkipDecimalChaptersEnabled: Boolean
-		get() = prefs.getBoolean(KEY_SKIP_DECIMAL_CHAPTERS, false)
 
 	val isAutoLocalChaptersCleanupEnabled: Boolean
 		get() = prefs.getBoolean(KEY_CHAPTERS_CLEAR_AUTO, false)
@@ -2087,7 +2086,6 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_STATS_ENABLED = "stats_on"
 		const val KEY_WATCH_STATS_ENABLED = "watch_stats_on"
 		const val KEY_SKIP_DUPLICATE_CHAPTERS = "skip_duplicate_chapters"
-		const val KEY_SKIP_DECIMAL_CHAPTERS = "skip_decimal_chapters"
 		const val KEY_SEARCH_SUGGESTION_TYPES = "search_suggest_types"
 		const val KEY_QUICK_FILTER = "quick_filter"
 		const val KEY_COLLAPSE_DESCRIPTION = "description_collapse"

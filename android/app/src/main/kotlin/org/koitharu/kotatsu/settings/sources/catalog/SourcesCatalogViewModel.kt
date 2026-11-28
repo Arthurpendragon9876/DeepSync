@@ -437,6 +437,7 @@ class SourcesCatalogViewModel @Inject constructor(
 				url = plugin.url,
 				storeId = plugin.repoUrl,
 				mode = ExtensionInstallMode.SANDBOX,
+				iconUrl = plugin.iconUrl,
 			)
 		}
 	}
@@ -456,6 +457,7 @@ class SourcesCatalogViewModel @Inject constructor(
 				url = plugin.url,
 				storeId = plugin.repoUrl,
 				mode = ExtensionInstallMode.SANDBOX,
+				iconUrl = plugin.iconUrl,
 			)
 		}
 		val store = item.storeId?.let { id -> storeManager.stores().firstOrNull { it.id == id } }
@@ -1150,6 +1152,7 @@ class SourcesCatalogViewModel @Inject constructor(
 				val internalName = local.pkg.removePrefix(CloudstreamRuntime.PACKAGE_PREFIX)
 				val csUpdate = cloudstreamUpdateFor(csAvailable, internalName, local.versionCode)
 				val csIcon = csAvailable.firstOrNull { it.internalName == internalName && it.iconUrl != null }?.iconUrl
+					?: cloudstream.savedIconUrl(internalName)
 				val csSourceName = animeManager.firstSourceName(local.pkg)
 				val csSubtitle = buildString {
 					append(getExternalExtensionLanguageDisplayName(local.lang))

@@ -407,14 +407,33 @@ class CloudstreamRuntime @Inject constructor(
 		loaded[File(pluginsDir, "$internalName.cs3").absolutePath]?.manifest?.version
 
 	/** Downloads a plugin and activates it. Throws, leaving the previous version in place, when it does not load. */
-	suspend fun installFromUrl(url: String, internalName: String?) = withContext(Dispatchers.IO) {
+	suspend fun installFromUrl(
+		url: String,
+		internalName: String?,
+		iconUrl: String? = null,
+	) = withContext(Dispatchers.IO) {
 		val name = sanitize(internalName ?: url.substringBefore('?').substringAfterLast('/').removeSuffix(".cs3"))
 		val request = Request.Builder().url(url).build()
 		httpClient.get().newCall(request).execute().use { response ->
 			check(response.isSuccessful) { "Download failed: HTTP ${response.code}" }
 			response.body.byteStream().use { installFromStream(it, name) }
 		}
+		// A .cs3 carries no icon of its own, only its repository entry does. Keep that url next to the plugin so
+		// the installed row still has its icon when the repository is unreachable, removed, or not yet loaded.
+		rememberIcon(name, iconUrl)
 	}
+
+	private fun iconKey(internalName: String) = "icon:$internalName"
+
+	private fun rememberIcon(internalName: String, iconUrl: String?) {
+		if (iconUrl.isNullOrBlank()) return
+		if (prefs.getString(iconKey(internalName), null) != iconUrl) {
+			prefs.edit().putString(iconKey(internalName), iconUrl).apply()
+		}
+	}
+
+	/** The icon url saved when the plugin [internalName] was installed (or seen in a repository), or null. */
+	fun savedIconUrl(internalName: String): String? = prefs.getString(iconKey(internalName), null)
 
 	/** Activates a plugin read from [input]; [name] becomes its file name. */
 	suspend fun installFromStream(input: InputStream, name: String) = withContext(Dispatchers.IO) {
@@ -457,6 +476,7 @@ class CloudstreamRuntime @Inject constructor(
 	/** Removes a plugin and its archive. */
 	@Synchronized
 	fun uninstall(internalName: String) {
+		prefs.edit().remove(iconKey(internalName)).apply()
 		val file = File(pluginsDir, "$internalName.cs3")
 		unload(file.absolutePath)
 		errors.remove(file.name)
@@ -490,6 +510,11 @@ class CloudstreamRuntime @Inject constructor(
 	suspend fun refreshAvailable(): Map<String, String> {
 		val (plugins, failures) = fetchAvailable()
 		_available.value = plugins
+		// Plugins installed before icons were remembered (or from a file) get theirs from the repository now.
+		val installedNames = listFiles().map { it.nameWithoutExtension }.toSet()
+		for (plugin in plugins) {
+			if (plugin.internalName in installedNames) rememberIcon(plugin.internalName, plugin.iconUrl)
+		}
 		return failures
 	}
 
