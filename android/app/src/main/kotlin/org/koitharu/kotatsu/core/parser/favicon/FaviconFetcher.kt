@@ -18,6 +18,7 @@ import kotlinx.coroutines.runInterruptible
 import org.koitharu.kotatsu.R
 import org.koitharu.kotatsu.anime.AnimeExtensionManager
 import org.koitharu.kotatsu.anime.AnimeMangaSource
+import org.koitharu.kotatsu.cloudstream.CloudstreamRuntime
 import org.koitharu.kotatsu.core.model.MangaSource
 import org.koitharu.kotatsu.core.parser.EmptyMangaRepository
 import org.koitharu.kotatsu.core.parser.MangaRepository
@@ -42,6 +43,7 @@ class FaviconFetcher(
 	private val mangaRepositoryFactory: MangaRepository.Factory,
 	private val mihonExtensionManager: MihonExtensionManager,
 	private val lnPluginManagerProvider: Provider<LnPluginManager>,
+	private val cloudstreamRuntimeProvider: Provider<CloudstreamRuntime>,
 ) : Fetcher {
 
 	override suspend fun fetch(): FetchResult? {
@@ -92,6 +94,17 @@ class FaviconFetcher(
 	private suspend fun fetchMihonIcon(source: MihonMangaSource): FetchResult = fetchPackageIcon(source.pkgName)
 
 	private suspend fun fetchPackageIcon(pkgName: String): FetchResult {
+		// A Cloudstream plugin is a .cs3 file, not an installed package: its only icon is the url its repository
+		// lists, which the runtime saved at install time. Sources reach this method by package name too (Explore,
+		// Home, history), so this has to be handled here and not only in the extension manager's rows.
+		if (CloudstreamRuntime.isCloudstreamPackage(pkgName)) {
+			val iconUrl = cloudstreamRuntimeProvider.get()
+				.savedIconUrl(pkgName.removePrefix(CloudstreamRuntime.PACKAGE_PREFIX))
+			if (iconUrl != null) {
+				imageLoader.fetch(iconUrl, options)?.let { return it }
+			}
+			return requireNotNull(imageLoader.fetch(R.drawable.ic_manga_source, options))
+		}
 		val icon = runCatching {
 			runInterruptible {
 				options.context.packageManager.getApplicationIcon(pkgName)
@@ -159,6 +172,7 @@ class FaviconFetcher(
 		private val mangaRepositoryFactory: MangaRepository.Factory,
 		private val mihonExtensionManager: MihonExtensionManager,
 		private val lnPluginManagerProvider: Provider<LnPluginManager>,
+		private val cloudstreamRuntimeProvider: Provider<CloudstreamRuntime>,
 	) : Fetcher.Factory<CoilUri> {
 
 		override fun create(
@@ -173,6 +187,7 @@ class FaviconFetcher(
 				mangaRepositoryFactory = mangaRepositoryFactory,
 				mihonExtensionManager = mihonExtensionManager,
 				lnPluginManagerProvider = lnPluginManagerProvider,
+				cloudstreamRuntimeProvider = cloudstreamRuntimeProvider,
 			)
 		} else {
 			null
