@@ -2,7 +2,6 @@ package org.koitharu.kotatsu.cloudstream
 
 import android.content.Context
 import android.text.InputType
-import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -52,13 +51,14 @@ fun showCloudstreamDomainDialog(
 			setSingleLine()
 			setText(domain.custom.orEmpty())
 		}
+		// TextInputLayout is a LinearLayout and casts the child's params to LinearLayout.LayoutParams.
 		layout.addView(
 			edit,
-			ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+			LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT),
 		)
 		form.addView(
 			layout,
-			LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+			LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT),
 		)
 		layouts[domain.provider] = layout
 		edits[domain.provider] = edit
