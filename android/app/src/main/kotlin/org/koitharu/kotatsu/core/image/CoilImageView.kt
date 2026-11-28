@@ -35,6 +35,7 @@ import org.koitharu.kotatsu.core.util.ext.getAnimationDuration
 import org.koitharu.kotatsu.core.util.ext.isAnimationsEnabled
 import org.koitharu.kotatsu.core.util.ext.isNetworkError
 import java.util.LinkedList
+import org.koitharu.kotatsu.core.prefs.AppSettings
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -49,6 +50,9 @@ open class CoilImageView @JvmOverloads constructor(
 
 	@Inject
 	lateinit var networkState: NetworkState
+
+	@Inject
+	lateinit var appSettings: AppSettings
 
 	var allowRgb565: Boolean = false
 	var useExistingDrawable: Boolean = false

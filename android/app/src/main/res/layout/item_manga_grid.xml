@@ -28,6 +28,7 @@
 			android:layout_width="match_parent"
 			android:layout_height="wrap_content"
 			android:background="?attr/colorSurfaceContainer"
+			app:adaptiveCover="true"
 			app:allowRgb565="true"
 			app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.Kotatsu.Cover.Large"
 			tools:ignore="ContentDescription"

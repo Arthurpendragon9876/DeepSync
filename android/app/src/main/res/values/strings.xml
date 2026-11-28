@@ -82,6 +82,8 @@
     <string name="webtoon">Webtoon</string>
     <string name="read_mode">Read mode</string>
     <string name="grid_size">Grid size</string>
+    <string name="adaptive_covers">Adaptive covers</string>
+    <string name="adaptive_covers_summary">Show wide covers from sources that use landscape images as wide cards instead of cropping them to portrait. Applies to the grid view when lists reload</string>
     <string name="ui_scale">Display size</string>
     <string name="ui_scale_smallest">Smallest</string>
     <string name="ui_scale_smaller">Smaller</string>

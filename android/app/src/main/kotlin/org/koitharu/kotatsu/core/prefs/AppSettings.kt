@@ -1690,6 +1690,13 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 	val isSkipDuplicateChaptersEnabled: Boolean
 		get() = prefs.getBoolean(KEY_SKIP_DUPLICATE_CHAPTERS, false)
 
+	/**
+	 * Covers that are wider than tall (the posters some streaming sources ship) are shown as wide cards instead of
+	 * being cropped into the usual portrait shape.
+	 */
+	val isAdaptiveCoversEnabled: Boolean
+		get() = prefs.getBoolean(KEY_ADAPTIVE_COVERS, false)
+
 	val isAutoLocalChaptersCleanupEnabled: Boolean
 		get() = prefs.getBoolean(KEY_CHAPTERS_CLEAR_AUTO, false)
 
@@ -1881,6 +1888,7 @@ class AppSettings @Inject constructor(@ApplicationContext context: Context) {
 		const val KEY_SEARCH_HISTORY_CLEAR = "search_history_clear"
 		const val KEY_UPDATES_FEED_CLEAR = "updates_feed_clear"
 		const val KEY_GRID_SIZE = "grid_size"
+		const val KEY_ADAPTIVE_COVERS = "adaptive_covers"
 		const val KEY_UI_SCALE = "ui_scale"
 		// Bumped from "ui_scale_migrated": that pass skipped wide screens, so the reset has to run once
 		// more to reach the phones it left alone.

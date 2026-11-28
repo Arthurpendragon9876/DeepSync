@@ -274,6 +274,7 @@ private fun AppearanceScreen(
 	var locale by rememberStringPref(AppSettings.KEY_APP_LOCALE, "")
 	var listMode by rememberStringPref(AppSettings.KEY_LIST_MODE, ListMode.GRID.name)
 	var gridSize by rememberIntPref(AppSettings.KEY_GRID_SIZE, 100)
+	var adaptiveCovers by rememberBooleanPref(AppSettings.KEY_ADAPTIVE_COVERS, false)
 	val gridWidth = remember { GridColumns.referenceWidth(ctx.resources) }
 	val maxGridColumns = remember { GridColumns.maxColumns(ctx.resources, gridWidth) }
 	var quickFilter by rememberBooleanPref(AppSettings.KEY_QUICK_FILTER, true)
@@ -444,6 +445,16 @@ private fun AppearanceScreen(
 						},
 						icon = R.drawable.ic_grid,
 						
+						shape = pos.shape,
+					)
+				}
+				item { pos ->
+					SwitchSettingsItem(
+						title = stringResource(R.string.adaptive_covers),
+						subtitle = stringResource(R.string.adaptive_covers_summary),
+						checked = adaptiveCovers,
+						onCheckedChange = { adaptiveCovers = it },
+						icon = R.drawable.ic_images,
 						shape = pos.shape,
 					)
 				}

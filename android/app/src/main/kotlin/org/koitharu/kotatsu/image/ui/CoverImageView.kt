@@ -60,14 +60,27 @@ class CoverImageView @JvmOverloads constructor(
 	private var aspectRationWidth: Int = 0
 	var trimImage: Boolean = false
 
+	/** This cover may become a wide one, see [org.koitharu.kotatsu.core.prefs.AppSettings.isAdaptiveCoversEnabled]. */
+	private var isAdaptiveCover: Boolean = false
+
+	/** The image that was loaded last is landscape, so the view uses the wide shape instead of its portrait one. */
+	private var isWideCover: Boolean = false
+
+	private val ratioWidth: Int
+		get() = if (isWideCover) WIDE_RATIO_WIDTH else aspectRationWidth
+
+	private val ratioHeight: Int
+		get() = if (isWideCover) WIDE_RATIO_HEIGHT else aspectRationHeight
+
 	private val hasAspectRatio: Boolean
-		get() = aspectRationHeight > 0 && aspectRationWidth > 0
+		get() = ratioHeight > 0 && ratioWidth > 0
 
 	init {
 		context.withStyledAttributes(attrs, R.styleable.CoverImageView, defStyleAttr) {
 			aspectRationHeight = getInt(R.styleable.CoverImageView_aspectRationHeight, aspectRationHeight)
 			aspectRationWidth = getInt(R.styleable.CoverImageView_aspectRationWidth, aspectRationWidth)
 			trimImage = getBoolean(R.styleable.CoverImageView_trimImage, trimImage)
+			isAdaptiveCover = getBoolean(R.styleable.CoverImageView_adaptiveCover, isAdaptiveCover)
 		}
 		if (placeholderDrawable == null) {
 			placeholderDrawable = AnimatedPlaceholderDrawable(context)
@@ -95,13 +108,13 @@ class CoverImageView @JvmOverloads constructor(
 		when {
 			isExactHeight && isExactWidth -> Unit
 			isExactHeight -> setMeasuredDimension(
-				/* measuredWidth = */ measuredHeight * aspectRationWidth / aspectRationHeight,
+				/* measuredWidth = */ measuredHeight * ratioWidth / ratioHeight,
 				/* measuredHeight = */ measuredHeight,
 			)
 
 			isExactWidth -> setMeasuredDimension(
 				/* measuredWidth = */ measuredWidth,
-				/* measuredHeight = */ measuredWidth * aspectRationHeight / aspectRationWidth,
+				/* measuredHeight = */ measuredWidth * ratioHeight / ratioWidth,
 			)
 		}
 	}
@@ -175,6 +188,7 @@ class CoverImageView @JvmOverloads constructor(
 		override fun onSuccess(request: ImageRequest, result: SuccessResult) {
 			super.onSuccess(request, result)
 			foreground = null
+			updateWideCover(result.image.width, result.image.height)
 		}
 
 		override fun onCancel(request: ImageRequest) {
@@ -189,6 +203,7 @@ class CoverImageView @JvmOverloads constructor(
 
 		override fun onError(request: ImageRequest, result: ErrorResult) {
 			super.onError(request, result)
+			setWideCover(false)
 			foreground = if (result.throwable.isNetworkError() && !networkState.isOnline()) {
 				ContextCompat.getDrawable(context, R.drawable.ic_offline)?.let {
 					LayerDrawable(arrayOf(it)).apply {
@@ -214,6 +229,21 @@ class CoverImageView @JvmOverloads constructor(
 			is UnsupportedSourceException -> "X"
 			is CloudFlareProtectedException -> "?"
 			else -> cause?.getShortMessage()
+		}
+	}
+
+	/** Picks the wide shape for a landscape image and the normal one for everything else. */
+	private fun updateWideCover(imageWidth: Int, imageHeight: Int) {
+		val isPortraitView = aspectRationHeight > aspectRationWidth && aspectRationWidth > 0
+		val isLandscapeImage = imageWidth > 0 && imageHeight > 0 &&
+			imageWidth.toFloat() / imageHeight >= WIDE_IMAGE_THRESHOLD
+		setWideCover(isAdaptiveCover && isPortraitView && isLandscapeImage && appSettings.isAdaptiveCoversEnabled)
+	}
+
+	private fun setWideCover(isWide: Boolean) {
+		if (isWideCover != isWide) {
+			isWideCover = isWide
+			requestLayout()
 		}
 	}
 
@@ -266,11 +296,11 @@ class CoverImageView @JvmOverloads constructor(
 				!view.hasAspectRatio -> return Size(width ?: Dimension.Undefined, height ?: Dimension.Undefined)
 
 				height == null -> {
-					height = Dimension(width!!.px * view.aspectRationHeight / view.aspectRationWidth)
+					height = Dimension(width!!.px * view.ratioHeight / view.ratioWidth)
 				}
 
 				width == null -> {
-					width = Dimension(height.px * view.aspectRationWidth / view.aspectRationHeight)
+					width = Dimension(height.px * view.ratioWidth / view.ratioHeight)
 				}
 			}
 			return Size(width, height)
@@ -310,5 +340,15 @@ class CoverImageView @JvmOverloads constructor(
 				view.viewTreeObserver.removeOnPreDrawListener(victim)
 			}
 		}
+	}
+
+	private companion object {
+
+		/** The shape of a wide cover. */
+		const val WIDE_RATIO_WIDTH = 16
+		const val WIDE_RATIO_HEIGHT = 9
+
+		/** Width / height from which an image counts as landscape; near-square ones stay portrait. */
+		const val WIDE_IMAGE_THRESHOLD = 1.15f
 	}
 }
